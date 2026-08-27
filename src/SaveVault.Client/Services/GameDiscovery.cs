@@ -1,6 +1,7 @@
 using System.IO;
 using SaveVault.Core.Ludusavi;
 using SaveVault.Core.Models;
+using SaveVault.Core.Storage;
 
 namespace SaveVault.Client.Services;
 
@@ -11,12 +12,21 @@ public sealed record DiscoveredGame(GameKey Game, string SaveFolder, int FileCou
 /// Ergebnis einer Erkennung. <see cref="LudusaviAvailable"/> = false bedeutet: die
 /// mitgelieferte Binary fehlt (sauberer „nicht eingerichtet"-Pfad, kein Fehler).
 /// <see cref="Error"/> trägt eine Meldung, wenn der Aufruf zwar möglich war, aber
-/// scheiterte.
+/// scheiterte. <see cref="SkippedAmbiguous"/> nennt die Anzeigenamen der Spiele, deren
+/// abgeleiteter Save-Ordner zu breit war (Laufwerks-/Systemwurzel) und die deshalb
+/// übersprungen wurden – für eine spätere Anzeige. Der Parameter ist optional, damit
+/// bestehende Aufrufer unverändert bleiben; <c>null</c> wird als „keine" behandelt.
 /// </summary>
 public sealed record DiscoveryResult(
     bool LudusaviAvailable,
     IReadOnlyList<DiscoveredGame> Games,
-    string? Error);
+    string? Error,
+    IReadOnlyList<string>? SkippedAmbiguous = null)
+{
+    /// <summary>Übersprungene, mehrdeutige Spiele (nie <c>null</c>).</summary>
+    public IReadOnlyList<string> SkippedAmbiguous { get; init; }
+        = SkippedAmbiguous ?? Array.Empty<string>();
+}
 
 /// <summary>
 /// Dünner Wrapper um <see cref="LudusaviClient"/>: ruft <c>backup --preview</c> auf,
@@ -56,6 +66,7 @@ public sealed class GameDiscovery
         }
 
         var games = new List<DiscoveredGame>();
+        var skipped = new List<string>();
         foreach (var (name, backup) in preview.Games)
         {
             ct.ThrowIfCancellationRequested();
@@ -67,11 +78,19 @@ public sealed class GameDiscovery
             if (folder is null)
                 continue;
 
+            // Zu breite Ordner (Laufwerks-/Systemwurzel) NICHT übernehmen – sie würden beim
+            // Scannen/Überwachen die ganze Platte umfassen und den Client blockieren.
+            if (SaveFolderSafety.IsTooBroad(folder))
+            {
+                skipped.Add(name);
+                continue;
+            }
+
             var totalBytes = backup.Files.Values.Sum(f => f.Bytes);
             games.Add(new DiscoveredGame(GameKey.FromName(name), folder, backup.Files.Count, totalBytes));
         }
 
-        return new DiscoveryResult(true, games, null);
+        return new DiscoveryResult(true, games, null, skipped);
     }
 
     /// <summary>

@@ -158,7 +158,14 @@ public partial class MainWindow : Window
         }
         else
         {
-            Info($"Erkennung abgeschlossen: {result.Games.Count} Spiel(e) gefunden.");
+            var msg = $"Erkennung abgeschlossen: {result.Games.Count} Spiel(e) gefunden.";
+            if (result.SkippedAmbiguous.Count > 0)
+            {
+                msg += $"\n\n{result.SkippedAmbiguous.Count} Spiel(e) übersprungen, weil ihre Savegames über einen zu weit " +
+                       "gefassten Ordner (Laufwerks-/Systemwurzel) streuen. Bei Bedarf über »Ordner hinzufügen« mit dem " +
+                       "konkreten Save-Ordner nachtragen:\n• " + string.Join("\n• ", result.SkippedAmbiguous);
+            }
+            Info(msg);
         }
     }
 

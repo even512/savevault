@@ -1,5 +1,6 @@
 using System.IO;
 using SaveVault.Core.Models;
+using SaveVault.Core.Storage;
 
 namespace SaveVault.Client.Services;
 
@@ -29,14 +30,30 @@ public sealed class SaveFolderRegistry
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         var data = JsonFileStore.Read<RegistryData>(_paths.FolderRegistryFile);
+        var dropped = false;
         if (data is not null)
         {
             foreach (var e in data.Entries)
             {
-                if (e?.Game is not null && !string.IsNullOrWhiteSpace(e.FolderPath))
-                    _byGame[e.Game.Value] = e;
+                if (e?.Game is null || string.IsNullOrWhiteSpace(e.FolderPath))
+                    continue;
+
+                // Selbstheilung: zu breite Altlasten (z. B. persistiertes „C:\") verwerfen,
+                // damit ein bestehender Client nicht weiter die ganze Platte durchsucht.
+                if (SaveFolderSafety.IsTooBroad(e.FolderPath))
+                {
+                    dropped = true;
+                    continue;
+                }
+
+                _byGame[e.Game.Value] = e;
             }
         }
+
+        // Fiel mindestens ein Eintrag weg, die bereinigte Registry einmalig neu schreiben.
+        // Im Konstruktor gibt es noch keine Nebenläufigkeit → direkter Schreibaufruf ohne Lock.
+        if (dropped)
+            WriteData();
     }
 
     /// <summary>Alle aktuell bekannten Zuordnungen (Momentaufnahme).</summary>
@@ -78,6 +95,11 @@ public sealed class SaveFolderRegistry
         if (!Directory.Exists(full))
             throw new ArgumentException($"Der Ordner existiert nicht: {full}", nameof(folderPath));
 
+        if (SaveFolderSafety.IsTooBroad(full))
+            throw new ArgumentException(
+                "Dieser Ordner ist zu weit gefasst (Laufwerks-/Systemwurzel) und würde die ganze " +
+                "Platte durchsuchen. Bitte einen konkreten Save-Ordner wählen.", nameof(folderPath));
+
         lock (_lock)
         {
             _byGame[game.Value] = new SaveFolderEntry(game, full, Manual: true);
@@ -115,6 +137,10 @@ public sealed class SaveFolderRegistry
                 if (game is null || string.IsNullOrWhiteSpace(folderPath))
                     continue;
 
+                // Zu breite Ordner (Laufwerks-/Systemwurzel) nie setzen.
+                if (SaveFolderSafety.IsTooBroad(folderPath))
+                    continue;
+
                 // Manuelle Ordner haben Vorrang und werden nicht überschrieben.
                 if (_byGame.TryGetValue(game.Value, out var existing) && existing.Manual)
                     continue;
@@ -135,6 +161,16 @@ public sealed class SaveFolderRegistry
     private void Persist()
     {
         // Aufruf immer unter _lock.
+        WriteData();
+    }
+
+    /// <summary>
+    /// Serialisiert den aktuellen Stand auf die Platte. Selbst nicht sperrend – der Aufrufer
+    /// hält entweder <see cref="_lock"/> (Laufzeit) oder ist der Konstruktor (keine
+    /// Nebenläufigkeit). So entsteht kein Deadlock bei der Selbstheilung im Konstruktor.
+    /// </summary>
+    private void WriteData()
+    {
         var data = new RegistryData { Entries = _byGame.Values.ToList() };
         JsonFileStore.Write(_paths.FolderRegistryFile, data);
     }
