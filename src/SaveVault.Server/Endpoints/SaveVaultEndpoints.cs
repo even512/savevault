@@ -51,8 +51,16 @@ public static class SaveVaultEndpoints
             => Results.Json(await store.GetRevisionsAsync(KeyFrom(gameKey), ct)));
 
         api.MapPost("/games/{gameKey}/revisions",
-            async (string gameKey, UploadRevisionRequest req, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.RegisterRevisionAsync(KeyFrom(gameKey), req, ct)));
+            async (string gameKey, UploadRevisionRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            {
+                // Attributions-Spoofing verhindern: ein Gerät darf nur unter der EIGENEN Geräte-ID
+                // (oder das Master-Token) eine Revision anmelden – analog zum Heartbeat.
+                if (req?.Device is null)
+                    return ApiResults.Error(400, "Unvollständige Revisionsanmeldung.");
+                if (!Principal(ctx).CanActAsDevice(req.Device.Id))
+                    return ApiResults.Error(403, "Token gehört zu einem anderen Gerät.");
+                return Results.Json(await store.RegisterRevisionAsync(KeyFrom(gameKey), req, ct));
+            });
 
         api.MapGet("/games/{gameKey}/revisions/{number:long}",
             async (string gameKey, long number, VaultStore store, CancellationToken ct)
@@ -108,24 +116,38 @@ public static class SaveVaultEndpoints
             => Results.Json(await store.AckCommandAsync(commandId, Principal(ctx), ct)));
 
         // --- Dashboard-Zusätze (nicht im Client-Vertrag, aber vom Web-UI gebraucht) --
-        api.MapGet("/devices", async (VaultStore store, CancellationToken ct)
-            => Results.Json(await store.ListDevicesAsync(ct)));
-
-        api.MapGet("/activity", async (int? limit, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.GetActivityAsync(limit ?? 100, ct)));
-
-        api.MapGet("/pairing-code", async (VaultStore store, CancellationToken ct) =>
+        // Diese Endpunkte geben Administrations-/Übersichtsdaten preis (alle Geräte, Verlauf) bzw.
+        // steuern das Pairing – daher NUR mit dem Master-Token (Dashboard), nie mit einem
+        // Geräte-Token. Ein Geräte-Token darf hier nichts sehen/ändern (→ 403).
+        api.MapGet("/devices", async (HttpContext ctx, VaultStore store, CancellationToken ct) =>
         {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+            return Results.Json(await store.ListDevicesAsync(ct));
+        });
+
+        api.MapGet("/activity", async (int? limit, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+            return Results.Json(await store.GetActivityAsync(limit ?? 100, ct));
+        });
+
+        api.MapGet("/pairing-code", async (HttpContext ctx, VaultStore store, CancellationToken ct) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
             var (code, updated) = await store.GetPairingCodeAsync(ct);
             return Results.Json(new { code, updatedUtc = updated });
         });
 
-        api.MapPost("/pairing-code/regenerate", async (VaultStore store, CancellationToken ct) =>
+        api.MapPost("/pairing-code/regenerate", async (HttpContext ctx, VaultStore store, CancellationToken ct) =>
         {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
             var (code, updated) = await store.RegeneratePairingCodeAsync(ct);
             return Results.Json(new { code, updatedUtc = updated });
         });
     }
+
+    private static IResult AdminOnly()
+        => ApiResults.Error(403, "Nur mit dem Master-Token (Dashboard) erlaubt.");
 
     private static AuthPrincipal Principal(HttpContext ctx)
         => ctx.Items[TokenAuthMiddleware.PrincipalKey] as AuthPrincipal

@@ -1,46 +1,31 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **HALT an der Schritt-3-Grenze** (Tim-Entscheidung).
-Budget bei Halt: **5h = 80 % (Reset in ~4h16m), Woche = 53 %.** Core-Gate GRÜN
-abgeschlossen. Schritt 3 (Server-API) gebaut + HTTP-selbstverifiziert + **committet**
-(9847744, Gerüst+Core+Server).
+**Aktueller Stand (2026-08-27):** **Schritt 3 (Server-API) ABGESCHLOSSEN — Gate grün.**
+Fenster-Start dieses Blocks: 5h = 0 %, Woche = 54 %. Erst-Gate (inspekteur + budgetverwalter
+grün; reviewer 1 blockierender Punkt; security-auditor 6 Härtungen), dann bauer-Nachbesserung
+(6 Punkte), dann right-sized Re-Gate **reviewer GRÜN + security-auditor GRÜN**. Alle
+blockierenden und zeitnahen Punkte erledigt und HTTP-verifiziert.
 
-**Fahrplan (Tim, Option 2):** Nichts mehr im laufenden 5h-Fenster. Nach dem 5h-Reset
-frischen `/usage` holen, dann im frischen Fenster: (1) bauer-Nachbesserungs-Lauf für die
-Punkte unten, (2) right-sized Re-Gate, (3) Schritt 4 (Web-Dashboard). Woche mit 53 % im
-Blick behalten — die Reststrecke (4–8) inkl. Laufzeit-Gate ist noch groß.
+**Erledigt in der Nachbesserung:** KeepBoth reiht jetzt Konvergenz-Befehle ein (alle Geräte
+auf Gewinner-Head, Fork bleibt, nichts überschrieben); Anzeigename/Store aus Heartbeat
+(Dashboard zeigt echte Namen); ResolveKeepDevice-Gewinner-Validierung; H1 (Upload-Auth),
+H3 (Admin-Endpunkte nur Master), H4 (Pairing single-use + Rate-Limit).
 
-**Schritt-3-Gate gelaufen — Ergebnis ROT (bedingt):** inspekteur GRÜN, security-auditor
-GRÜN (6 Härtungen), budgetverwalter „Halt vor Schritt 4", **reviewer ROT (1 blockierender
-Punkt)**. Schritt 3 ist erst abgeschlossen, wenn die Nacharbeit unten grün nachgeprüft ist.
-
-## Offene Nacharbeit an Schritt 3 (bevor Schritt 4 startet)
-**Blockierend (reviewer):**
-- KeepBoth reiht KEINEN Download-Befehl für das Verlierer-Gerät ein → Geräte divergent,
-  Akzeptanzkriterium Z.188 nicht erfüllt. `VaultStore.cs:534-608`. Klären, welcher Download
-  (Gewinner-Head oder Fork) fürs Verlierer-Gerät gewünscht ist, und einreihen.
-
-**Vor Schritt 4 relevant (Dashboard-Optik / Korrektheit):**
-- reviewer [mittel]: Anzeigename/Store-Metadaten gehen verloren (`GameKey(routeValue,
-  routeValue)`), Dashboard zeigt „the witcher 3" statt „The Witcher 3".
-  `SaveVaultEndpoints.cs:134-139` + `VaultStore.cs:172-176, 710-724`. Anzeigename beim Upload
-  mitführen oder aus Heartbeat-`GameKey` übernehmen.
-- reviewer [niedrig]: ResolveKeepDevice — Gewinner-Validierung fehlt (`winnerDevice=""` möglich).
-  `VaultStore.cs:473-490`.
-- security H1 [mittel]: Revisions-Upload prüft `CanActAsDevice(req.Device.Id)` nicht →
-  Attributions-Spoofing. `SaveVaultEndpoints.cs:53`.
-- security H3 [mittel]: `/devices`, `/activity`, `/pairing-code`, `regenerate` per `IsMaster`
-  absichern (nicht jeder Geräte-Token). `SaveVaultEndpoints.cs:111-127`.
-- security H4 [mittel]: Pairing-Code single-use ODER kurzlebig + Rate-Limit auf `/api/pair`.
-  `VaultStore.cs:110`.
-
-**Backlog (später, kein Blocker im Ein-Nutzer-LAN):**
-- security H2 (Restore/Resolve nur Master), H5 (Upload-Größenlimit), H6 (Timing-Länge Master-Token).
+## Backlog (später, kein Blocker im Ein-Nutzer-LAN hinter VPN)
+- security H2: Restore/Resolve auf Master-Token beschränken.
+- security H5: Upload-Größenlimit (Speicher-DoS durch gekoppeltes Gerät).
+- security H6: Timing-Leak der Master-Token-Länge.
+- security H4-Rest: Rate-Limit an Anfrage-Quelle koppeln (aktuell global → theoret. Selbst-DoS
+  der seltenen Pairing-Aktion).
+- reviewer minor: bei >2 Konflikt-Teilnehmern wird nur der erste Nicht-Head-Stand als Fork-Bucket
+  abgelegt (Rest bleibt verlustfrei in der Historie); MVP = 2 Geräte, daher unkritisch.
+- reviewer minor: Anzeige-Artefakt — `BaseRevision`/Status der Nicht-Gewinner kurz `Synced`
+  statt `Pending` bis zum nächsten Client-Heartbeat (kein Konvergenz-/Datenproblem).
 
 ## Nächster Schritt
-Bauer-Nachbesserungs-Lauf (blockierend + „vor Schritt 4"-Punkte gebündelt) → right-sized
-Re-Gate (reviewer auf berührte Sync-Semantik, security-auditor auf H1/H3/H4) → dann erst
-Schritt 4. Halt-/Weiterlauf-Entscheidung liegt bei Tim (Budget).
+Schritt 4 (Web-Dashboard, `oberflaechen-bauer`, dark-SPA nach `design-reference/`-Mockup,
+konsumiert die API) + XSS-Gate. Großer Schritt — VOR Start frischen 5h-Stand von Tim holen
+(budgetverwalter: passt plausibel in ein frisches Fenster, aber ohne großen Puffer).
 
 ---
 

@@ -22,6 +22,12 @@ public sealed class VaultStore
 {
     private const int MaxActivityEntries = 500;
 
+    // Einfaches Brute-Force-Limit fürs Pairing: mehr als so viele Fehlversuche in einem
+    // gleitenden Zeitfenster sperren das Einlösen vorübergehend (429). Läuft im Speicher und
+    // ohne den Index-Lock zu blockieren (keine künstliche Verzögerung unter Lock → kein DoS).
+    private const int MaxPairFailures = 10;
+    private static readonly TimeSpan PairFailureWindow = TimeSpan.FromMinutes(5);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly StoragePaths _paths;
     private readonly string _indexPath;
@@ -29,6 +35,10 @@ public sealed class VaultStore
     private readonly ILogger<VaultStore> _logger;
 
     private ServerIndex _index;
+
+    // Pairing-Fehlversuchszähler (gleitendes Fenster) – siehe MaxPairFailures.
+    private int _pairFailureCount;
+    private DateTime _pairFailureWindowStartUtc;
 
     public VaultStore(string dataRoot, ILogger<VaultStore> logger)
     {
@@ -115,11 +125,26 @@ public sealed class VaultStore
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // Brute-Force-Schutz: gleitendes Fehlversuchsfenster zurücksetzen, wenn abgelaufen.
+            var now = DateTime.UtcNow;
+            if (now - _pairFailureWindowStartUtc > PairFailureWindow)
+            {
+                _pairFailureWindowStartUtc = now;
+                _pairFailureCount = 0;
+            }
+            if (_pairFailureCount >= MaxPairFailures)
+                throw new VaultException(429,
+                    "Zu viele fehlgeschlagene Kopplungsversuche. Bitte später erneut versuchen.");
+
             var current = _index.PairingCode ?? string.Empty;
             var provided = req.Code.Trim();
             // Vergleich case-insensitiv (Code wird lesbar dargestellt), konstant-zeitig.
-            if (!Secrets.FixedTimeEquals(current.ToUpperInvariant(), provided.ToUpperInvariant()))
+            if (string.IsNullOrEmpty(current)
+                || !Secrets.FixedTimeEquals(current.ToUpperInvariant(), provided.ToUpperInvariant()))
+            {
+                _pairFailureCount++;
                 throw new VaultException(401, "Ungültiger Pairing-Code.");
+            }
 
             var token = Secrets.NewDeviceToken();
             var device = new DeviceRecord
@@ -142,6 +167,13 @@ public sealed class VaultStore
                 DeviceName = device.Name,
                 Detail = "Gerät gekoppelt",
             });
+
+            // Single-use: der eben eingelöste Code wird sofort durch einen frischen ersetzt, damit
+            // derselbe Code nicht ein zweites Mal ein Gerät koppeln kann. Bereits gekoppelte Geräte
+            // behalten ihren Token (nur der Pairing-Code wechselt). Der neue Code steht im Dashboard.
+            _pairFailureCount = 0;
+            _index.PairingCode = Secrets.NewPairingCode();
+            _index.PairingCodeUpdatedUtc = DateTime.UtcNow;
             Save();
 
             return new PairResponse(device.Id, token);
@@ -172,6 +204,10 @@ public sealed class VaultStore
             foreach (var gs in req.GameStates ?? Array.Empty<DeviceGameState>())
             {
                 if (gs?.Game is null) continue;
+                // Der Heartbeat trägt den reichen GameKey (echter Anzeigename + Store/StoreId aus
+                // dem Ludusavi-Fund); den echten DisplayName am Spiel-Bucket nachziehen, ohne den
+                // gehashten Bucket-Schlüssel (Value/Pfad) zu verändern.
+                ApplyGameKeyMetadata(gs.Game);
                 SetDeviceGameState(device.Id, gs.Game.Value, gs.BaseRevision, gs.Status);
             }
 
@@ -473,9 +509,14 @@ public sealed class VaultStore
         if (req.WinningRevision.HasValue)
         {
             winnerRev = req.WinningRevision.Value;
-            winnerDevice = req.WinningDeviceId
-                ?? conflict.Participants.FirstOrDefault(p => p.Revision == winnerRev)?.DeviceId
-                ?? "";
+            // Der Gewinner MUSS am Konflikt beteiligt sein – sonst käme ein leeres Gerät ("") in die
+            // Schleife und selbst der echte Gewinner bekäme fälschlich einen Download-Befehl.
+            var p = conflict.Participants.FirstOrDefault(x => x.Revision == winnerRev)
+                ?? throw new VaultException(400, "Gewinner-Revision gehört nicht zum Konflikt.");
+            if (!string.IsNullOrWhiteSpace(req.WinningDeviceId)
+                && !string.Equals(req.WinningDeviceId, p.DeviceId, StringComparison.Ordinal))
+                throw new VaultException(400, "Gewinner-Gerät und -Revision passen nicht zusammen.");
+            winnerDevice = p.DeviceId;
         }
         else if (!string.IsNullOrWhiteSpace(req.WinningDeviceId))
         {
@@ -533,8 +574,12 @@ public sealed class VaultStore
 
     private void ResolveKeepBoth(GameRecord g, Conflict conflict)
     {
-        // Head-Seite bleibt unverändert die aktuelle Revision. Die andere (Verlierer-)Fassung
-        // wird als umbenanntes ZWEITES Save-Set abgelegt – nichts wird gelöscht.
+        // „Beide behalten": Das Original-Save-Set behält die GEWINNER-Fassung (die aktuelle Head-
+        // Revision) und bekommt – analog KeepDevice – eine neue Head-Revision, damit alle Nicht-
+        // Gewinner divergieren und einen Download-Befehl erhalten. Die VERLIERER-Fassung wird als
+        // umbenanntes zweites Save-Set (Fork) dauerhaft abgelegt; nichts wird gelöscht. Ergebnis:
+        // jedes beteiligte Gerät konvergiert auf die Gewinner-Fassung im Original-Save-Set, während
+        // die Verlierer-Fassung server-seitig im Fork-Bucket erhalten bleibt.
         var forkParticipant = conflict.Participants.FirstOrDefault(p => p.Revision != g.CurrentRevision)
             ?? conflict.Participants.OrderBy(p => p.Revision).FirstOrDefault();
         if (forkParticipant is null)
@@ -542,6 +587,11 @@ public sealed class VaultStore
 
         var loser = LoadRevision(g, forkParticipant.Revision)
             ?? throw new VaultException(404, $"Verlierer-Revision {forkParticipant.Revision} nicht gefunden.");
+
+        // Gewinner = die aktuelle Head-Revision des Original-Save-Sets.
+        var winner = LoadRevision(g, g.CurrentRevision)
+            ?? throw new VaultException(404, $"Aktuelle Revision {g.CurrentRevision} nicht gefunden.");
+        var winnerDevice = winner.DeviceId;
 
         var loserDevice = _index.Devices.FirstOrDefault(d => d.Id == forkParticipant.DeviceId);
         var loserName = loserDevice?.Name ?? forkParticipant.DeviceId;
@@ -575,21 +625,42 @@ public sealed class VaultStore
             }
         }
 
-        var number = fork.LastRevisionNumber + 1;
+        var forkNumber = fork.LastRevisionNumber + 1;
         var forkRev = new Revision(
-            number, forkKey, forkParticipant.DeviceId, DateTime.UtcNow,
+            forkNumber, forkKey, forkParticipant.DeviceId, DateTime.UtcNow,
             loser.Manifest, IsConflict: false, BasedOnRevision: null);
         WriteRevision(fork, forkRev);
-        fork.LastRevisionNumber = number;
-        fork.CurrentRevision = number;
+        fork.LastRevisionNumber = forkNumber;
+        fork.CurrentRevision = forkNumber;
         fork.CurrentFileCount = loser.Manifest.FileCount;
         fork.CurrentTotalBytes = loser.Manifest.TotalBytes;
 
-        // Beteiligte auf dem Originalspiel wieder als „steht"/„nachzuziehen" markieren.
+        // Neue Head-Revision des Original-Save-Sets mit der Gewinner-Fassung (analog KeepDevice):
+        // hebt CurrentRevision an, sodass Nicht-Gewinner beim Abgleich divergieren.
+        var headNumber = g.LastRevisionNumber + 1;
+        var newHead = new Revision(
+            headNumber, ToGameKey(g), winnerDevice, DateTime.UtcNow,
+            winner.Manifest, IsConflict: false, BasedOnRevision: g.CurrentRevision);
+        WriteRevision(g, newHead);
+        g.LastRevisionNumber = headNumber;
+        g.CurrentRevision = headNumber;
+        g.CurrentFileCount = winner.Manifest.FileCount;
+        g.CurrentTotalBytes = winner.Manifest.TotalBytes;
+
+        // Befehle einreihen: jedes Nicht-Gewinner-Gerät lädt die neue Head-Revision des Originals –
+        // so bleibt KEIN beteiligtes Gerät divergent. Der Gewinner hat die Fassung bereits lokal.
         foreach (var p in conflict.Participants)
         {
-            var status = p.Revision == g.CurrentRevision ? SyncStatus.Synced : SyncStatus.Pending;
-            SetDeviceGameState(p.DeviceId, g.KeyValue, g.CurrentRevision, status);
+            if (string.Equals(p.DeviceId, winnerDevice, StringComparison.Ordinal))
+            {
+                SetDeviceGameState(p.DeviceId, g.KeyValue, headNumber, SyncStatus.Synced);
+                continue;
+            }
+            EnqueueCommand(new Command(
+                Secrets.NewId(), CommandType.ApplyResolution, p.DeviceId, ToGameKey(g),
+                DateTime.UtcNow, TargetRevision: headNumber, Resolution: ConflictResolutionKind.KeepBoth,
+                ConflictId: conflict.Id));
+            SetDeviceGameState(p.DeviceId, g.KeyValue, g.CurrentRevision, SyncStatus.Pending);
         }
 
         AddActivity(new ActivityEntry
@@ -600,7 +671,7 @@ public sealed class VaultStore
             GameKeyValue = g.KeyValue,
             GameDisplayName = g.DisplayName,
             DeviceId = forkParticipant.DeviceId,
-            Revision = forkParticipant.Revision,
+            Revision = headNumber,
             Bytes = loser.Manifest.TotalBytes,
             FileCount = loser.Manifest.FileCount,
             Detail = $"Konflikt gelöst: beide behalten → „{forkDisplay}\"",
@@ -721,6 +792,27 @@ public sealed class VaultStore
         };
         _index.Games.Add(g);
         return g;
+    }
+
+    /// <summary>
+    /// Reichert einen bereits bestehenden Spiel-Bucket mit dem echten Anzeigenamen und (falls
+    /// vorhanden) Store/StoreId aus einem Client-<see cref="GameKey"/> an. Der gehashte
+    /// Bucket-Schlüssel (<see cref="GameRecord.KeyValue"/>) bleibt unverändert (Pfad-Sicherheit).
+    /// Ein Anzeigename, der bloß dem normalisierten Schlüssel entspricht (Fallback), überschreibt
+    /// keinen bereits echten Namen.
+    /// </summary>
+    private void ApplyGameKeyMetadata(GameKey key)
+    {
+        var g = FindGame(key.Value);
+        if (g is null) return; // Bucket entsteht erst beim Upload; hier nur anreichern.
+
+        if (!string.IsNullOrWhiteSpace(key.DisplayName)
+            && !string.Equals(key.DisplayName, key.Value, StringComparison.Ordinal))
+            g.DisplayName = key.DisplayName;
+        if (!string.IsNullOrWhiteSpace(key.Store))
+            g.Store = key.Store;
+        if (!string.IsNullOrWhiteSpace(key.StoreId))
+            g.StoreId = key.StoreId;
     }
 
     private static GameKey ToGameKey(GameRecord g)
