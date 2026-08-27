@@ -1,14 +1,14 @@
 <?xml version="1.0"?>
 <!--
   Unraid-Container-Vorlage für den SaveVault-Server.
-  VOR dem Import EINEN Wert anpassen: <Repository> auf dein Docker-Hub-Image setzen,
-  d. h. DOCKERHUB_USER durch deinen Docker-Hub-Benutzernamen ersetzen (2x: Repository + Registry).
-  Danach in Unraid: Docker → Add Container → Template: diese XML (bzw. Inhalt) verwenden.
+  Image ist bereits auf even512/savevault-server:latest gesetzt.
+  In Unraid: Docker → Add Container → Template: diese XML (bzw. Inhalt) verwenden,
+  dann SAVEVAULT_TOKEN + Datenverzeichnis setzen.
 -->
 <Container version="2">
   <Name>SaveVault-Server</Name>
-  <Repository>DOCKERHUB_USER/savevault-server:latest</Repository>
-  <Registry>https://hub.docker.com/r/DOCKERHUB_USER/savevault-server</Registry>
+  <Repository>even512/savevault-server:latest</Repository>
+  <Registry>https://hub.docker.com/r/even512/savevault-server</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
