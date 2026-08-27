@@ -1,12 +1,27 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **SCHRITTE 1–7 + NACHRÜST-BLOCK + M2-FIX KOMPLETT.** Es stehen
-Gerüst, Core, Server-API, Web-Dashboard, die drei echten Anzeige-Felder, der M2-Fix, die
-WPF-freie Client-Hintergrund-Logik (Schritt 5), die WPF-Tray-Oberfläche (Schritt 6) und die
-Core-Tests (Schritt 7, **61 Tests grün**). Alle Gates grün. **NUR NOCH OFFEN: Schritt 8
-(Laufzeit-Gate `tester`).**
-Commits: 9847744 · 25b9f91 · ac4b4fc · a72eddc · 132350b (Nachrüst-Block) · 282fba4 (Schritt 5)
-· 23dec23 (M2-Fix) · d8bc68a (Schritt 6) · Schritt-7 (dieser Commit).
+**Aktueller Stand (2026-08-27): ✅ MVP FERTIG — ALLE 8 BAU-PLAN-SCHRITTE + LAUFZEIT-GATE GRÜN.**
+Gerüst, Core, Server-API, Web-Dashboard, drei echte Anzeige-Felder, M2-Fix, Client-Hintergrund
+(Schritt 5), WPF-Tray (Schritt 6), Core-Tests (Schritt 7, 61 grün), ludusavi-Fix, und das
+**Laufzeit-Gate (Schritt 8) GRÜN** (tester).
+Commits: 9847744 · 25b9f91 · ac4b4fc · a72eddc · 132350b (Nachrüst) · 282fba4 (S5) · 23dec23
+(M2) · d8bc68a (S6) · be1b0d1 (S7) · f345c0b (ludusavi-Fix) · Abschluss (dieser Commit).
+
+**LAUFZEIT-GATE (Schritt 8) — GRÜN, vom `tester` belegt (Server via `dotnet run` auf :8420):**
+Build 0/0 + 61 Tests grün; Dashboard rendert alle fünf Ansichten dark mit ECHTEN Werten
+(Server-Info Port/Storage/Container/Version, Pairing-Code + Erneuern), Leerzustand ohne Absturz,
+keine Konsolenfehler; komplette Kette end-to-end korrekt: Pairing (2 Geräte) → Upload (M2-Head-
+Semantik verifiziert: Head rückt erst nach vollständigem Content vor) → Download (Bytes identisch)
+→ Konflikt (nichts überschrieben, beide Fassungen erhalten, `/api/conflicts` listet) → Lösung
+(KeepDevice, ApplyResolution-Befehl in Verlierer-Queue) → Restore (Restore-Befehl in Queue);
+Fehlerfälle sauber 401/403 statt 500; ludusavi real (95 Spiele); Tray startet stabil.
+
+**Noch offen (KEINE Blocker, Handtest/Umgebung):**
+- **Docker-Image**: hier kein Docker im PATH — `docker build`/`compose up` auf Unraid verifizieren.
+- **Tray-GUI-Tiefe**: nur fehlerfreier Start geprüft; Fenster/Dialoge per Handtest bedienen.
+- **„Server ohne Token"**-Startverhalten: gegen den Token-Server nicht geprüft (einmal ohne
+  `SAVEVAULT_TOKEN` starten → muss laufen + API mit klarer Meldung verweigern).
+- Backlog-Punkte unten (security H2/H5/H6, L1/L2, Waisen-Pending, App.OnExit) — alle low.
 
 **ERLEDIGT — Schritt 7 (Core-Tests), selbst-geprüft grün.** 61 xUnit-Tests, keine Core-Bugs
 aufgedeckt: `SyncDeciderTests` (4 Fälle + LocalChanged/IsConflict, echte `FileManifest.Create`-
@@ -97,14 +112,12 @@ echten Ausgabe (verifiziert per Wegwerf-Integrationscheck: `BackupPreviewAsync` 
 Spiele, `overall.totalGames`/`files[].bytes`/`change` korrekt). Build 0/0, 61 Tests grün.
 
 ## Nächster Schritt
-1. **Schritt 8 (Laufzeit-Gate, `tester`) — der Abschluss:** GROSSER Schritt, eigenes frisches Fenster einplanen.
-   Alles baut/testet; Server (`docker build`/`docker compose up` ODER `dotnet run --project
-   src/SaveVault.Server`, Port 8420) starten; Web-Dashboard im Browser (Chrome-Automation)
-   bedienen; Sync/Konflikt/Restore mit ZWEI lokalen Save-Ordnern als zwei „Geräte" durchspielen;
-   Client-Tray starten. **Zwingend am Gate:** echtes `ludusavi --api`-Schema gegen die
-   mitgelieferte Binary bestätigen (`Ludusavi/LudusaviDtos.cs` „schema-to-verify"; `GameDiscovery`
-   leitet den Save-Ordner als gemeinsame Wurzel der Datei-Keys ab). `tools/ludusavi/ludusavi.exe`
-   muss vorliegen; Port 8420 frei.
+**Der MVP ist fertig.** Optional/später:
+1. Auf Unraid deployen: `docker build`/`docker compose up`, echten Datenpfad-Volume + Token setzen,
+   dann realen Mehrgeräte-Betrieb (echte Windows-PCs, ludusavi-Erkennung, Tray-Pairing).
+2. Handtest der Tray-GUI (Status-Fenster, Einstellungen/Pairing, Konflikt-Dialog).
+3. „Server ohne Token"-Start einmal prüfen.
+4. Backlog-Härtungen (security H2/H5/H6, L1/L2, Waisen-Pending, App.OnExit) nach Bedarf.
 
 ## Backlog Client (Schritt 6, low)
 - `App.OnExit` async-void: Netz-Schleifen werden beim Beenden nur best-effort gestoppt.
