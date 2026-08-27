@@ -7,7 +7,8 @@ namespace SaveVault.Core.Ludusavi;
 
 /// <summary>
 /// Dünner, sicherer Wrapper um die mitgelieferte ludusavi-Binary. Ruft sie als
-/// Subprozess im <c>--api</c>-JSON-Modus auf (<c>find</c>, <c>backup --preview</c>).
+/// Subprozess im JSON-Modus auf (<c>find --api</c>, <c>backup --preview --api</c>) –
+/// das <c>--api</c>-Flag gehört hinter den jeweiligen Subbefehl (verifiziert 0.31.0).
 ///
 /// Sicherheitsdesign (siehe Spec „Sicherheitsflächen"):
 ///   * FESTE Binary (Pfad injizierbar, Default <see cref="DefaultRelativePath"/>).
@@ -41,22 +42,28 @@ public sealed class LudusaviClient
     /// <summary>Ob die Binary am erwarteten Pfad vorhanden ist (für den „nicht eingerichtet"-Pfad).</summary>
     public bool IsAvailable => File.Exists(_exePath);
 
-    /// <summary>Ruft <c>ludusavi --api find</c> auf und liefert die gefundenen Spiele.</summary>
+    /// <summary>
+    /// Ruft <c>ludusavi find --api</c> auf und liefert die gefundenen Spiele.
+    /// WICHTIG: In ludusavi (verifiziert gegen 0.31.0) ist <c>--api</c> ein Flag des
+    /// Subbefehls und gehört HINTER ihn (<c>find --api</c>) – ein vorangestelltes
+    /// <c>--api find</c> lehnt die CLI mit „unexpected argument" ab.
+    /// </summary>
     public async Task<LudusaviFindResult> FindAsync(CancellationToken ct = default, TimeSpan? timeout = null)
     {
-        var stdout = await RunAsync(new[] { "--api", "find" }, timeout ?? DefaultTimeout, ct).ConfigureAwait(false);
+        var stdout = await RunAsync(new[] { "find", "--api" }, timeout ?? DefaultTimeout, ct).ConfigureAwait(false);
         return Deserialize<LudusaviFindResult>(stdout);
     }
 
     /// <summary>
-    /// Ruft <c>ludusavi --api backup --preview</c> auf (Preview = kein Schreiben).
+    /// Ruft <c>ludusavi backup --preview --api</c> auf (Preview = kein Schreiben).
+    /// <c>--api</c> gehört – wie bei <see cref="FindAsync"/> – hinter den Subbefehl.
     /// Ist ein Spiel angegeben, wird dessen Anzeigename als fester Positionsparameter
     /// über die ArgumentList übergeben – ohne jede Shell-Konkatenation.
     /// </summary>
     public async Task<LudusaviBackupPreview> BackupPreviewAsync(
         GameKey? game = null, CancellationToken ct = default, TimeSpan? timeout = null)
     {
-        var args = new List<string> { "--api", "backup", "--preview" };
+        var args = new List<string> { "backup", "--preview", "--api" };
         if (game is not null)
         {
             // Options-Terminator vor dem Positionsparameter: ein mit '-'/'--' beginnender

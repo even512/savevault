@@ -87,6 +87,15 @@ Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
   SHA-256 verifiziert (Server ist per Design vertraut). Defense-in-depth: Hash beim Schreiben
   mitrechnen und vergleichen.
 
+**ERLEDIGT vor Schritt 8 — ludusavi `--api`-Bug behoben + Schema verifiziert (0.31.0).**
+Tim hat `tools/ludusavi/ludusavi.exe` (0.31.0) abgelegt. Beim Verifizieren fiel ein echter
+Core-Bug auf: `LudusaviClient` rief `--api find` / `--api backup --preview` — in 0.31.0 gehört
+`--api` aber HINTER den Subbefehl (`find --api`, `backup --preview --api`), sonst lehnt die CLI
+mit „unexpected argument" ab → Erkennung hätte NIE funktioniert. Fix: Argument-Reihenfolge in
+`LudusaviClient.FindAsync`/`BackupPreviewAsync`. DTO-Schema (`LudusaviDtos.cs`) deckt sich mit der
+echten Ausgabe (verifiziert per Wegwerf-Integrationscheck: `BackupPreviewAsync` parst real 95
+Spiele, `overall.totalGames`/`files[].bytes`/`change` korrekt). Build 0/0, 61 Tests grün.
+
 ## Nächster Schritt
 1. **Schritt 8 (Laufzeit-Gate, `tester`) — der Abschluss:** GROSSER Schritt, eigenes frisches Fenster einplanen.
    Alles baut/testet; Server (`docker build`/`docker compose up` ODER `dotnet run --project

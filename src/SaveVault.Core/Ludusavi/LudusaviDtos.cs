@@ -4,15 +4,18 @@ using System.Text.Json.Serialization;
 namespace SaveVault.Core.Ludusavi;
 
 // ---------------------------------------------------------------------------------
-// ACHTUNG – am Laufzeit-Gate gegen die Realität zu verifizieren:
-// Diese DTOs bilden das `ludusavi ... --api`-JSON nach bestem aktuellen Wissen nach
-// (Ausgabe von `find` und `backup --preview`). Das EXAKTE Schema kann je nach
-// ludusavi-Version abweichen. Deshalb ist die Deserialisierung bewusst defensiv:
+// Schema VERIFIZIERT gegen ludusavi 0.31.0 (Laufzeit-Gate, 2026-08-27):
+//   `find --api`            → { "games": { "<name>": { "score": null } } }
+//   `backup --preview --api`→ { "overall": {...}, "games": { "<name>": {
+//                                 "decision", "change", "files": {
+//                                   "<absoluter Pfad>": { "change", "bytes" } } } } }
+//   (Preview liefert je Datei nur `change`+`bytes`; `hash`/`failed` erst beim echten
+//    Backup → hier Defaults.) Feldnamen/Struktur decken sich mit den DTOs unten.
+// Deserialisierung bleibt bewusst defensiv (versions-tolerant):
 //   * PropertyNameCaseInsensitive im JsonOptions (siehe LudusaviClient),
-//   * jede Ebene hat [JsonExtensionData] Extra → unbekannte Felder werden ignoriert,
+//   * jede Ebene hat [JsonExtensionData] Extra → unbekannte Felder werden ignoriert
+//     (z. B. `change`/`processedGames`/`changedGames`),
 //   * fehlende Felder bleiben auf ihren Defaults.
-// Vor dem Produktiv-Verlass MUSS ein echter Aufruf gegen die mitgelieferte Binary
-// die Feldnamen/Struktur bestätigen (Bau-Plan-Schritt „Laufzeit-Gate").
 // ---------------------------------------------------------------------------------
 
 /// <summary>Ergebnis von <c>ludusavi --api find</c>: die gefundenen Spiele (Key = Name).</summary>
