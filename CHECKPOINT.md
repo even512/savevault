@@ -1,15 +1,23 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **Schritt 3 (Server-API) ABGESCHLOSSEN — Gate grün.**
-Fenster-Start dieses Blocks: 5h = 0 %, Woche = 54 %. Erst-Gate (inspekteur + budgetverwalter
-grün; reviewer 1 blockierender Punkt; security-auditor 6 Härtungen), dann bauer-Nachbesserung
-(6 Punkte), dann right-sized Re-Gate **reviewer GRÜN + security-auditor GRÜN**. Alle
-blockierenden und zeitnahen Punkte erledigt und HTTP-verifiziert.
+**Aktueller Stand (2026-08-27):** **SERVER-STRECKE (Schritte 1–4) KOMPLETT — alle Gates grün.**
+Schritt 4 (Web-Dashboard) Gate: **reviewer GRÜN + security-auditor GRÜN**. Damit stehen
+Gerüst, Core, Server-API und Web-Dashboard. **Staffel-Halt zur Client-Strecke (5–8).**
+Commits: 9847744 (Gerüst+Core+Server) · 25b9f91 (Schritt-3-Nachbesserung) · ac4b4fc (Dashboard).
 
-**Erledigt in der Nachbesserung:** KeepBoth reiht jetzt Konvergenz-Befehle ein (alle Geräte
-auf Gewinner-Head, Fork bleibt, nichts überschrieben); Anzeigename/Store aus Heartbeat
-(Dashboard zeigt echte Namen); ResolveKeepDevice-Gewinner-Validierung; H1 (Upload-Auth),
-H3 (Admin-Endpunkte nur Master), H4 (Pairing single-use + Rate-Limit).
+**Offener Entscheidungspunkt vor Schritt 5 (Anzeige-Kompromisse des Dashboards):** Drei
+Felder aus Spec/Mockup sind datengetrieben (noch) nicht darstellbar, weil das Server-Modell
+sie nicht führt — Entscheidung, ob in Schritt 5 (Client meldet sie) + kleiner Server-Nachtrag
+mitgenommen oder als MVP-Kompromiss belassen:
+- **Speicher je Client** (Spec Z.121): braucht per-Gerät-Bytes (+ ggf. IP) in `DeviceInfo` +
+  Heartbeat-Meldung durch den Client (Schritt 5).
+- **per-Spiel-Geräte-Status** (echte Syncing/Error-Zustände): braucht einen Server-Endpunkt,
+  der die schon gemeldeten `DeviceGameState` je Spiel ausliefert. Aktuell nur Synced/Pending/
+  Conflict aus Revisionshistorie ableitbar.
+- Server-Info in Einstellungen (Container/Port/Storage-Pfad): optional über `/health`-Erweiterung.
+
+**Erledigt Schritt 3-Nachbesserung:** KeepBoth-Konvergenz-Befehle; Anzeigename/Store aus
+Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
 
 ## Backlog (später, kein Blocker im Ein-Nutzer-LAN hinter VPN)
 - security H2: Restore/Resolve auf Master-Token beschränken.
