@@ -1,10 +1,33 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **SERVER-STRECKE (Schritte 1–4) + NACHRÜST-BLOCK KOMPLETT —
-alle Gates grün.** Damit stehen Gerüst, Core, Server-API, Web-Dashboard und die drei echten
-Anzeige-Felder. **Staffel-Halt zur Client-Strecke (5–8).**
+**Aktueller Stand (2026-08-27):** **SERVER-STRECKE (1–4) + NACHRÜST-BLOCK + SCHRITT 5
+(Client-Hintergrund) KOMPLETT.** Damit stehen Gerüst, Core, Server-API, Web-Dashboard, die drei
+echten Anzeige-Felder und die WPF-freie Client-Hintergrund-Logik. **Staffel-Halt vor Schritt 6
+(WPF-Tray) wegen 5h-Limit (~82 %).**
 Commits: 9847744 (Gerüst+Core+Server) · 25b9f91 (Schritt-3-Nachbesserung) · ac4b4fc (Dashboard)
-· a72eddc (Nachrüst-Entscheidung) · Nachrüst-Block (dieser Commit).
+· a72eddc (Nachrüst-Entscheidung) · 132350b (Nachrüst-Block) · Schritt-5 (dieser Commit).
+
+**ERLEDIGT — Schritt 5 (Client-Hintergrund), Gate grün.** security-auditor GRÜN (Pfad-Traversal-
+Chokepoint `SyncEngine.ApplyRevisionAsync` mit Zwei-Pass-Validierung via `PathSanitizer.
+TryResolveWithin`; ludusavi fester-Binary-Aufruf; Token nur in config.json). reviewer nach
+Nachbesserung grün: **B1 behoben** (Befehls-Anwendung Restore/Resolve jetzt über gemeinsames
+Pro-Spiel-Gate `GameSerializer` wie der Sync-Zyklus → kein Upload halb geschriebener Ordner,
+deadlockfrei da `ApplyRevisionAsync` das Gate nicht selbst nimmt), **M1 behoben** (Konflikt-
+Revision nur noch bei geändertem Manifest-Hash, persistierte Konflikt-Marke `*.conflict.json`).
+Services unter `src/SaveVault.Client/Services/` (ClientAgent, SyncEngine, CommandPoller,
+HeartbeatReporter, PairingService, FolderWatcher, GameDiscovery, SaveFolderRegistry,
+SyncStateStore, GameSerializer, AgentState, ClientConfig, AppPaths, JsonFileStore,
+DeviceIdentity). Status-Fläche `AgentState`/`GameStatusView` steht für die Schritt-6-GUI bereit.
+Build 0/0. **KEIN reviewer-Re-Agent** für B1/M1 — Fixes vom Orchestrator selbst verifiziert
+(Budget 82 %).
+
+**OFFEN — M2 (serverseitig, MEDIUM, nächstes Fenster):** Der Server setzt `g.CurrentRevision`
+schon bei `RegisterRevisionAsync` (VaultStore.cs:403), also VOR dem Content-Upload. Bricht der
+Content-Upload ab, ist der Head vorgelaufen, aber die Blobs fehlen → nächster Client-Zyklus
+sieht `localChanged && Head>base` und meldet einen FALSCHEN Konflikt (und ein Download durch
+Gerät B bekäme ein Manifest mit fehlenden Blobs). Fix serverseitig: Head erst auf eine Revision
+setzen, deren Blobs vollständig vorliegen (z.B. `CurrentRevision` nicht bei Anmeldung setzen,
+sondern wenn `StoreContentAsync` die letzte fehlende Blob einer angemeldeten Revision schreibt).
 
 **ERLEDIGT — ALLE DREI Anzeige-Felder nachgerüstet** (Re-Gate reviewer GRÜN + security-auditor
 GRÜN, Build 0/0, `node --check` ok). Umsetzung bewusst über NEUE DTOs statt `DeviceInfo` zu
@@ -35,14 +58,30 @@ Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
   abgelegt (Rest bleibt verlustfrei in der Historie); MVP = 2 Geräte, daher unkritisch.
 - reviewer minor: Anzeige-Artefakt — `BaseRevision`/Status der Nicht-Gewinner kurz `Synced`
   statt `Pending` bis zum nächsten Client-Heartbeat (kein Konvergenz-/Datenproblem).
+- **M2 (Schritt 5, MEDIUM, serverseitig)** — Head läuft vor Content-Upload, falscher Konflikt
+  bei abgebrochenem Upload; Details oben im Stand-Block. Vor/mit Schritt 6 mitnehmen.
+- security L1 (Schritt 5, low): Symlink/Junction-Following beim Restore-Schreiben — `Path.
+  GetFullPath` löst keine Reparse-Points; Angriff braucht vorab existierenden Symlink im
+  Save-Ordner. Optional: Real-Pfad-/Reparse-Prüfung.
+- security L2 (Schritt 5, low): heruntergeladener Inhalt wird nicht gegen den angefragten
+  SHA-256 verifiziert (Server ist per Design vertraut). Defense-in-depth: Hash beim Schreiben
+  mitrechnen und vergleichen.
 
 ## Nächster Schritt
-**CLIENT-STRECKE, Schritt 5 (Client-Hintergrund, `bauer`):** Watcher + Entprellung + Rescan,
-`ludusavi`-Erkennung, Sync-Steuerung über Core, Befehle abholen/ausführen (Restore/Resolve),
-Zustandsmeldung (Heartbeat). Danach Schritt 6 (WPF-Tray, `oberflaechen-bauer`), Schritt 7
-(xUnit-Tests auf Core), Schritt 8 (Laufzeit-Gate `tester`). Client-Strecke ist groß (WPF-GUI +
-echte Sync-Demo) — VOR Start Budget prüfen (Woche zuletzt 62 %); ggf. Schritt 5 und 6 in
-getrennten Fenstern. Am Laufzeit-Gate: echtes `ludusavi --api`-Schema gegen die Binary
+**Im nächsten frischen 5h-Fenster** (dieses ist bei ~82 %):
+1. **M2 serverseitig fixen** (klein-mittel, `bauer` am Server) — Head erst bei vollständigem
+   Content setzen; danach right-sized Re-Gate der berührten Server-Stelle + Commit. Kann auch
+   direkt vor Schritt 6 laufen.
+2. **Schritt 6 (WPF-Tray, `oberflaechen-bauer`):** Tray-Icon + Status-Fenster im Design-Geist,
+   Konflikt-Meldung/-Dialog (gleiche Wahl wie Web), manueller Ordner, Einstellungen (Server-URL,
+   Pairing/Token, Gerätename, Intervall). Konsumiert die vorhandene `AgentState`/`GameStatusView`-
+   Fläche + `ClientAgent`-Aktions-API (`PairAsync`, `AddManualFolder`, `RefreshDiscoveryAsync`,
+   `SyncNowAsync`, `StartAsync`/`StopAsync`). Großer Schritt — eigenes Fenster einplanen.
+3. **Schritt 7 (Tests, `bauer`):** xUnit auf Core (Sync-Entscheidung, Konflikterkennung,
+   Hashing/Manifest, Pfad-Sanitisierung) — die Client-Services sind DI-fähig für Tests gebaut.
+4. **Schritt 8 (Laufzeit-Gate, `tester`):** alles baut/testet; Server (Docker/`dotnet run`) +
+   Dashboard im Browser; Sync/Konflikt/Restore mit zwei lokalen Ordnern; Client-Tray-Start.
+   Am Laufzeit-Gate: echtes `ludusavi --api`-Schema gegen die Binary
 bestätigen (in `Ludusavi/LudusaviDtos.cs` als „schema-to-verify" markiert).
 
 ---

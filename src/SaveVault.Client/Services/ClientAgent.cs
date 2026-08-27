@@ -1,0 +1,342 @@
+using System.IO;
+using System.Net.Http;
+using System.Threading;
+using SaveVault.Core.Api;
+using SaveVault.Core.Ludusavi;
+using SaveVault.Core.Models;
+
+namespace SaveVault.Client.Services;
+
+/// <summary>
+/// Der Kopf des Client-Hintergrunds: bindet Konfiguration, Ordner-Registry, Erkennung,
+/// Watcher, Sync-Engine, Befehls-Poller und Heartbeat zu einem laufenden Dienst zusammen.
+/// Reine Logik, <b>kein WPF</b> – die GUI (Schritt 6) liest ausschließlich die
+/// beobachtbare Status-Fläche <see cref="State"/> und ruft Aktionen wie
+/// <see cref="PairAsync"/>, <see cref="AddManualFolder"/> oder <see cref="SyncNowAsync"/> auf.
+///
+/// Ablauf bei <see cref="StartAsync"/>: ist der Client nicht eingerichtet, bleibt der Agent
+/// im Ruhezustand (kein Absturz). Sonst laufen an: ein Watcher je Save-Ordner (entprellt),
+/// ein periodischer Rescan als Sicherheitsnetz gegen verlorene FS-Ereignisse, der
+/// Befehls-Poller und der Heartbeat. Der Sync eines Save-Sets ist pro Spiel serialisiert
+/// (SemaphoreSlim), damit Watcher-Ereignis und Rescan nie gleichzeitig laufen.
+/// </summary>
+public sealed class ClientAgent : IAsyncDisposable
+{
+    private readonly AppPaths _paths;
+    private readonly ClientConfigStore _configStore;
+    private readonly SyncStateStore _stateStore;
+    private readonly SaveFolderRegistry _registry;
+    private readonly GameDiscovery _discovery;
+    private readonly PairingService _pairing;
+    private readonly TimeSpan _debounce;
+
+    private readonly GameSerializer _serializer = new();
+    private readonly List<FolderWatcher> _watchers = new();
+    private readonly object _lifecycleLock = new();
+
+    private HttpClient? _http;
+    private SaveVaultApiClient? _api;
+    private SyncEngine? _engine;
+    private CommandPoller? _commandPoller;
+    private HeartbeatReporter? _heartbeat;
+
+    private CancellationTokenSource? _cts;
+    private Task? _rescanLoop;
+    private Task? _commandLoop;
+    private Task? _heartbeatLoop;
+    private bool _running;
+
+    /// <summary>Die beobachtbare Status-Fläche (von der GUI zu konsumieren).</summary>
+    public AgentState State { get; }
+
+    public ClientAgent(AppPaths? paths = null, LudusaviClient? ludusavi = null, TimeSpan? debounce = null)
+    {
+        _paths = paths ?? new AppPaths();
+        _configStore = new ClientConfigStore(_paths);
+        _stateStore = new SyncStateStore(_paths);
+        _registry = new SaveFolderRegistry(_paths);
+        _discovery = new GameDiscovery(ludusavi ?? new LudusaviClient());
+        _pairing = new PairingService(_configStore);
+        _debounce = debounce ?? TimeSpan.FromSeconds(2);
+        State = new AgentState();
+    }
+
+    /// <summary>Ob der Agent gerade seine Netz-/Watcher-Schleifen betreibt.</summary>
+    public bool IsRunning { get { lock (_lifecycleLock) return _running; } }
+
+    // --- Lebenszyklus --------------------------------------------------------------
+
+    /// <summary>Startet den Hintergrunddienst. Nicht eingerichtet → Ruhezustand, kein Fehler.</summary>
+    public async Task StartAsync(CancellationToken ct = default)
+    {
+        var config = _configStore.Load();
+        State.SetConfigured(config.IsConfigured);
+
+        if (!config.IsConfigured)
+            return; // „nicht eingerichtet" – auf Pairing warten.
+
+        if (!Uri.TryCreate(config.ServerUrl, UriKind.Absolute, out var serverUri)
+            || (serverUri.Scheme != Uri.UriSchemeHttp && serverUri.Scheme != Uri.UriSchemeHttps))
+        {
+            State.MarkServerUnreachable("Ungültige Server-URL in der Konfiguration.");
+            return;
+        }
+
+        lock (_lifecycleLock)
+        {
+            if (_running)
+                return;
+            _running = true;
+        }
+
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
+        // Server-API mit BaseAddress + Token verdrahten.
+        _http = new HttpClient { BaseAddress = serverUri, Timeout = TimeSpan.FromMinutes(5) };
+        _api = new SaveVaultApiClient(_http, config.DeviceToken);
+
+        _engine = new SyncEngine(_api, _stateStore, State, () => DeviceIdentity.FromConfig(_configStore.Load(), DateTime.UtcNow));
+        _commandPoller = new CommandPoller(_api, _configStore, _registry, _engine, State, _serializer);
+        _heartbeat = new HeartbeatReporter(_api, _configStore, _registry, _stateStore, State);
+
+        // Erkennung (best effort) und Ordner in der Status-Fläche vormerken.
+        await RefreshDiscoveryAsync(token).ConfigureAwait(false);
+        foreach (var entry in _registry.GetAll())
+            State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game).BaseRevision);
+
+        StartWatchers(token);
+
+        var interval = config.SyncInterval;
+        _rescanLoop = RunLoopAsync(interval, RescanAllAsync, token, runImmediately: true);
+        _commandLoop = RunLoopAsync(interval, c => _commandPoller!.PollOnceAsync(c), token, runImmediately: true);
+        _heartbeatLoop = RunLoopAsync(interval, c => _heartbeat!.SendOnceAsync(c), token, runImmediately: true);
+    }
+
+    /// <summary>Stoppt alle Schleifen und Watcher und gibt die Netz-Ressourcen frei.</summary>
+    public async Task StopAsync()
+    {
+        lock (_lifecycleLock)
+        {
+            if (!_running)
+                return;
+            _running = false;
+        }
+
+        try { _cts?.Cancel(); } catch { /* ignore */ }
+
+        DisposeWatchers();
+
+        await WhenAllQuiet(_rescanLoop, _commandLoop, _heartbeatLoop).ConfigureAwait(false);
+        _rescanLoop = _commandLoop = _heartbeatLoop = null;
+
+        _cts?.Dispose();
+        _cts = null;
+        _http?.Dispose();
+        _http = null;
+        _api = null;
+        _engine = null;
+        _commandPoller = null;
+        _heartbeat = null;
+    }
+
+    // --- Aktionen für die GUI ------------------------------------------------------
+
+    /// <summary>Führt das Pairing durch und startet den Dienst bei Erfolg neu.</summary>
+    public async Task<PairingResult> PairAsync(string serverUrl, string code, string deviceName, CancellationToken ct = default)
+    {
+        var result = await _pairing.PairAsync(serverUrl, code, deviceName, ct).ConfigureAwait(false);
+        if (result.Success)
+        {
+            await StopAsync().ConfigureAwait(false);
+            await StartAsync(ct).ConfigureAwait(false);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Fügt einen manuell gewählten Ordner für ein Spiel hinzu (validiert den Ordner),
+    /// nimmt ihn in die Status-Fläche auf und startet – falls laufend – einen Watcher.
+    /// </summary>
+    public void AddManualFolder(GameKey game, string folderPath)
+    {
+        _registry.AddManual(game, folderPath);
+        var entry = _registry.TryGet(game);
+        if (entry is null)
+            return;
+
+        State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game).BaseRevision);
+
+        CancellationToken token;
+        lock (_lifecycleLock)
+        {
+            if (!_running || _cts is null)
+                return;
+            token = _cts.Token;
+        }
+        AddWatcher(entry, token);
+        _ = SyncGameSafeAsync(entry.Game, entry.FolderPath, token);
+    }
+
+    /// <summary>Erkennt Spiele neu über ludusavi und übernimmt sie in die Registry.</summary>
+    public async Task<DiscoveryResult> RefreshDiscoveryAsync(CancellationToken ct = default)
+    {
+        DiscoveryResult result;
+        try
+        {
+            result = await _discovery.DiscoverAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new DiscoveryResult(_discovery.IsAvailable, Array.Empty<DiscoveredGame>(), ex.Message);
+        }
+
+        if (result.Games.Count > 0)
+        {
+            _registry.SetDiscovered(result.Games.Select(g => (g.Game, g.SaveFolder)));
+            foreach (var g in result.Games)
+                State.EnsureGame(g.Game, g.SaveFolder, _stateStore.Load(g.Game).BaseRevision);
+        }
+        return result;
+    }
+
+    /// <summary>Stößt einen Sync-Durchlauf über alle bekannten Save-Sets an.</summary>
+    public async Task SyncNowAsync(CancellationToken ct = default)
+    {
+        CancellationToken token = ct;
+        lock (_lifecycleLock)
+        {
+            if (_running && _cts is not null)
+                token = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token).Token;
+        }
+        await RescanAllAsync(token).ConfigureAwait(false);
+    }
+
+    // --- interne Abläufe -----------------------------------------------------------
+
+    private async Task RescanAllAsync(CancellationToken ct)
+    {
+        foreach (var entry in _registry.GetAll())
+        {
+            ct.ThrowIfCancellationRequested();
+            await SyncGameSafeAsync(entry.Game, entry.FolderPath, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Führt einen Sync-Zyklus pro Spiel exklusiv aus – über <b>dasselbe</b> Gate wie die
+    /// Befehls-Anwendung im <see cref="CommandPoller"/> (B1), damit Rescan/Watcher und ein
+    /// Restore/Resolve desselben Spiels nie gleichzeitig in den Ordner schreiben. Das Gate
+    /// wird nur hier (äußerste Ebene) genommen – <see cref="SyncEngine.ApplyRevisionAsync"/>
+    /// nimmt es nicht, sonst würde der Download-Fall es rekursiv anfordern (Deadlock).
+    /// </summary>
+    private async Task SyncGameSafeAsync(GameKey game, string folder, CancellationToken ct)
+    {
+        var engine = _engine;
+        if (engine is null)
+            return;
+
+        try
+        {
+            await _serializer.RunExclusiveAsync(game, c => engine.RunCycleAsync(game, folder, c), ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // erwarteter Abbruch beim Stoppen
+        }
+        catch (Exception ex)
+        {
+            State.SetStatus(game, SyncStatus.Error, action: "Sync-Fehler: " + ex.Message, folder: folder);
+        }
+    }
+
+    private void StartWatchers(CancellationToken token)
+    {
+        foreach (var entry in _registry.GetAll())
+            AddWatcher(entry, token);
+    }
+
+    private void AddWatcher(SaveFolderEntry entry, CancellationToken token)
+    {
+        lock (_lifecycleLock)
+        {
+            // Doppelte Watcher desselben Ordners vermeiden.
+            if (_watchers.Any(w => string.Equals(w.Folder, Path.GetFullPath(entry.FolderPath), StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            var watcher = new FolderWatcher(entry.FolderPath, _debounce);
+            var game = entry.Game;
+            var folder = entry.FolderPath;
+            watcher.Changed += changedFolder => { _ = SyncGameSafeAsync(game, folder, token); };
+            _watchers.Add(watcher);
+        }
+    }
+
+    private void DisposeWatchers()
+    {
+        lock (_lifecycleLock)
+        {
+            foreach (var w in _watchers)
+                w.Dispose();
+            _watchers.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Führt <paramref name="body"/> periodisch aus, bis Abbruch. Fehler einer einzelnen
+    /// Iteration werden geschluckt, damit die Schleife nie stirbt.
+    /// </summary>
+    private static async Task RunLoopAsync(TimeSpan interval, Func<CancellationToken, Task> body, CancellationToken ct, bool runImmediately)
+    {
+        try
+        {
+            if (runImmediately)
+                await SafeInvoke(body, ct).ConfigureAwait(false);
+
+            using var timer = new PeriodicTimer(interval);
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+                await SafeInvoke(body, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // normaler Abbruch beim Stoppen
+        }
+    }
+
+    private static async Task SafeInvoke(Func<CancellationToken, Task> body, CancellationToken ct)
+    {
+        try
+        {
+            await body(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Iterationsfehler bewusst schlucken – Detail landet bereits in AgentState.
+        }
+    }
+
+    private static async Task WhenAllQuiet(params Task?[] tasks)
+    {
+        foreach (var t in tasks)
+        {
+            if (t is null)
+                continue;
+            try { await t.ConfigureAwait(false); }
+            catch { /* Abbruchfehler ignorieren */ }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync().ConfigureAwait(false);
+        _serializer.Dispose();
+    }
+}
