@@ -216,6 +216,90 @@ public sealed class ClientAgent : IAsyncDisposable
         await RescanAllAsync(token).ConfigureAwait(false);
     }
 
+    // --- dünne Durchreicher für die GUI (Konflikt-Dialog) --------------------------
+    // Reine Weiterleitung an die Server-API, ohne eigene Domänenlogik. Ist der Agent
+    // nicht eingerichtet/laufend (kein _api) oder antwortet der Server mit Fehler, wird
+    // ein leeres/negatives Ergebnis geliefert – nie eine Exception in die GUI.
+
+    /// <summary>Alle offenen Konflikte (leer, wenn nicht eingerichtet/erreichbar).</summary>
+    public async Task<IReadOnlyList<Conflict>> GetConflictsAsync(CancellationToken ct = default)
+    {
+        var api = _api;
+        if (api is null)
+            return Array.Empty<Conflict>();
+        try
+        {
+            var response = await api.GetConflictsAsync(ct).ConfigureAwait(false);
+            return response.Conflicts;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Array.Empty<Conflict>();
+        }
+    }
+
+    /// <summary>Versionsverlauf eines Spiels (leer, wenn nicht eingerichtet/erreichbar).</summary>
+    public async Task<IReadOnlyList<RevisionInfo>> GetRevisionsAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var api = _api;
+        if (api is null)
+            return Array.Empty<RevisionInfo>();
+        try
+        {
+            var response = await api.GetRevisionsAsync(game, ct).ConfigureAwait(false);
+            return response.Revisions;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Array.Empty<RevisionInfo>();
+        }
+    }
+
+    /// <summary>
+    /// Löst einen Konflikt (Gewinner wählen oder beide behalten). Bei Annahme wird sofort
+    /// ein Sync angestoßen, damit das Ergebnis lokal ankommt. Liefert <c>false</c>, wenn
+    /// nicht eingerichtet, abgelehnt oder ein Fehler auftrat.
+    /// </summary>
+    public async Task<bool> ResolveConflictAsync(string conflictId, ResolveConflictRequest req, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(conflictId))
+            return false;
+        ArgumentNullException.ThrowIfNull(req);
+        var api = _api;
+        if (api is null)
+            return false;
+        try
+        {
+            var response = await api.ResolveConflictAsync(conflictId, req, ct).ConfigureAwait(false);
+            if (response.Accepted)
+                await SyncNowAsync(ct).ConfigureAwait(false);
+            return response.Accepted;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Geräte-ID dieses Geräts (aus der lokalen Konfiguration) oder <c>null</c>.</summary>
+    public string? CurrentDeviceId => _configStore.Load().DeviceId;
+
+    /// <summary>Anzeigename dieses Geräts (aus der lokalen Konfiguration) oder <c>null</c>.</summary>
+    public string? CurrentDeviceName => _configStore.Load().DeviceName;
+
     // --- interne Abläufe -----------------------------------------------------------
 
     private async Task RescanAllAsync(CancellationToken ct)

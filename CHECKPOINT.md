@@ -1,11 +1,20 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **SERVER-STRECKE (1–4) + NACHRÜST-BLOCK + SCHRITT 5
-(Client-Hintergrund) KOMPLETT.** Damit stehen Gerüst, Core, Server-API, Web-Dashboard, die drei
-echten Anzeige-Felder und die WPF-freie Client-Hintergrund-Logik. **Staffel-Halt vor Schritt 6
-(WPF-Tray) wegen 5h-Limit (~82 %).**
-Commits: 9847744 (Gerüst+Core+Server) · 25b9f91 (Schritt-3-Nachbesserung) · ac4b4fc (Dashboard)
-· a72eddc (Nachrüst-Entscheidung) · 132350b (Nachrüst-Block) · Schritt-5 (dieser Commit).
+**Aktueller Stand (2026-08-27):** **SCHRITTE 1–6 + NACHRÜST-BLOCK + M2-FIX KOMPLETT.** Es stehen
+Gerüst, Core, Server-API, Web-Dashboard, die drei echten Anzeige-Felder, der M2-Fix, die
+WPF-freie Client-Hintergrund-Logik (Schritt 5) und die WPF-Tray-Oberfläche (Schritt 6). Alle
+Gates grün. **Offen: Schritt 7 (xUnit-Tests) + Schritt 8 (Laufzeit-Gate `tester`).**
+Commits: 9847744 · 25b9f91 · ac4b4fc · a72eddc · 132350b (Nachrüst-Block) · 282fba4 (Schritt 5)
+· 23dec23 (M2-Fix) · Schritt-6 (dieser Commit).
+
+**ERLEDIGT — Schritt 6 (WPF-Tray), reviewer GRÜN.** `System.Windows.Forms.NotifyIcon` (eingebaut,
+kein NuGet, `UseWindowsForms`), Status-Fenster + Einstellungen/Pairing + modaler Konflikt-Dialog
+(echte Felder je Teilnehmer-Revision: Zeit/Größe/Dateien/Gerät/Prüfsumme, keine erfundenen),
+dark-only Theme (`Ui/Theme.xaml`), Threading über `Dispatcher`. Dünne durchreichende
+`ClientAgent`-Methoden ergänzt (`GetConflictsAsync`, `GetRevisionsAsync`, `ResolveConflictAsync`,
+`CurrentDeviceId/Name`). Token nie angezeigt; Fremddaten über WPF-Text-Bindings. Build 0/0.
+Nachrangig (Backlog): `App.OnExit` async-void Cleanup nur best-effort; einmaliger GDI-HICON;
+Fremdgerät im Konflikt als Kurz-ID (nur `DeviceId` verfügbar).
 
 **ERLEDIGT — Schritt 5 (Client-Hintergrund), Gate grün.** security-auditor GRÜN (Pfad-Traversal-
 Chokepoint `SyncEngine.ApplyRevisionAsync` mit Zwei-Pass-Validierung via `PathSanitizer.
@@ -71,17 +80,23 @@ Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
   mitrechnen und vergleichen.
 
 ## Nächster Schritt
-1. **Schritt 6 (WPF-Tray, `oberflaechen-bauer`):** Tray-Icon + Status-Fenster im Design-Geist,
-   Konflikt-Meldung/-Dialog (gleiche Wahl wie Web), manueller Ordner, Einstellungen (Server-URL,
-   Pairing/Token, Gerätename, Intervall). Konsumiert die vorhandene `AgentState`/`GameStatusView`-
-   Fläche + `ClientAgent`-Aktions-API (`PairAsync`, `AddManualFolder`, `RefreshDiscoveryAsync`,
-   `SyncNowAsync`, `StartAsync`/`StopAsync`). Großer Schritt — eigenes Fenster einplanen.
-3. **Schritt 7 (Tests, `bauer`):** xUnit auf Core (Sync-Entscheidung, Konflikterkennung,
-   Hashing/Manifest, Pfad-Sanitisierung) — die Client-Services sind DI-fähig für Tests gebaut.
-4. **Schritt 8 (Laufzeit-Gate, `tester`):** alles baut/testet; Server (Docker/`dotnet run`) +
-   Dashboard im Browser; Sync/Konflikt/Restore mit zwei lokalen Ordnern; Client-Tray-Start.
-   Am Laufzeit-Gate: echtes `ludusavi --api`-Schema gegen die Binary
-bestätigen (in `Ludusavi/LudusaviDtos.cs` als „schema-to-verify" markiert).
+1. **Schritt 7 (Tests, `bauer`):** xUnit auf Core (Sync-Entscheidung `SyncDecider`,
+   Konflikterkennung, Hashing/Manifest, Pfad-Sanitisierung `PathSanitizer.TryResolveWithin`).
+   Test-Projekt `tests/SaveVault.Core.Tests/` besteht schon aus dem Gerüst. Client-Services sind
+   DI-fähig — optional auch SyncEngine-Fälle testbar. Danach Gate (reviewer) + Commit.
+2. **Schritt 8 (Laufzeit-Gate, `tester`):** GROSSER Schritt, eigenes frisches Fenster einplanen.
+   Alles baut/testet; Server (`docker build`/`docker compose up` ODER `dotnet run --project
+   src/SaveVault.Server`, Port 8420) starten; Web-Dashboard im Browser (Chrome-Automation)
+   bedienen; Sync/Konflikt/Restore mit ZWEI lokalen Save-Ordnern als zwei „Geräte" durchspielen;
+   Client-Tray starten. **Zwingend am Gate:** echtes `ludusavi --api`-Schema gegen die
+   mitgelieferte Binary bestätigen (`Ludusavi/LudusaviDtos.cs` „schema-to-verify"; `GameDiscovery`
+   leitet den Save-Ordner als gemeinsame Wurzel der Datei-Keys ab). `tools/ludusavi/ludusavi.exe`
+   muss vorliegen; Port 8420 frei.
+
+## Backlog Client (Schritt 6, low)
+- `App.OnExit` async-void: Netz-Schleifen werden beim Beenden nur best-effort gestoppt.
+- einmaliger GDI-HICON in `TrayIconFactory` (vernachlässigbar).
+- Konflikt-Dialog zeigt Fremdgerät als Kurz-ID (nur `DeviceId` im `ConflictParticipant`).
 
 ---
 

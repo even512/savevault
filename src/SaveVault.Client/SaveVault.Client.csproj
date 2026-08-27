@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\SaveVault.Core\SaveVault.Core.csproj" />
@@ -10,6 +10,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Fuer das eingebaute System.Windows.Forms.NotifyIcon (Tray-Symbol) –
+         kein externes NuGet-Paket noetig, Teil der Windows-Desktop-Runtime. -->
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
+
+  <!-- WinForms-/Drawing-Namespaces NICHT global importieren: sonst waeren Typen wie
+       MessageBox, Application, Color mit ihren WPF-Pendants mehrdeutig. Die wenigen
+       WinForms-/Drawing-Typen werden gezielt voll qualifiziert bzw. lokal importiert. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
 </Project>

@@ -1,0 +1,74 @@
+<Window x:Class="SaveVault.Client.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Einstellungen" Height="560" Width="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource WindowBgBrush}"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="Einstellungen" FontSize="19" FontWeight="Bold" />
+            <TextBlock Text="Server-Kopplung und Sync-Verhalten dieses Geräts"
+                       Foreground="{StaticResource MutedBrush}" FontSize="12.5" Margin="0,2,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+            <StackPanel>
+
+                <!-- Verbindung & Kopplung -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Verbindung &amp; Kopplung" FontWeight="SemiBold" FontSize="14" />
+                        <TextBlock Text="Server-URL" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,14,0,4" />
+                        <TextBox x:Name="ServerUrlBox" Style="{StaticResource DarkTextBox}" />
+                        <TextBlock Text="z. B. http://192.168.1.10:8420" Foreground="{StaticResource MutedBrush}"
+                                   FontSize="11" Margin="2,4,0,0" />
+
+                        <TextBlock Text="Pairing-Code" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,14,0,4" />
+                        <TextBox x:Name="PairingCodeBox" Style="{StaticResource DarkTextBox}" />
+
+                        <Button x:Name="PairButton" Content="Koppeln" Style="{StaticResource PrimaryButton}"
+                                HorizontalAlignment="Left" Margin="0,14,0,0" Padding="22,9"
+                                Click="OnPairClick" />
+
+                        <TextBlock x:Name="PairResultText" Text="" FontSize="12" Margin="0,12,0,0"
+                                   TextWrapping="Wrap" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Gerät & Sync -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Gerät &amp; Sync" FontWeight="SemiBold" FontSize="14" />
+
+                        <TextBlock Text="Gerätename" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,14,0,4" />
+                        <TextBox x:Name="DeviceNameBox" Style="{StaticResource DarkTextBox}" />
+
+                        <TextBlock Text="Sync-Intervall (Sekunden, min. 5)" Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12" Margin="0,14,0,4" />
+                        <TextBox x:Name="IntervalBox" Style="{StaticResource DarkTextBox}" />
+
+                        <Button x:Name="SaveButton" Content="Speichern" Style="{StaticResource PrimaryButton}"
+                                HorizontalAlignment="Left" Margin="0,16,0,0" Padding="22,9"
+                                Click="OnSaveClick" />
+
+                        <TextBlock x:Name="SaveResultText" Text="" FontSize="12" Margin="0,12,0,0"
+                                   TextWrapping="Wrap" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
