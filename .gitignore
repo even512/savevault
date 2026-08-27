@@ -1,0 +1,21 @@
+# .NET build output
+bin/
+obj/
+*.user
+.vs/
+
+# App secrets / config
+.env
+appsettings.*.Local.json
+
+# Server data volume (Savegames, Versionen) — nie ins Repo
+/data/
+data/
+
+# Gebündelte Fremd-Binary (per tools/ludusavi/README.md beziehen)
+tools/ludusavi/*.exe
+tools/ludusavi/ludusavi
+tools/ludusavi/*.zip
+
+# Client-Laufzeitdaten
+*.log

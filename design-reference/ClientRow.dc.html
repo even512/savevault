@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div onClick="{{ onOpen }}" style="display:flex;align-items:center;gap:12px;background:oklch(0.23 0.018 280);border-radius:10px;padding:11px 14px;cursor:pointer;transition:background .15s" style-hover="background:oklch(0.26 0.02 280)">
+  <div style="position:relative;width:32px;height:32px;flex:0 0 auto;border-radius:9px;background:oklch(0.28 0.02 280);display:flex;align-items:center;justify-content:center">
+    <div style="width:16px;height:16px;color:oklch(0.8 0.01 280)" dangerouslySetInnerHTML="{{ monitorIcon }}"></div>
+    <div style="position:absolute;bottom:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:{{ c.statusColor }};border:2px solid oklch(0.23 0.018 280);animation:{{ c.pulseAnim }}"></div>
+  </div>
+  <div style="min-width:0;flex:1 1 auto">
+    <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div>
+    <div onClick="{{ onStatusClick }}" style="font-size:11.5px;color:{{ c.statusColor }};font-weight:600;margin-top:2px;cursor:pointer;width:fit-content" style-hover="text-decoration:underline">{{ c.statusLabel }}</div>
+  </div>
+  <div style="font-size:11px;color:oklch(0.55 0.02 280);text-align:right;flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px">{{ c.lastSeen }}</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;c&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;},&quot;onOpen&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;function&quot;}}">
+const ICON_MONITOR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>';
+
+class Component extends DCLogic {
+  renderVals() {
+    const c = this.props.c || {};
+    return { c, monitorIcon: {__html: ICON_MONITOR}, onOpen: this.props.onOpen || (() => {}), onStatusClick: e => { e.stopPropagation(); if (c.onStatusClick) c.onStatusClick(); } };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,816 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="color-scheme" content="dark">
+<style>
+@keyframes sv-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(1.35)}}
+@keyframes sv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes sv-shimmer{0%{background-position:0 0}100%{background-position:40px 0}}
+@keyframes sv-fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes sv-scaleIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@keyframes sv-slideIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+body{margin:0;background:oklch(0.17 0.014 280);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:oklch(0.32 0.02 280);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</helmet>
+
+<div style="display:flex;width:100%;min-height:100vh;background:oklch(0.17 0.014 280);color:oklch(0.94 0.006 280)">
+
+  <div style="width:{{ sidebarWidth }};flex:0 0 auto;background:oklch(0.15 0.014 280);border-right:1px solid oklch(0.3 0.02 280 / 0.5);display:flex;flex-direction:column;padding:18px 12px;gap:4px;transition:width .25s ease;position:sticky;top:0;height:100vh">
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 8px 20px 8px;overflow:hidden">
+      <div style="width:46px;height:46px;flex:0 0 auto;border-radius:12px;background:oklch(0.68 0.075 195);display:flex;align-items:center;justify-content:center">
+        <svg viewBox="0 0 24 24" width="32" height="32" fill="none">
+          <path d="M4 2h12.5L20 5.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" fill="white"></path>
+          <path d="M16.5 2v3.5a1 1 0 001 1H20" fill="none" stroke="oklch(0.68 0.075 195)" stroke-width="0.6"></path>
+          <rect x="7" y="2.4" width="8" height="6" rx="0.6" fill="oklch(0.4 0.07 195)"></rect>
+          <rect x="12.3" y="2.4" width="2.3" height="6" fill="white" opacity="0.6"></rect>
+          <rect x="6" y="12.6" width="12" height="8" rx="1.1" fill="oklch(0.4 0.07 195)"></rect>
+          <rect x="7.4" y="14.4" width="9.2" height="1.1" rx="0.55" fill="white" opacity="0.55"></rect>
+          <rect x="7.4" y="16.8" width="6.2" height="1.1" rx="0.55" fill="white" opacity="0.55"></rect>
+        </svg>
+      </div>
+      <sc-if value="{{ sidebarOpen }}" hint-placeholder-val="{{ true }}">
+        <div style="font-weight:600;font-size:15px;white-space:nowrap;letter-spacing:.2px">SaveVault</div>
+      </sc-if>
+    </div>
+
+    <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="5">
+      <div onClick="{{ item.onClick }}" style="display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:10px;cursor:pointer;color:oklch(0.7 0.02 280);background:transparent;transition:background .15s,color .15s" style-hover="background:oklch(0.22 0.02 280);color:oklch(0.94 0.006 280)">
+        <div style="width:20px;height:20px;flex:0 0 auto;color:{{ item.iconColor }}" dangerouslySetInnerHTML="{{ item.iconHtml }}"></div>
+        <sc-if value="{{ sidebarOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="font-size:14px;font-weight:{{ item.weight }};white-space:nowrap">{{ item.label }}</div>
+        </sc-if>
+        <sc-if value="{{ item.badge }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-left:auto;background:oklch(0.75 0.18 55);color:oklch(0.15 0.02 55);font-size:11px;font-weight:700;padding:1px 6px;border-radius:20px">{{ item.badge }}</div>
+        </sc-if>
+      </div>
+    </sc-for>
+
+    <div style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;cursor:pointer;color:oklch(0.6 0.02 280)" onClick="{{ toggleSidebar }}" style-hover="color:oklch(0.94 0.006 280)">
+      <div style="width:18px;height:18px;flex:0 0 auto;transform:{{ collapseIconRotate }};transition:transform .25s" dangerouslySetInnerHTML="{{ chevronIcon }}"></div>
+      <sc-if value="{{ sidebarOpen }}" hint-placeholder-val="{{ true }}"><div style="font-size:13px;white-space:nowrap">Einklappen</div></sc-if>
+    </div>
+  </div>
+
+  <div style="flex:1 1 auto;min-width:0;padding:28px 36px 60px 36px;position:relative">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;gap:20px">
+      <div>
+        <div style="font-size:22px;font-weight:650;letter-spacing:-.2px">{{ viewTitle }}</div>
+        <div style="font-size:13px;color:oklch(0.62 0.02 280);margin-top:3px">{{ viewSubtitle }}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="display:flex;align-items:center;gap:8px;background:oklch(0.22 0.018 280);border:1px solid oklch(0.3 0.02 280 / 0.6);border-radius:10px;padding:8px 12px;width:240px">
+          <div style="width:15px;height:15px;color:oklch(0.55 0.02 280)" dangerouslySetInnerHTML="{{ searchIcon }}"></div>
+          <input placeholder="Spiele oder Clients suchen…" value="{{ searchTerm }}" onChange="{{ onSearchChange }}" style="background:none;border:none;outline:none;color:oklch(0.9 0.006 280);font-size:13px;width:100%"></input>
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+      <div style="position:fixed;top:22px;right:36px;z-index:200;background:oklch(0.24 0.02 280);border:1px solid oklch(0.34 0.02 280);border-radius:10px;padding:12px 18px;font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.4);animation:sv-fadeUp .25s ease">{{ toast }}</div>
+    </sc-if>
+
+    <!-- DASHBOARD -->
+    <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px">
+        <sc-for list="{{ statCards }}" as="s" hint-placeholder-count="4">
+          <div style="background:oklch(0.21 0.017 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:14px;padding:16px 18px;transition:border-color .2s" style-hover="border-color:oklch(0.4 0.02 280)">
+            <div style="font-size:12px;color:oklch(0.6 0.02 280);margin-bottom:8px">{{ s.label }}</div>
+            <div style="display:flex;align-items:baseline;gap:6px">
+              <div style="font-size:26px;font-weight:650;color:{{ s.color }}">{{ s.value }}</div>
+              <div style="font-size:12px;color:oklch(0.55 0.02 280)">{{ s.suffix }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px;align-items:start">
+        <div style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:15px;font-weight:600">Spiele</div>
+            <div onClick="{{ goToGames }}" style="font-size:12.5px;color:oklch(0.68 0.075 195);cursor:pointer;font-weight:600">Alle anzeigen →</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+            <sc-for list="{{ dashboardGames }}" as="g" hint-placeholder-count="6">
+              <dc-import name="GameCard" g="{{ g }}" on-open="{{ openGame }}" hint-size="100%,150px"></dc-import>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:8px">
+            <div style="font-size:15px;font-weight:600">Clients</div>
+            <div onClick="{{ goToClients }}" style="font-size:12.5px;color:oklch(0.68 0.075 195);cursor:pointer;font-weight:600;white-space:nowrap;flex:0 0 auto">Alle anzeigen →</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ clients }}" as="c" hint-placeholder-count="3">
+              <dc-import name="ClientRow" c="{{ c }}" on-open="{{ c.onOpen }}" hint-size="100%,72px"></dc-import>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- SPIELE -->
+    <sc-if value="{{ isGames }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+        <sc-for list="{{ statusFilters }}" as="f" hint-placeholder-count="6">
+          <div onClick="{{ f.onClick }}" style="font-size:12.5px;padding:7px 13px;border-radius:20px;cursor:pointer;font-weight:600;border:1px solid {{ f.active_border }};background:{{ f.active_bg }};color:{{ f.active_color }};transition:all .15s">{{ f.label }}</div>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <sc-for list="{{ filteredGames }}" as="g" hint-placeholder-count="12">
+          <dc-import name="GameCard" g="{{ g }}" on-open="{{ openGame }}" big="{{ true }}" hint-size="100%,190px"></dc-import>
+        </sc-for>
+      </div>
+      <sc-if value="{{ noGamesFound }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center;padding:60px 0;color:oklch(0.55 0.02 280);font-size:13.5px">Keine Spiele gefunden.</div>
+      </sc-if>
+    </sc-if>
+
+    <!-- CLIENTS -->
+    <sc-if value="{{ isClients }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        <sc-for list="{{ clients }}" as="c" hint-placeholder-count="3">
+          <div onClick="{{ c.onOpen }}" style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:14px;animation:sv-fadeUp .3s ease;cursor:pointer;transition:border-color .15s" style-hover="border-color:oklch(0.45 0.02 280)">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="position:relative;width:46px;height:46px;flex:0 0 auto;border-radius:12px;background:oklch(0.26 0.02 280);display:flex;align-items:center;justify-content:center">
+                <div style="width:22px;height:22px;color:oklch(0.8 0.01 280)" dangerouslySetInnerHTML="{{ monitorIcon }}"></div>
+                <div style="position:absolute;bottom:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:{{ c.statusColor }};border:2.5px solid oklch(0.2 0.016 280);animation:{{ c.pulseAnim }}"></div>
+              </div>
+              <div>
+                <div style="font-size:15px;font-weight:650">{{ c.name }}</div>
+                <div style="font-size:12px;color:oklch(0.58 0.02 280)">{{ c.os }} · {{ c.ip }}</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:{{ c.statusColor }}">
+              <div style="width:6px;height:6px;border-radius:50%;background:{{ c.statusColor }};animation:{{ c.pulseAnim }}"></div>
+              {{ c.statusLabel }}
+            </div>
+            <sc-if value="{{ c.isSyncing }}" hint-placeholder-val="{{ false }}">
+              <div style="height:6px;border-radius:6px;background:oklch(0.28 0.02 280);overflow:hidden">
+                <div style="height:100%;width:{{ c.progress }};border-radius:6px;background:linear-gradient(90deg, oklch(0.68 0.075 195), oklch(0.76 0.07 195));background-size:20px 100%;animation:sv-shimmer 1s linear infinite"></div>
+              </div>
+            </sc-if>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px;color:oklch(0.65 0.02 280);border-top:1px solid oklch(0.28 0.02 280);padding-top:14px">
+              <div>Agent<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ c.agent }}</div></div>
+              <div>Zuletzt gesehen<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ c.lastSeen }}</div></div>
+              <div>Speicher<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ c.storageUsed }}</div></div>
+              <div>Spiele<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ c.gamesSynced }} synced · {{ c.gamesPending }} offen</div></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- HISTORY -->
+    <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <sc-for list="{{ historyFilters }}" as="f" hint-placeholder-count="4">
+          <div onClick="{{ f.onClick }}" style="font-size:12.5px;padding:7px 13px;border-radius:20px;cursor:pointer;font-weight:600;border:1px solid {{ f.active_border }};background:{{ f.active_bg }};color:{{ f.active_color }}">{{ f.label }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ filteredHistory }}" as="h" hint-placeholder-count="10">
+          <div style="border-bottom:1px solid oklch(0.26 0.018 280)">
+            <div onClick="{{ h.onToggle }}" style="display:grid;grid-template-columns:110px 26px 1.4fr 1fr 1fr 90px 16px;align-items:center;gap:14px;padding:13px 6px;cursor:pointer;border-radius:8px;transition:background .15s" style-hover="background:oklch(0.22 0.018 280)">
+              <div style="font-size:12px;color:oklch(0.58 0.02 280)">{{ h.time }}</div>
+              <div style="width:20px;height:20px;color:{{ h.actionColor }}" dangerouslySetInnerHTML="{{ h.actionIconHtml }}"></div>
+              <div style="font-size:13.5px;font-weight:600">{{ h.game }}</div>
+              <div style="font-size:12.5px;color:oklch(0.65 0.02 280)">{{ h.client }}</div>
+              <div style="font-size:12.5px;color:{{ h.actionColor }};font-weight:600">{{ h.actionLabel }}</div>
+              <div style="font-size:12px;color:oklch(0.55 0.02 280);text-align:right">{{ h.sizeAfter }}</div>
+              <div style="width:12px;height:12px;color:oklch(0.5 0.02 280);transform:{{ h.chevronRotate }};transition:transform .2s" dangerouslySetInnerHTML="{{ chevronIcon }}"></div>
+            </div>
+            <sc-if value="{{ h.expanded }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:0 6px 16px 130px;animation:sv-fadeUp .2s ease">
+                <div style="background:oklch(0.23 0.018 280);border:1px solid oklch(0.3 0.02 280 / 0.6);border-radius:10px;padding:14px 16px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;font-size:12.5px">
+                  <div>Größe vorher<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:3px">{{ h.sizeBefore }}</div></div>
+                  <div>Größe nachher<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:3px">{{ h.sizeAfter }}</div></div>
+                  <div>Dauer<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:3px">{{ h.duration }}</div></div>
+                  <div>Checksumme<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums">{{ h.checksum }}</div></div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- SETTINGS -->
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:980px">
+        <div style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:22px">
+          <div style="font-size:14.5px;font-weight:650;margin-bottom:4px">Server (Docker)</div>
+          <div style="font-size:12px;color:oklch(0.58 0.02 280);margin-bottom:16px">savevault-server · läuft seit 14 Tagen</div>
+          <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
+            <div style="display:flex;justify-content:space-between"><span style="color:oklch(0.62 0.02 280)">Container</span><span style="font-weight:600">savevault-server:1.4.2</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:oklch(0.62 0.02 280)">Port</span><span style="font-weight:600;font-variant-numeric:tabular-nums">8420</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:oklch(0.62 0.02 280)">Storage-Pfad</span><span style="font-weight:600">/data/savevault</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:oklch(0.62 0.02 280)">Status</span><span style="display:flex;align-items:center;gap:6px;color:oklch(0.75 0.16 150);font-weight:600"><span style="width:7px;height:7px;border-radius:50%;background:oklch(0.75 0.16 150);animation:sv-pulse 2s ease-in-out infinite"></span>Online</span></div>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:22px">
+          <div style="font-size:14.5px;font-weight:650;margin-bottom:16px">Sync</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span style="color:oklch(0.62 0.02 280)">Sync-Intervall</span><span style="font-weight:600">{{ syncInterval }} Min.</span></div>
+              <input type="range" min="1" max="30" value="{{ syncInterval }}" onChange="{{ onIntervalChange }}" style="width:100%;accent-color:oklch(0.68 0.075 195)"></input>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+              <span style="color:oklch(0.62 0.02 280)">Auto-Konflikterkennung</span>
+              <div onClick="{{ toggleAutoConflict }}" style="width:38px;height:22px;border-radius:20px;background:{{ autoConflictBg }};position:relative;cursor:pointer;transition:background .2s">
+                <div style="width:16px;height:16px;border-radius:50%;background:white;position:absolute;top:3px;left:{{ autoConflictKnob }};transition:left .2s"></div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+              <span style="color:oklch(0.62 0.02 280)">Benachrichtigungen bei Konflikt</span>
+              <div onClick="{{ toggleNotify }}" style="width:38px;height:22px;border-radius:20px;background:{{ notifyBg }};position:relative;cursor:pointer;transition:background .2s">
+                <div style="width:16px;height:16px;border-radius:50%;background:white;position:absolute;top:3px;left:{{ notifyKnob }};transition:left .2s"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:22px">
+          <div style="font-size:14.5px;font-weight:650;margin-bottom:16px">Speicher &amp; Versionen</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px"><span style="color:oklch(0.62 0.02 280)">Versionen pro Spiel behalten</span><span style="font-weight:600">{{ retention }}</span></div>
+              <input type="range" min="3" max="20" value="{{ retention }}" onChange="{{ onRetentionChange }}" style="width:100%;accent-color:oklch(0.68 0.075 195)"></input>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:oklch(0.62 0.02 280)">Belegter Speicher</span><span style="font-weight:600">18.4 GB / 100 GB</span></div>
+            <div style="height:7px;border-radius:6px;background:oklch(0.28 0.02 280);overflow:hidden"><div style="height:100%;width:18.4%;background:oklch(0.68 0.075 195);border-radius:6px"></div></div>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.2 0.016 280);border:1px solid oklch(0.29 0.02 280 / 0.6);border-radius:16px;padding:22px">
+          <div style="font-size:14.5px;font-weight:650;margin-bottom:4px">Netzwerk &amp; Pairing</div>
+          <div style="font-size:12px;color:oklch(0.58 0.02 280);margin-bottom:16px">Neuen Client im Heimnetzwerk verbinden</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;background:oklch(0.15 0.014 280);border:1px dashed oklch(0.4 0.02 280);border-radius:10px;padding:14px 16px">
+            <div style="font-size:20px;font-weight:700;letter-spacing:3px;font-variant-numeric:tabular-nums">7K2-9QX</div>
+            <div style="font-size:12px;color:oklch(0.68 0.075 195);font-weight:600;cursor:pointer">Erneuern</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- GAME DETAIL DRAWER -->
+  <sc-if value="{{ selectedGame }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeGame }}" style="position:fixed;inset:0;background:rgba(6,7,10,.55);z-index:90;animation:sv-fadeUp .2s ease"></div>
+    <div style="position:fixed;top:0;right:0;height:100vh;width:460px;background:oklch(0.19 0.015 280);border-left:1px solid oklch(0.3 0.02 280);z-index:91;padding:28px;overflow-y:auto;animation:sv-slideIn .25s ease">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+        <div style="display:flex;gap:14px">
+          <div style="width:52px;height:68px;flex:0 0 auto;border-radius:8px;background:linear-gradient(150deg, {{ selectedGame.coverColor }}, oklch(0.2 0.015 280))"></div>
+          <div>
+            <div style="font-size:18px;font-weight:650">{{ selectedGame.name }}</div>
+            <div style="font-size:12.5px;color:oklch(0.6 0.02 280);margin-top:4px">{{ selectedGame.platform }} · {{ selectedGame.size }}</div>
+          </div>
+        </div>
+        <div onClick="{{ closeGame }}" style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:oklch(0.6 0.02 280)" style-hover="background:oklch(0.26 0.02 280);color:white">
+          <div style="width:14px;height:14px" dangerouslySetInnerHTML="{{ closeIcon }}"></div>
+        </div>
+      </div>
+
+      <sc-if value="{{ selectedGame.hasConflict }}" hint-placeholder-val="{{ false }}">
+        <div style="background:oklch(0.75 0.18 55 / 0.12);border:1px solid oklch(0.75 0.18 55 / 0.4);border-radius:12px;padding:14px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="font-size:13px;color:oklch(0.85 0.14 55)"><b>Sync-Konflikt erkannt.</b> Zwei Clients haben unterschiedliche Spielstände.</div>
+          <div onClick="{{ openConflict }}" style="flex:0 0 auto;background:oklch(0.75 0.18 55);color:oklch(0.15 0.02 55);font-weight:700;font-size:12.5px;padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap">Lösen</div>
+        </div>
+      </sc-if>
+
+      <div style="font-size:12.5px;font-weight:650;color:oklch(0.6 0.02 280);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Clients</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
+        <sc-for list="{{ selectedGame.clientRows }}" as="r" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;justify-content:space-between;background:oklch(0.23 0.018 280);border-radius:10px;padding:11px 14px">
+            <div>
+              <div style="font-size:13px;font-weight:600">{{ r.name }}</div>
+              <div style="font-size:11.5px;color:oklch(0.58 0.02 280);margin-top:2px">{{ r.time }}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:{{ r.color }};cursor:pointer" onClick="{{ r.onStatusClick }}" style-hover="text-decoration:underline">
+              <div style="width:6px;height:6px;border-radius:50%;background:{{ r.color }};animation:{{ r.pulse }}"></div>{{ r.label }}
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="font-size:12.5px;font-weight:650;color:oklch(0.6 0.02 280);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Versionsverlauf</div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ selectedGame.versions }}" as="v" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px;border-bottom:1px solid oklch(0.27 0.018 280)">
+            <div>
+              <div style="font-size:12.5px;font-weight:600">{{ v.time }}</div>
+              <div style="font-size:11.5px;color:oklch(0.58 0.02 280);margin-top:2px">{{ v.client }} · {{ v.size }}</div>
+            </div>
+            <div style="font-size:11.5px;color:oklch(0.68 0.075 195);font-weight:600;cursor:pointer" style-hover="text-decoration:underline">Wiederherstellen</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- CLIENT DETAIL DRAWER -->
+  <sc-if value="{{ selectedClient }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeClient }}" style="position:fixed;inset:0;background:rgba(6,7,10,.55);z-index:90;animation:sv-fadeUp .2s ease"></div>
+    <div style="position:fixed;top:0;right:0;height:100vh;width:460px;background:oklch(0.19 0.015 280);border-left:1px solid oklch(0.3 0.02 280);z-index:91;padding:28px;overflow-y:auto;animation:sv-slideIn .25s ease">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="width:52px;height:52px;flex:0 0 auto;border-radius:12px;background:oklch(0.26 0.02 280);display:flex;align-items:center;justify-content:center">
+            <div style="width:24px;height:24px;color:oklch(0.8 0.01 280)" dangerouslySetInnerHTML="{{ monitorIcon }}"></div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:650">{{ selectedClient.name }}</div>
+            <div style="font-size:12.5px;color:oklch(0.6 0.02 280);margin-top:4px">{{ selectedClient.os }} · {{ selectedClient.ip }}</div>
+          </div>
+        </div>
+        <div onClick="{{ closeClient }}" style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:oklch(0.6 0.02 280)" style-hover="background:oklch(0.26 0.02 280);color:white">
+          <div style="width:14px;height:14px" dangerouslySetInnerHTML="{{ closeIcon }}"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:{{ selectedClient.statusColor }};margin-bottom:20px">
+        <div style="width:7px;height:7px;border-radius:50%;background:{{ selectedClient.statusColor }};animation:{{ selectedClient.pulseAnim }}"></div>
+        {{ selectedClient.statusLabel }}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px;color:oklch(0.65 0.02 280);background:oklch(0.23 0.018 280);border-radius:12px;padding:16px;margin-bottom:24px">
+        <div>Agent<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ selectedClient.agent }}</div></div>
+        <div>Zuletzt gesehen<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ selectedClient.lastSeen }}</div></div>
+        <div>Speicher<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ selectedClient.storageUsed }}</div></div>
+        <div>Spiele<div style="color:oklch(0.9 0.006 280);font-weight:600;margin-top:2px">{{ selectedClient.gamesSynced }} synced · {{ selectedClient.gamesPending }} offen</div></div>
+      </div>
+
+      <div style="font-size:12.5px;font-weight:650;color:oklch(0.6 0.02 280);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Zuletzt synchronisierte Spiele</div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ selectedClient.recentGames }}" as="rg" hint-placeholder-count="5">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid oklch(0.27 0.018 280)">
+            <div style="width:32px;height:42px;flex:0 0 auto;border-radius:6px;background:linear-gradient(150deg, {{ rg.coverColor }}, oklch(0.2 0.015 280))"></div>
+            <div style="flex:1 1 auto;min-width:0">
+              <div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ rg.game }}</div>
+              <div style="font-size:11.5px;color:oklch(0.58 0.02 280);margin-top:2px">{{ rg.time }}</div>
+            </div>
+            <div onClick="{{ rg.onStatusClick }}" style="font-size:11.5px;font-weight:600;color:{{ rg.actionColor }};flex:0 0 auto;cursor:pointer" style-hover="text-decoration:underline">{{ rg.actionLabel }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- CONFLICT MODAL -->
+  <sc-if value="{{ conflictOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(6,7,10,.65);z-index:150;display:flex;align-items:center;justify-content:center;animation:sv-fadeUp .2s ease">
+      <div style="width:640px;background:oklch(0.19 0.015 280);border:1px solid oklch(0.3 0.02 280);border-radius:18px;padding:28px;animation:sv-scaleIn .22s ease">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-size:17px;font-weight:650">Konflikt lösen</div>
+            <div style="font-size:12.5px;color:oklch(0.6 0.02 280);margin-top:3px">{{ selectedGame.name }} · zwei abweichende Spielstände gefunden</div>
+          </div>
+          <div onClick="{{ closeConflict }}" style="width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:oklch(0.6 0.02 280)" style-hover="background:oklch(0.26 0.02 280);color:white">
+            <div style="width:13px;height:13px" dangerouslySetInnerHTML="{{ closeIcon }}"></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px">
+          <sc-for list="{{ conflictVersions }}" as="v" hint-placeholder-count="2">
+            <div onClick="{{ v.onSelect }}" style="border:2px solid {{ v.borderColor }};background:{{ v.bg }};border-radius:14px;padding:16px;cursor:pointer;transition:all .15s">
+              <div style="font-size:13.5px;font-weight:650;margin-bottom:2px">{{ v.client }}</div>
+              <div style="font-size:11.5px;color:oklch(0.58 0.02 280);margin-bottom:14px">{{ v.time }}</div>
+              <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
+                <div style="display:flex;justify-content:space-between"><span style="color:oklch(0.6 0.02 280)">Spielzeit</span><span style="font-weight:600">{{ v.playtime }}</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:oklch(0.6 0.02 280)">Größe</span><span style="font-weight:600">{{ v.size }}</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:oklch(0.6 0.02 280)">Fortschritt</span><span style="font-weight:600">{{ v.progressPct }}</span></div>
+              </div>
+              <sc-if value="{{ v.selected }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:12px;font-size:11.5px;font-weight:700;color:{{ v.borderColor }};display:flex;align-items:center;gap:6px">✓ Ausgewählt</div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:22px">
+          <div onClick="{{ keepBoth }}" style="font-size:12.5px;color:oklch(0.65 0.02 280);cursor:pointer;font-weight:600" style-hover="color:white">Beide behalten (umbenennen)</div>
+          <div style="display:flex;gap:10px">
+            <div onClick="{{ closeConflict }}" style="font-size:13px;padding:10px 16px;border-radius:9px;cursor:pointer;color:oklch(0.65 0.02 280)" style-hover="color:white">Abbrechen</div>
+            <div onClick="{{ resolveConflict }}" style="font-size:13px;font-weight:650;padding:10px 18px;border-radius:9px;cursor:pointer;background:{{ resolveBg }};color:white;opacity:{{ resolveOpacity }};transition:opacity .15s">Konflikt lösen</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const ACCENT = "oklch(0.68 0.075 195)";
+const COL_SYNCED = "oklch(0.75 0.16 150)";
+const COL_SYNCING = "oklch(0.68 0.075 195)";
+const COL_CONFLICT = "oklch(0.75 0.18 55)";
+const COL_PENDING = "oklch(0.82 0.15 95)";
+const COL_OFFLINE = "oklch(0.58 0.02 280)";
+const COL_ERROR = "oklch(0.65 0.22 25)";
+
+const ICONS = {
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>',
+  disc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5"></circle></svg>',
+  monitor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><path d="M9 18l6-6-6-6"></path></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><path d="M18 6L6 18M6 6l12 12"></path></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"></path></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><path d="M12 2L1 21h22L12 2z"></path><path d="M12 9v5M12 18h.01"></path></svg>',
+  restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>'
+};
+
+const GAMES_SRC = [
+  {name:"Elden Ring", platform:"Steam", size:"142 MB", status:"synced", init:"E", color:"oklch(0.55 0.14 40)", lastSyncMin:180, lastSync:"vor 3 Std."},
+  {name:"Baldur's Gate 3", platform:"GOG", size:"88 MB", status:"conflict", init:"B", color:"oklch(0.5 0.14 25)", lastSyncMin:47, lastSync:"vor 47 Min."},
+  {name:"Hades II", platform:"Steam", size:"34 MB", status:"synced", init:"H", color:"oklch(0.55 0.18 300)", lastSyncMin:1440, lastSync:"gestern"},
+  {name:"Stardew Valley", platform:"Steam", size:"6 MB", status:"synced", init:"S", color:"oklch(0.6 0.13 140)", lastSyncMin:900, lastSync:"vor 15 Std."},
+  {name:"Cyberpunk 2077", platform:"Epic", size:"210 MB", status:"syncing", init:"C", color:"oklch(0.55 0.16 60)", lastSyncMin:0, lastSync:"jetzt"},
+  {name:"Hollow Knight", platform:"Steam", size:"2 MB", status:"synced", init:"H", color:"oklch(0.4 0.05 260)", lastSyncMin:2880, lastSync:"vor 2 Tagen"},
+  {name:"Terraria", platform:"Steam", size:"18 MB", status:"pending", init:"T", color:"oklch(0.6 0.1 190)", lastSyncMin:4320, lastSync:"vor 3 Tagen"},
+  {name:"The Witcher 3", platform:"GOG", size:"96 MB", status:"synced", init:"W", color:"oklch(0.5 0.1 40)", lastSyncMin:600, lastSync:"vor 10 Std."},
+  {name:"Deep Rock Galactic", platform:"Steam", size:"12 MB", status:"error", init:"D", color:"oklch(0.5 0.13 70)", lastSyncMin:300, lastSync:"vor 5 Std."},
+  {name:"Slay the Spire", platform:"Steam", size:"4 MB", status:"synced", init:"S", color:"oklch(0.5 0.15 20)", lastSyncMin:5760, lastSync:"vor 4 Tagen"},
+  {name:"Factorio", platform:"Steam", size:"56 MB", status:"offline", init:"F", color:"oklch(0.55 0.14 55)", lastSyncMin:7200, lastSync:"vor 5 Tagen"},
+  {name:"Persona 5 Royal", platform:"Steam", size:"31 MB", status:"pending", init:"P", color:"oklch(0.5 0.15 340)", lastSyncMin:1200, lastSync:"vor 20 Std."}
+].map(g => ({...g, slug: "cover-" + g.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}));
+
+const CLIENTS_SRC = [
+  {name:"GAMING-PC", os:"Windows 11", ip:"192.168.1.42", agent:"v1.4.2", lastSeen:"jetzt", storageUsed:"6.2 GB", status:"online", gamesSynced:10, gamesPending:1},
+  {name:"Wohnzimmer-PC", os:"Windows 11", ip:"192.168.1.51", agent:"v1.4.2", lastSeen:"vor 2 Min.", storageUsed:"5.8 GB", status:"syncing", progress:64, gamesSynced:9, gamesPending:2},
+  {name:"Laptop-Lena", os:"Windows 10", ip:"192.168.1.67", agent:"v1.3.9", lastSeen:"vor 3 Std.", storageUsed:"6.4 GB", status:"offline", gamesSynced:8, gamesPending:3}
+];
+
+const HISTORY_SRC = [
+  {time:"heute 14:12", game:"Cyberpunk 2077", client:"Wohnzimmer-PC", action:"syncing", sizeBefore:"204 MB", sizeAfter:"210 MB", duration:"12s", checksum:"a91f...3c2"},
+  {time:"heute 13:47", game:"Baldur's Gate 3", client:"GAMING-PC", action:"conflict", sizeBefore:"85 MB", sizeAfter:"88 MB", duration:"—", checksum:"7bd0...91a"},
+  {time:"heute 11:20", game:"Elden Ring", client:"GAMING-PC", action:"sync", sizeBefore:"140 MB", sizeAfter:"142 MB", duration:"4s", checksum:"c412...0ef"},
+  {time:"heute 09:03", game:"Deep Rock Galactic", client:"Laptop-Lena", action:"error", sizeBefore:"12 MB", sizeAfter:"12 MB", duration:"—", checksum:"n/a"},
+  {time:"gestern 22:41", game:"Hollow Knight", client:"GAMING-PC", action:"sync", sizeBefore:"1.9 MB", sizeAfter:"2 MB", duration:"1s", checksum:"55ac...b10"},
+  {time:"gestern 21:05", game:"Persona 5 Royal", client:"Wohnzimmer-PC", action:"restore", sizeBefore:"29 MB", sizeAfter:"31 MB", duration:"3s", checksum:"e001...4d9"},
+  {time:"gestern 18:30", game:"Terraria", client:"Laptop-Lena", action:"sync", sizeBefore:"17 MB", sizeAfter:"18 MB", duration:"2s", checksum:"88fa...12c"},
+  {time:"gestern 15:14", game:"Stardew Valley", client:"GAMING-PC", action:"sync", sizeBefore:"5.8 MB", sizeAfter:"6 MB", duration:"1s", checksum:"3f21...aa0"},
+  {time:"vor 2 Tagen", game:"The Witcher 3", client:"Wohnzimmer-PC", action:"sync", sizeBefore:"94 MB", sizeAfter:"96 MB", duration:"5s", checksum:"9c00...771"},
+  {time:"vor 2 Tagen", game:"Baldur's Gate 3", client:"Laptop-Lena", action:"conflict_resolved", sizeBefore:"83 MB", sizeAfter:"85 MB", duration:"—", checksum:"1ab2...66f"},
+  {time:"vor 3 Tagen", game:"Slay the Spire", client:"GAMING-PC", action:"sync", sizeBefore:"3.8 MB", sizeAfter:"4 MB", duration:"1s", checksum:"aa10...cd2"},
+  {time:"vor 4 Tagen", game:"Factorio", client:"Wohnzimmer-PC", action:"sync", sizeBefore:"54 MB", sizeAfter:"56 MB", duration:"6s", checksum:"70de...4a1"},
+  {time:"vor 5 Tagen", game:"Hades II", client:"Laptop-Lena", action:"restore", sizeBefore:"33 MB", sizeAfter:"34 MB", duration:"2s", checksum:"22bb...9f0"}
+];
+
+function statusMeta(status){
+  switch(status){
+    case "synced": return {color: COL_SYNCED, label: "Synchronisiert", pulse: "none"};
+    case "online": return {color: COL_SYNCED, label: "Verbunden", pulse: "none"};
+    case "syncing": return {color: COL_SYNCING, label: "Wird synchronisiert", pulse: "sv-pulse 1.4s ease-in-out infinite"};
+    case "conflict": return {color: COL_CONFLICT, label: "Konflikt", pulse: "sv-pulse 1.8s ease-in-out infinite"};
+    case "pending": return {color: COL_PENDING, label: "Ausstehend", pulse: "none"};
+    case "offline": return {color: COL_OFFLINE, label: "Offline", pulse: "none"};
+    case "error": return {color: COL_ERROR, label: "Fehler", pulse: "none"};
+    default: return {color: COL_OFFLINE, label: status, pulse: "none"};
+  }
+}
+
+function actionMeta(action){
+  switch(action){
+    case "sync": return {label: "Synchronisiert", color: COL_SYNCED, icon: ICONS.upload};
+    case "syncing": return {label: "Läuft…", color: COL_SYNCING, icon: ICONS.refresh};
+    case "conflict": return {label: "Konflikt", color: COL_CONFLICT, icon: ICONS.warn};
+    case "conflict_resolved": return {label: "Konflikt gelöst", color: COL_SYNCED, icon: ICONS.warn};
+    case "restore": return {label: "Wiederhergestellt", color: ACCENT, icon: ICONS.restore};
+    case "error": return {label: "Fehler", color: COL_ERROR, icon: ICONS.warn};
+    default: return {label: action, color: COL_OFFLINE, icon: ICONS.upload};
+  }
+}
+
+class Component extends DCLogic {
+  state = {
+    view: "dashboard",
+    sidebarOpen: true,
+    searchTerm: "",
+    gameFilter: "all",
+    historyFilter: "all",
+    selectedGameIdx: null,
+    selectedClientIdx: null,
+    expandedHistory: {},
+    conflictOpen: false,
+    conflictSelected: null,
+    toast: null,
+    syncAllSpinning: false,
+    syncInterval: 5,
+    retention: 8,
+    autoConflict: true,
+    notify: true
+  };
+
+  setView(v){ this.setState({view: v, gameFilter: "all"}); }
+
+  navItem(key, label, icon, badge){
+    const active = this.state.view === key;
+    return {
+      label, badge,
+      weight: active ? 650 : 500,
+      iconHtml: {__html: icon},
+      iconColor: active ? ACCENT : "oklch(0.62 0.02 280)",
+      onClick: () => this.setView(key)
+    };
+  }
+
+  clientStatusesForGame(g){
+    return CLIENTS_SRC.map((c,i) => {
+      let status = "synced";
+      if (g.status === "conflict" && i < 2) status = "conflict";
+      else if (g.status === "syncing" && i === 1) status = "syncing";
+      else if (g.status === "pending" && i === 2) status = "pending";
+      else if (g.status === "error" && i === 2) status = "error";
+      else if (g.status === "offline" && i === 2) status = "offline";
+      return status;
+    });
+  }
+
+  gameCardData(g, idx, big){
+    const statuses = this.clientStatusesForGame(g);
+    const total = statuses.length;
+    const syncedCount = statuses.filter(s => s === "synced").length;
+    const frac = syncedCount + "/" + total;
+    let statusColor, statusLabel, pulseAnim = "none";
+    if (statuses.includes("conflict")) { statusColor = COL_CONFLICT; statusLabel = "Konflikt · " + frac + " synchronisiert"; pulseAnim = "sv-pulse 1.8s ease-in-out infinite"; }
+    else if (statuses.includes("error")) { statusColor = COL_ERROR; statusLabel = "Fehler · " + frac + " synchronisiert"; }
+    else if (statuses.includes("syncing")) { statusColor = COL_SYNCING; statusLabel = frac + " synchronisiert · läuft"; pulseAnim = "sv-pulse 1.4s ease-in-out infinite"; }
+    else if (syncedCount === total) { statusColor = COL_SYNCED; statusLabel = "Synchronisiert (" + total + "/" + total + ")"; }
+    else { statusColor = COL_PENDING; statusLabel = frac + " synchronisiert"; }
+    return {
+      idx, name: g.name, platform: g.platform, size: g.size, initial: g.init, slug: g.slug, lastSync: g.lastSync,
+      coverColor: g.color, statusColor, statusLabel, pulseAnim,
+      clientsCount: total, big: !!big,
+      onOpen: () => this.openGameByIdx(idx),
+      onStatusClick: () => this.goToHistoryFor(h => h.game === g.name)
+    };
+  }
+
+  openGameByIdx(idx){
+    const g = GAMES_SRC[idx];
+    const statuses = this.clientStatusesForGame(g);
+    const rows = CLIENTS_SRC.map((c,i) => {
+      const status = statuses[i];
+      const m = statusMeta(status);
+      return {name: c.name, time: status === "synced" ? "vor 12 Min." : "vor 2 Std.", color: m.color, label: m.label, pulse: m.pulse,
+        onStatusClick: () => this.goToHistoryFor(h => h.game === g.name && h.client === c.name)};
+    });
+    this.setState({
+      selectedGameIdx: idx,
+      conflictOpen: false,
+      conflictSelected: null
+    });
+    this._gameRows = rows;
+  }
+
+  goToHistoryIdx(idx){
+    if (idx === undefined || idx === null || idx < 0) return;
+    this.setState({view: "history", historyFilter: "all", searchTerm: "", selectedGameIdx: null, selectedClientIdx: null, conflictOpen: false, expandedHistory: {[idx]: true}});
+  }
+
+  goToHistoryFor(matchFn){
+    this.goToHistoryIdx(HISTORY_SRC.findIndex(matchFn));
+  }
+
+  openClientByIdx(idx){
+    this.setState({selectedClientIdx: idx, selectedGameIdx: null});
+  }
+
+  buildSelectedClient(){
+    const idx = this.state.selectedClientIdx;
+    if (idx === null || idx === undefined) return null;
+    const c = CLIENTS_SRC[idx];
+    const meta = statusMeta(c.status);
+    const recentGames = HISTORY_SRC.map((h, hi) => ({h, hi})).filter(({h}) => h.client === c.name).slice(0, 6).map(({h, hi}) => {
+      const am = actionMeta(h.action);
+      const gm = GAMES_SRC.find(g => g.name === h.game);
+      return {game: h.game, time: h.time, actionLabel: am.label, actionColor: am.color, coverColor: gm ? gm.color : "oklch(0.4 0.02 280)", onStatusClick: () => this.goToHistoryIdx(hi)};
+    });
+    return {
+      name: c.name, os: c.os, ip: c.ip, agent: c.agent, lastSeen: c.lastSeen, storageUsed: c.storageUsed,
+      statusColor: meta.color, statusLabel: meta.label, pulseAnim: meta.pulse,
+      gamesSynced: c.gamesSynced, gamesPending: c.gamesPending,
+      recentGames
+    };
+  }
+
+  buildSelectedGame(){
+    const idx = this.state.selectedGameIdx;
+    if (idx === null || idx === undefined) return null;
+    const g = GAMES_SRC[idx];
+    return {
+      name: g.name, platform: g.platform, size: g.size, initial: g.init, coverColor: g.color, slug: g.slug,
+      hasConflict: g.status === "conflict",
+      clientRows: this._gameRows || [],
+      versions: [
+        {time: "heute 14:12", client: "GAMING-PC", size: g.size},
+        {time: "gestern 21:03", client: "Wohnzimmer-PC", size: g.size},
+        {time: "vor 3 Tagen", client: "Laptop-Lena", size: g.size},
+        {time: "vor 6 Tagen", client: "GAMING-PC", size: g.size}
+      ]
+    };
+  }
+
+  renderVals(){
+    const s = this.state;
+    const search = s.searchTerm.trim().toLowerCase();
+
+    const navItems = [
+      this.navItem("dashboard", "Dashboard", ICONS.grid),
+      this.navItem("games", "Spiele", ICONS.disc),
+      this.navItem("clients", "Clients", ICONS.monitor),
+      this.navItem("history", "History", ICONS.clock),
+      this.navItem("settings", "Einstellungen", ICONS.settings)
+    ];
+
+    let filteredGamesSrc = GAMES_SRC.filter(g => {
+      const matchSearch = !search || g.name.toLowerCase().includes(search);
+      const matchStatus = s.gameFilter === "all" || g.status === s.gameFilter;
+      return matchSearch && matchStatus;
+    });
+
+    const filterOpt = (key, label) => ({
+      label,
+      onClick: () => this.setState({gameFilter: key}),
+      active_bg: s.gameFilter === key ? ACCENT : "transparent",
+      active_border: s.gameFilter === key ? ACCENT : "oklch(0.32 0.02 280)",
+      active_color: s.gameFilter === key ? "white" : "oklch(0.65 0.02 280)"
+    });
+
+    const clientsWithMeta = CLIENTS_SRC.map((c, ci) => {
+      const meta = statusMeta(c.status);
+      return {
+        ...c, statusColor: meta.color, statusLabel: meta.label, pulseAnim: meta.pulse,
+        isSyncing: c.status === "syncing", progress: (c.progress || 0) + "%",
+        idx: ci, onOpen: () => this.openClientByIdx(ci),
+        onStatusClick: () => this.goToHistoryFor(h => h.client === c.name)
+      };
+    }).filter(c => !search || c.name.toLowerCase().includes(search));
+
+    const conflictGame = GAMES_SRC.find(g => g.status === "conflict");
+    const conflictVersions = [
+      {client: "GAMING-PC", time: "heute 14:12", playtime: "38h 12m", size: "88 MB", progressPct: "72%"},
+      {client: "Laptop-Lena", time: "vor 3 Std.", playtime: "37h 40m", size: "85 MB", progressPct: "65%"}
+    ].map((v, i) => ({
+      ...v,
+      selected: s.conflictSelected === i,
+      borderColor: s.conflictSelected === i ? ACCENT : "oklch(0.3 0.02 280)",
+      bg: s.conflictSelected === i ? "oklch(0.68 0.075 195 / 0.12)" : "oklch(0.22 0.018 280)",
+      onSelect: () => this.setState({conflictSelected: i})
+    }));
+
+    const historyFilterOpt = (key, label) => ({
+      label,
+      onClick: () => this.setState({historyFilter: key}),
+      active_bg: s.historyFilter === key ? ACCENT : "transparent",
+      active_border: s.historyFilter === key ? ACCENT : "oklch(0.32 0.02 280)",
+      active_color: s.historyFilter === key ? "white" : "oklch(0.65 0.02 280)"
+    });
+
+    let historyList = HISTORY_SRC.filter(h => {
+      if (s.historyFilter === "all") return true;
+      if (s.historyFilter === "conflicts") return h.action.includes("conflict");
+      if (s.historyFilter === "errors") return h.action === "error";
+      if (s.historyFilter === "restores") return h.action === "restore";
+      return true;
+    }).map((h, i) => {
+      const meta = actionMeta(h.action);
+      const expanded = !!s.expandedHistory[i];
+      return {
+        ...h, actionLabel: meta.label, actionColor: meta.color, actionIconHtml: {__html: meta.icon},
+        expanded, chevronRotate: expanded ? "rotate(90deg)" : "rotate(0deg)",
+        onToggle: () => this.setState({expandedHistory: {...s.expandedHistory, [i]: !expanded}})
+      };
+    });
+
+    const totalSize = "1.9 GB";
+    const onlineClients = CLIENTS_SRC.filter(c => c.status !== "offline").length;
+    const conflictCount = GAMES_SRC.filter(g => g.status === "conflict").length;
+
+    const selectedGame = this.buildSelectedGame();
+
+    const viewTitles = {
+      dashboard: ["Dashboard", "Übersicht über Spiele, Clients und Sync-Status"],
+      games: ["Spiele", "Alle erfassten Spielstände im Heimnetzwerk"],
+      clients: ["Clients", "Geräte, die SaveVault synchronisieren"],
+      history: ["History", "Verlauf aller Sync-Vorgänge"],
+      settings: ["Einstellungen", "Server, Sync und Speicherverwaltung"]
+    };
+
+    return {
+      sidebarOpen: s.sidebarOpen,
+      sidebarWidth: s.sidebarOpen ? "216px" : "76px",
+      toggleSidebar: () => this.setState({sidebarOpen: !s.sidebarOpen}),
+      collapseIconRotate: s.sidebarOpen ? "rotate(180deg)" : "rotate(0deg)",
+      chevronIcon: {__html: ICONS.chevron},
+      searchIcon: {__html: ICONS.search},
+      refreshIcon: {__html: ICONS.refresh},
+      closeIcon: {__html: ICONS.close},
+      monitorIcon: {__html: ICONS.monitor},
+      navItems,
+      viewTitle: viewTitles[s.view][0],
+      viewSubtitle: viewTitles[s.view][1],
+      searchTerm: s.searchTerm,
+      onSearchChange: e => this.setState({searchTerm: e.target.value}),
+      triggerSyncAll: () => {
+        this.setState({syncAllSpinning: true, toast: "Synchronisierung gestartet…"});
+        setTimeout(() => this.setState({syncAllSpinning: false, toast: "Alle Clients synchronisiert."}), 1400);
+        setTimeout(() => this.setState({toast: null}), 3200);
+      },
+      syncAllSpin: s.syncAllSpinning ? "sv-spin 0.8s linear infinite" : "none",
+      toast: s.toast,
+
+      isDashboard: s.view === "dashboard",
+      isGames: s.view === "games",
+      isClients: s.view === "clients",
+      isHistory: s.view === "history",
+      isSettings: s.view === "settings",
+
+      statCards: [
+        {label: "Spiele erfasst", value: GAMES_SRC.length, suffix: "Titel", color: "oklch(0.94 0.006 280)"},
+        {label: "Verbundene Clients", value: CLIENTS_SRC.length, suffix: "registriert", color: "oklch(0.94 0.006 280)"},
+        {label: "Speicher gesamt", value: totalSize, suffix: "", color: "oklch(0.94 0.006 280)"},
+        {label: "Aktive Konflikte", value: conflictCount, suffix: conflictCount === 1 ? "offen" : "offen", color: conflictCount ? COL_CONFLICT : COL_SYNCED}
+      ],
+      dashboardGames: GAMES_SRC.map((g, i) => ({g, i})).sort((a,b) => a.g.lastSyncMin - b.g.lastSyncMin).slice(0, 6).map(({g,i}) => this.gameCardData(g, i, false)),
+      goToGames: () => this.setView("games"),
+      goToClients: () => this.setView("clients"),
+      clients: clientsWithMeta,
+
+      statusFilters: [
+        filterOpt("all", "Alle"),
+        filterOpt("synced", "Synchronisiert"),
+        filterOpt("syncing", "Wird synchronisiert"),
+        filterOpt("conflict", "Konflikt"),
+        filterOpt("pending", "Ausstehend"),
+        filterOpt("offline", "Offline"),
+        filterOpt("error", "Fehler")
+      ],
+      filteredGames: filteredGamesSrc.map(g => this.gameCardData(g, GAMES_SRC.indexOf(g), true)),
+      noGamesFound: filteredGamesSrc.length === 0,
+
+      historyFilters: [
+        historyFilterOpt("all", "Alle"),
+        historyFilterOpt("conflicts", "Konflikte"),
+        historyFilterOpt("errors", "Fehler"),
+        historyFilterOpt("restores", "Wiederherstellungen")
+      ],
+      filteredHistory: historyList,
+
+      selectedGame,
+      selectedClient: this.buildSelectedClient(),
+      openClient: idx => this.openClientByIdx(idx),
+      closeClient: () => this.setState({selectedClientIdx: null}),
+      openGame: idx => this.openGameByIdx(idx),
+      closeGame: () => this.setState({selectedGameIdx: null}),
+      openConflict: () => this.setState({conflictOpen: true, conflictSelected: null}),
+      closeConflict: () => this.setState({conflictOpen: false}),
+      conflictOpen: s.conflictOpen,
+      conflictVersions,
+      keepBoth: () => { this.setState({conflictOpen: false, selectedGameIdx: null, toast: "Beide Versionen behalten und umbenannt."}); setTimeout(()=>this.setState({toast:null}),3000); },
+      resolveConflict: () => {
+        if (s.conflictSelected === null) return;
+        this.setState({conflictOpen: false, selectedGameIdx: null, toast: "Konflikt gelöst — Version übernommen."});
+        setTimeout(()=>this.setState({toast:null}),3000);
+      },
+      resolveBg: s.conflictSelected === null ? "oklch(0.4 0.02 280)" : ACCENT,
+      resolveOpacity: s.conflictSelected === null ? 0.6 : 1,
+
+      syncInterval: s.syncInterval,
+      onIntervalChange: e => this.setState({syncInterval: Number(e.target.value)}),
+      retention: s.retention,
+      onRetentionChange: e => this.setState({retention: Number(e.target.value)}),
+      autoConflict: s.autoConflict,
+      autoConflictBg: s.autoConflict ? ACCENT : "oklch(0.32 0.02 280)",
+      autoConflictKnob: s.autoConflict ? "19px" : "3px",
+      toggleAutoConflict: () => this.setState({autoConflict: !s.autoConflict}),
+      notify: s.notify,
+      notifyBg: s.notify ? ACCENT : "oklch(0.32 0.02 280)",
+      notifyKnob: s.notify ? "19px" : "3px",
+      toggleNotify: () => this.setState({notify: !s.notify})
+    };
+  }
+}
+
+</script>
+</body>
+</html>
