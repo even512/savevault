@@ -73,6 +73,15 @@ public sealed class GameRecord
     public int CurrentFileCount { get; set; }
     public long CurrentTotalBytes { get; set; }
 
+    /// <summary>
+    /// Angemeldete Nicht-Konflikt-Revisionen, deren Datei-Inhalte (Blobs) noch NICHT vollständig
+    /// hochgeladen sind – der Head (<see cref="CurrentRevision"/>) wurde für sie also noch nicht
+    /// vorgerückt. Sobald der letzte fehlende Blob eintrifft, werden sie (entlang der Kette)
+    /// finalisiert und aus dieser Liste entfernt. So läuft der Head nie einem unvollständigen
+    /// Save-Set voraus.
+    /// </summary>
+    public List<long> PendingRevisions { get; set; } = new();
+
     /// <summary>True, wenn dieser Bucket durch „Beide behalten (umbenennen)" entstand.</summary>
     public bool IsFork { get; set; }
 }

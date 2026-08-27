@@ -379,6 +379,16 @@ public sealed class VaultStore
             WriteRevision(g, rev);
             g.LastRevisionNumber = number;
 
+            // Fehlende Blobs VOR der Head-/Metadaten-Entscheidung bestimmen: nur wenn alles schon
+            // vorliegt (z.B. Dedup), darf der Head sofort vorrücken. Fehlt etwas, bleibt der Head
+            // stehen, bis der letzte Blob per Content-PUT eintrifft (siehe TryFinalizePendingAsync).
+            var gameKey = ToGameKey(g);
+            var missing = req.Manifest.Entries
+                .Select(e => e.Sha256)
+                .Where(sha => !ContentExists(gameKey, sha))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             if (req.IsConflict)
             {
                 RegisterConflict(g, req.Device.Id, number, cur);
@@ -398,37 +408,81 @@ public sealed class VaultStore
                     Detail = "Konflikt-Revision hochgeladen (nichts überschrieben)",
                 });
             }
+            else if (missing.Count == 0)
+            {
+                // Alle Blobs bereits vorhanden → sofort finalisieren (Head rückt vor, "upload"-Activity).
+                FinalizeUpload(g, rev);
+            }
             else
             {
-                g.CurrentRevision = number;
-                g.CurrentFileCount = req.Manifest.FileCount;
-                g.CurrentTotalBytes = req.Manifest.TotalBytes;
-                SetDeviceGameState(req.Device.Id, g.KeyValue, number, SyncStatus.Synced);
-                AddActivity(new ActivityEntry
-                {
-                    Id = Secrets.NewId(),
-                    TimestampUtc = DateTime.UtcNow,
-                    Action = "upload",
-                    GameKeyValue = g.KeyValue,
-                    GameDisplayName = g.DisplayName,
-                    DeviceId = req.Device.Id,
-                    DeviceName = req.Device.Name,
-                    Revision = number,
-                    Bytes = req.Manifest.TotalBytes,
-                    FileCount = req.Manifest.FileCount,
-                    Detail = "Neue Version hochgeladen",
-                });
+                // Blobs fehlen noch: Head NICHT vorrücken. Revision als „pending" vormerken; das Gerät
+                // bleibt im Zustand „Syncing", die "upload"-Activity kommt erst beim Finalisieren.
+                if (!g.PendingRevisions.Contains(number))
+                    g.PendingRevisions.Add(number);
+                SetDeviceGameState(req.Device.Id, g.KeyValue, cur, SyncStatus.Syncing);
             }
-
-            var gameKey = ToGameKey(g);
-            var missing = req.Manifest.Entries
-                .Select(e => e.Sha256)
-                .Where(sha => !ContentExists(gameKey, sha))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
 
             Save();
             return new UploadRevisionResponse(number, missing);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// Finalisiert alle Pending-Revisionen eines Spiels, deren Blobs inzwischen vollständig sind –
+    /// entlang der Kette: Es wird nur eine Revision zum Head gemacht, die genau an den aktuellen
+    /// Head anschließt (<c>BasedOnRevision ?? CurrentRevision == CurrentRevision</c>) UND deren
+    /// sämtliche Manifest-Blobs vorliegen. Danach kann die nächste Pending anschließen. So rückt der
+    /// Head erst vor, wenn ein vollständiges Save-Set auf der Platte liegt. Idempotent und
+    /// nebenläufigkeitssicher (läuft unter <see cref="_gate"/>); typischerweise aufgerufen, nachdem
+    /// ein Content-Blob per PUT eintraf.
+    /// </summary>
+    public async Task TryFinalizePendingAsync(GameKey game, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var g = FindGame(game.Value);
+            if (g is null || g.PendingRevisions.Count == 0) return;
+
+            var gameKey = ToGameKey(g);
+            var changed = false;
+
+            bool finalizedOne;
+            do
+            {
+                finalizedOne = false;
+
+                // Kandidaten aufsteigend prüfen, damit die Kette lückenlos ab dem aktuellen Head
+                // vorrückt (die kleinste passende zuerst).
+                foreach (var pendingNumber in g.PendingRevisions.OrderBy(n => n).ToList())
+                {
+                    var rev = LoadRevision(g, pendingNumber);
+                    if (rev is null)
+                    {
+                        // Korrupt/fehlend: aus der Pending-Liste nehmen (kein Head, kein Datenverlust).
+                        g.PendingRevisions.Remove(pendingNumber);
+                        changed = true;
+                        continue;
+                    }
+
+                    // Schließt sie genau an den aktuellen Head an?
+                    if ((rev.BasedOnRevision ?? g.CurrentRevision) != g.CurrentRevision)
+                        continue;
+
+                    // Alle Blobs vorhanden?
+                    if (rev.Manifest.Entries.Any(e => !ContentExists(gameKey, e.Sha256)))
+                        continue;
+
+                    FinalizeUpload(g, rev);
+                    changed = true;
+                    finalizedOne = true;
+                    break; // Head hat sich bewegt – Schleife neu, die nächste Pending könnte folgen.
+                }
+            }
+            while (finalizedOne);
+
+            if (changed) Save();
         }
         finally { _gate.Release(); }
     }
@@ -889,6 +943,40 @@ public sealed class VaultStore
         s.BaseRevision = baseRevision;
         s.Status = status;
         s.UpdatedUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Rückt den Head eines Spiels auf eine (nun vollständige) Nicht-Konflikt-Revision vor:
+    /// entfernt sie aus <see cref="GameRecord.PendingRevisions"/>, setzt Head + Kennzahlen, meldet
+    /// das Gerät als „Synced" und schreibt die einmalige "upload"-Activity. Der Gerätename wird –
+    /// anders als beim Anmelden (<c>req.Device.Name</c>) – aus dem Index nachgeschlagen (beim
+    /// späteren Finalisieren liegt kein Request mehr vor); Fallback ist die rohe DeviceId.
+    /// Nur unter <see cref="_gate"/> aufrufen.
+    /// </summary>
+    private void FinalizeUpload(GameRecord g, Revision rev)
+    {
+        g.PendingRevisions.Remove(rev.Number);
+
+        g.CurrentRevision = rev.Number;
+        g.CurrentFileCount = rev.Manifest.FileCount;
+        g.CurrentTotalBytes = rev.Manifest.TotalBytes;
+        SetDeviceGameState(rev.DeviceId, g.KeyValue, rev.Number, SyncStatus.Synced);
+
+        var deviceName = _index.Devices.FirstOrDefault(d => d.Id == rev.DeviceId)?.Name ?? rev.DeviceId;
+        AddActivity(new ActivityEntry
+        {
+            Id = Secrets.NewId(),
+            TimestampUtc = DateTime.UtcNow,
+            Action = "upload",
+            GameKeyValue = g.KeyValue,
+            GameDisplayName = g.DisplayName,
+            DeviceId = rev.DeviceId,
+            DeviceName = deviceName,
+            Revision = rev.Number,
+            Bytes = rev.Manifest.TotalBytes,
+            FileCount = rev.Manifest.FileCount,
+            Detail = "Neue Version hochgeladen",
+        });
     }
 
     private void TouchDevice(DeviceInfo info)

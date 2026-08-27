@@ -77,6 +77,9 @@ public static class SaveVaultEndpoints
                     sizeFeature.MaxRequestBodySize = null;
 
                 await store.StoreContentAsync(KeyFrom(gameKey), hash, ctx.Request.Body, ct);
+                // Head erst nach VOLLSTÄNDIGEM Content vorrücken: nach jedem gespeicherten Blob prüfen,
+                // ob eine angemeldete Pending-Revision nun komplett ist, und sie dann finalisieren.
+                await store.TryFinalizePendingAsync(KeyFrom(gameKey), ct);
                 return Results.Ok();
             });
 
