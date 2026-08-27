@@ -1,11 +1,19 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **SCHRITTE 1–6 + NACHRÜST-BLOCK + M2-FIX KOMPLETT.** Es stehen
+**Aktueller Stand (2026-08-27):** **SCHRITTE 1–7 + NACHRÜST-BLOCK + M2-FIX KOMPLETT.** Es stehen
 Gerüst, Core, Server-API, Web-Dashboard, die drei echten Anzeige-Felder, der M2-Fix, die
-WPF-freie Client-Hintergrund-Logik (Schritt 5) und die WPF-Tray-Oberfläche (Schritt 6). Alle
-Gates grün. **Offen: Schritt 7 (xUnit-Tests) + Schritt 8 (Laufzeit-Gate `tester`).**
+WPF-freie Client-Hintergrund-Logik (Schritt 5), die WPF-Tray-Oberfläche (Schritt 6) und die
+Core-Tests (Schritt 7, **61 Tests grün**). Alle Gates grün. **NUR NOCH OFFEN: Schritt 8
+(Laufzeit-Gate `tester`).**
 Commits: 9847744 · 25b9f91 · ac4b4fc · a72eddc · 132350b (Nachrüst-Block) · 282fba4 (Schritt 5)
-· 23dec23 (M2-Fix) · Schritt-6 (dieser Commit).
+· 23dec23 (M2-Fix) · d8bc68a (Schritt 6) · Schritt-7 (dieser Commit).
+
+**ERLEDIGT — Schritt 7 (Core-Tests), selbst-geprüft grün.** 61 xUnit-Tests, keine Core-Bugs
+aufgedeckt: `SyncDeciderTests` (4 Fälle + LocalChanged/IsConflict, echte `FileManifest.Create`-
+Manifeste), `ManifestBuilderTests` (FileHasher-Determinismus, Build/Diff, Vorfilter-Äquivalenz,
+verschachtelte Ordner, RelativePath-Normalisierung), `PathSanitizerTests` (Traversal-Abwehr:
+dotdot/absolut/UNC/Präfix-Trick/Elternverzeichnis, HashKey sicherer Dateiname). `TempDirectory`-
+Helfer. `dotnet test` → 61/0/0. src/ unangetastet.
 
 **ERLEDIGT — Schritt 6 (WPF-Tray), reviewer GRÜN.** `System.Windows.Forms.NotifyIcon` (eingebaut,
 kein NuGet, `UseWindowsForms`), Status-Fenster + Einstellungen/Pairing + modaler Konflikt-Dialog
@@ -80,11 +88,7 @@ Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
   mitrechnen und vergleichen.
 
 ## Nächster Schritt
-1. **Schritt 7 (Tests, `bauer`):** xUnit auf Core (Sync-Entscheidung `SyncDecider`,
-   Konflikterkennung, Hashing/Manifest, Pfad-Sanitisierung `PathSanitizer.TryResolveWithin`).
-   Test-Projekt `tests/SaveVault.Core.Tests/` besteht schon aus dem Gerüst. Client-Services sind
-   DI-fähig — optional auch SyncEngine-Fälle testbar. Danach Gate (reviewer) + Commit.
-2. **Schritt 8 (Laufzeit-Gate, `tester`):** GROSSER Schritt, eigenes frisches Fenster einplanen.
+1. **Schritt 8 (Laufzeit-Gate, `tester`) — der Abschluss:** GROSSER Schritt, eigenes frisches Fenster einplanen.
    Alles baut/testet; Server (`docker build`/`docker compose up` ODER `dotnet run --project
    src/SaveVault.Server`, Port 8420) starten; Web-Dashboard im Browser (Chrome-Automation)
    bedienen; Sync/Konflikt/Restore mit ZWEI lokalen Save-Ordnern als zwei „Geräte" durchspielen;
