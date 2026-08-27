@@ -185,7 +185,7 @@ public sealed class VaultStore
     // Heartbeat / Geräte
     // =============================================================================
 
-    public async Task<HeartbeatResponse> HeartbeatAsync(HeartbeatRequest req, CancellationToken ct)
+    public async Task<HeartbeatResponse> HeartbeatAsync(HeartbeatRequest req, string? ipAddress, CancellationToken ct)
     {
         if (req?.Device is null)
             throw new VaultException(400, "Heartbeat ohne Geräteangabe.");
@@ -200,6 +200,11 @@ public sealed class VaultStore
             device.Os = Clip(req.Device.Os, device.Os, 60);
             device.AgentVersion = Clip(req.Device.AgentVersion, device.AgentVersion, 40);
             device.LastSeenUtc = DateTime.UtcNow;
+
+            // Serverseitig beobachtete Client-IP (nur fürs Dashboard). Leere/unbekannte Adresse
+            // toleriert – der bisherige Wert bleibt dann erhalten.
+            if (!string.IsNullOrWhiteSpace(ipAddress))
+                device.LastIpAddress = Clip(ipAddress, device.LastIpAddress ?? string.Empty, 64);
 
             foreach (var gs in req.GameStates ?? Array.Empty<DeviceGameState>())
             {
@@ -218,14 +223,57 @@ public sealed class VaultStore
         finally { _gate.Release(); }
     }
 
-    public async Task<IReadOnlyList<DeviceInfo>> ListDevicesAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<DeviceView>> ListDevicesAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return _index.Devices
-                .Select(d => new DeviceInfo(d.Id, d.Name, d.Os, d.AgentVersion, d.LastSeenUtc))
-                .ToList();
+            // Aktuelle Spielgrößen je Bucket vorab nachschlagen (spart wiederholtes Suchen).
+            var bytesByGame = _index.Games.ToDictionary(g => g.KeyValue, g => g.CurrentTotalBytes, StringComparer.Ordinal);
+
+            var list = new List<DeviceView>(_index.Devices.Count);
+            foreach (var d in _index.Devices)
+            {
+                // Ein Gerät „hält" ein Spiel lokal, sobald es dafür eine Basis-Revision > 0 meldet.
+                long storageBytes = 0;
+                var gameCount = 0;
+                foreach (var s in _index.GameStates)
+                {
+                    if (s.DeviceId != d.Id || s.BaseRevision <= 0) continue;
+                    gameCount++;
+                    if (bytesByGame.TryGetValue(s.GameKeyValue, out var bytes))
+                        storageBytes += bytes;
+                }
+
+                list.Add(new DeviceView(
+                    d.Id, d.Name, d.Os, d.AgentVersion, d.LastSeenUtc,
+                    d.LastIpAddress, storageBytes, gameCount));
+            }
+            return list;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// Alle per Heartbeat gemeldeten Per-Spiel-Geräte-Zustände als flache Liste (master-only,
+    /// fürs Spiel-Drawer des Dashboards). Der Anzeigename je Spiel wird – wie in den übrigen
+    /// Store-Methoden – aus dem Bucket-Datensatz nachgezogen.
+    /// </summary>
+    public async Task<GameStatesResponse> GetGameStatesAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var list = new List<DeviceGameStatus>(_index.GameStates.Count);
+            foreach (var s in _index.GameStates)
+            {
+                var g = FindGame(s.GameKeyValue);
+                var key = g is null
+                    ? new GameKey(s.GameKeyValue, s.GameKeyValue)
+                    : ToGameKey(g);
+                list.Add(new DeviceGameStatus(s.DeviceId, key, s.BaseRevision, s.Status));
+            }
+            return new GameStatesResponse(list);
         }
         finally { _gate.Release(); }
     }

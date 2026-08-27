@@ -112,3 +112,35 @@ public sealed record CommandListResponse(IReadOnlyList<Command> Commands);
 
 /// <summary>Generische Bestätigung (z. B. Befehl als erledigt markiert).</summary>
 public sealed record AckResponse(bool Accepted);
+
+// --- Dashboard-Übersichten (master-only) -------------------------------------------
+
+/// <summary>
+/// Anzeigedaten eines Geräts fürs Dashboard (master-only). <see cref="IpAddress"/> und
+/// <see cref="StorageBytes"/> sind serverseitig abgeleitet – nie vom Client gemeldet
+/// (die Selbstauskunft steckt in <see cref="DeviceInfo"/>). <see cref="StorageBytes"/> ist
+/// die Summe der aktuellen Spielgrößen, die dieses Gerät lokal hält, <see cref="GameCount"/>
+/// die Anzahl ebendieser Spiele.
+/// </summary>
+public sealed record DeviceView(
+    string Id,
+    string Name,
+    string Os,
+    string AgentVersion,
+    DateTime LastSeenUtc,
+    string? IpAddress,
+    long StorageBytes,
+    int GameCount);
+
+/// <summary>
+/// Per-Spiel-Geräte-Status (master-only, fürs Spiel-Drawer): welche Basis-Revision ein
+/// Gerät zuletzt für ein Spiel meldete und mit welchem <see cref="SyncStatus"/>.
+/// </summary>
+public sealed record DeviceGameStatus(
+    string DeviceId,
+    GameKey Game,
+    long BaseRevision,
+    SyncStatus Status);
+
+/// <summary>Flache Liste aller gemeldeten Per-Spiel-Geräte-Zustände.</summary>
+public sealed record GameStatesResponse(IReadOnlyList<DeviceGameStatus> States);

@@ -29,4 +29,8 @@ public static class ApiRoutes
     // Befehls-Warteschlange (Client pollt)
     public static string Commands(string deviceIdEncoded) => $"{Base}/commands?deviceId={deviceIdEncoded}";
     public static string AckCommand(string commandIdEncoded) => $"{Base}/commands/{commandIdEncoded}/ack";
+
+    // Dashboard-Übersichten (master-only; nicht Teil des Client-Vertrags)
+    public const string GameStates = Base + "/game-states";
+    public const string ServerInfo = Base + "/server-info";
 }

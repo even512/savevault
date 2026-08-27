@@ -1,23 +1,26 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** **SERVER-STRECKE (Schritte 1–4) KOMPLETT — alle Gates grün.**
-Schritt 4 (Web-Dashboard) Gate: **reviewer GRÜN + security-auditor GRÜN**. Damit stehen
-Gerüst, Core, Server-API und Web-Dashboard. **Staffel-Halt zur Client-Strecke (5–8).**
-Commits: 9847744 (Gerüst+Core+Server) · 25b9f91 (Schritt-3-Nachbesserung) · ac4b4fc (Dashboard).
+**Aktueller Stand (2026-08-27):** **SERVER-STRECKE (Schritte 1–4) + NACHRÜST-BLOCK KOMPLETT —
+alle Gates grün.** Damit stehen Gerüst, Core, Server-API, Web-Dashboard und die drei echten
+Anzeige-Felder. **Staffel-Halt zur Client-Strecke (5–8).**
+Commits: 9847744 (Gerüst+Core+Server) · 25b9f91 (Schritt-3-Nachbesserung) · ac4b4fc (Dashboard)
+· a72eddc (Nachrüst-Entscheidung) · Nachrüst-Block (dieser Commit).
 
-**Entschieden (Tim): ALLE DREI Anzeige-Felder nachrüsten** — eigener Nachrüst-Block auf der
-Server-Strecke VOR Schritt 5, im nächsten frischen Fenster. Größtenteils Server+Dashboard
-(Server kennt die Daten selbst), kaum/kein Client-Beitrag:
-- **Speicher je Client + IP** (Spec Z.121): `DeviceInfo` (Core) um per-Gerät-Bytes + IP
-  erweitern; Server erfasst Client-IP beim Heartbeat (`RemoteIpAddress`), rechnet per-Gerät-
-  Bytes aus den Revisionen; Dashboard zeigt sie (Client-Karte + Drawer).
-- **per-Spiel-Geräte-Status**: neuer Server-Endpunkt (z.B. `GET /api/game-states`), der die
-  schon per Heartbeat gemeldeten `DeviceGameState` (echter SyncStatus) je Spiel ausliefert;
-  Dashboard nutzt ihn im Spiel-Drawer statt der Ableitung aus der Revisionshistorie.
-- **Server-Info** (Container/Port/Storage-Pfad): `/health` oder `/api/server-info` erweitern;
-  Dashboard-Einstellungen zeigen echte Werte statt Host/Protokoll.
-- Nachrüst-Block: bauer (Core+Server) → oberflaechen-bauer (Dashboard) → right-sized Re-Gate
-  (reviewer + security-auditor: neue Fremddaten-Felder XSS-sicher ausgeben).
+**ERLEDIGT — ALLE DREI Anzeige-Felder nachgerüstet** (Re-Gate reviewer GRÜN + security-auditor
+GRÜN, Build 0/0, `node --check` ok). Umsetzung bewusst über NEUE DTOs statt `DeviceInfo` zu
+erweitern (Client-Vertrag bleibt stabil):
+- **Speicher je Client + IP** (Spec Z.121): neues `DeviceView`-DTO
+  (`id,name,os,agentVersion,lastSeenUtc,ipAddress,storageBytes,gameCount`); `/api/devices`
+  liefert es jetzt. IP serverseitig aus `ctx.Connection.RemoteIpAddress` am Heartbeat
+  (`DeviceRecord.LastIpAddress`, nicht client-gemeldet, kein `X-Forwarded-For`). StorageBytes/
+  GameCount = Summe/Anzahl über Spiele mit `BaseRevision > 0`. Dashboard: Client-Karte + Drawer.
+- **per-Spiel-Geräte-Status**: `GET /api/game-states` (master-only) → `GameStatesResponse`
+  (`states[]` mit `deviceId,game,baseRevision,status`); Spiel-Drawer nutzt echten Status statt
+  Ableitung aus Revisionshistorie.
+- **Server-Info**: `GET /api/server-info` (master-only) → `port,dataRoot,configured,container,
+  version` (kein Secret); Einstellungen zeigen echte Werte.
+- Berührt: `ApiContracts.cs`, `ApiRoutes.cs`, `ServerIndex.cs`, `VaultStore.cs`,
+  `SaveVaultEndpoints.cs`, `wwwroot/app.js`. `DeviceInfo.cs` unverändert.
 
 **Erledigt Schritt 3-Nachbesserung:** KeepBoth-Konvergenz-Befehle; Anzeigename/Store aus
 Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
@@ -34,9 +37,13 @@ Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
   statt `Pending` bis zum nächsten Client-Heartbeat (kein Konvergenz-/Datenproblem).
 
 ## Nächster Schritt
-Schritt 4 (Web-Dashboard, `oberflaechen-bauer`, dark-SPA nach `design-reference/`-Mockup,
-konsumiert die API) + XSS-Gate. Großer Schritt — VOR Start frischen 5h-Stand von Tim holen
-(budgetverwalter: passt plausibel in ein frisches Fenster, aber ohne großen Puffer).
+**CLIENT-STRECKE, Schritt 5 (Client-Hintergrund, `bauer`):** Watcher + Entprellung + Rescan,
+`ludusavi`-Erkennung, Sync-Steuerung über Core, Befehle abholen/ausführen (Restore/Resolve),
+Zustandsmeldung (Heartbeat). Danach Schritt 6 (WPF-Tray, `oberflaechen-bauer`), Schritt 7
+(xUnit-Tests auf Core), Schritt 8 (Laufzeit-Gate `tester`). Client-Strecke ist groß (WPF-GUI +
+echte Sync-Demo) — VOR Start Budget prüfen (Woche zuletzt 62 %); ggf. Schritt 5 und 6 in
+getrennten Fenstern. Am Laufzeit-Gate: echtes `ludusavi --api`-Schema gegen die Binary
+bestätigen (in `Ludusavi/LudusaviDtos.cs` als „schema-to-verify" markiert).
 
 ---
 

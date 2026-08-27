@@ -41,6 +41,13 @@ public sealed class DeviceRecord
     public DateTime LastSeenUtc { get; set; }
     public DateTime PairedUtc { get; set; }
 
+    /// <summary>
+    /// Zuletzt beim Heartbeat serverseitig beobachtete Client-IP (nur fürs Dashboard, master-only).
+    /// Serverseitig abgeleitet aus der Verbindung – nie vom Client gemeldet. Null, solange noch
+    /// kein Heartbeat einging oder die Adresse nicht ermittelbar war.
+    /// </summary>
+    public string? LastIpAddress { get; set; }
+
     /// <summary>Hex-SHA-256 des Geräte-Tokens (nie der Token selbst).</summary>
     public string TokenHash { get; set; } = string.Empty;
 }

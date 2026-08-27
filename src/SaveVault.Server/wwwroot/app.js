@@ -78,7 +78,7 @@
     search: "",
     gameFilter: "all",
     historyFilter: "all",
-    data: { games: [], devices: [], conflicts: [], activity: [], pairing: null },
+    data: { games: [], devices: [], conflicts: [], activity: [], pairing: null, gameStates: [], serverInfo: null },
     revCache: {},          // gameKeyValue -> RevisionInfo[]
     expandedHistory: {},
     // lokale (nicht server-persistente) Einstellungen – als Anzeige/Spielerei
@@ -178,6 +178,15 @@
     const d = state.data.devices.find(x => x.id === id);
     return d ? d.name : (id || "Unbekanntes Gerät");
   }
+  // IP-Adresse eines Geräts (Fremddaten -> nur via textContent verwenden). Null -> „—".
+  function deviceIp(device) {
+    return device && device.ipAddress ? device.ipAddress : "—";
+  }
+  // Anzahl erfasster Spiele pro Gerät: echter Serverwert, sonst aus dem Verlauf abgeleitet.
+  function deviceGameCount(device) {
+    if (device && device.gameCount != null) return String(device.gameCount);
+    return String(distinctGamesForDevice(device ? device.id : null));
+  }
   function gameDisplay(game) {
     if (!game) return "Unbekanntes Spiel";
     return game.displayName || game.value || "Unbekanntes Spiel";
@@ -223,21 +232,33 @@
     return payload;
   }
 
+  // Optionaler master-only-Aufruf: schlägt er fehl (z. B. 401/403 oder älterer
+  // Server ohne diesen Endpunkt), bleibt es beim leeren Fallback statt Absturz.
+  async function apiTolerant(path) {
+    try { return await api(path); } catch (_) { return null; }
+  }
+
   async function loadAll() {
     // /activity und /devices sind master-only; schlägt eines mit 401/403 fehl,
     // ist der Token kein Master-Token -> zurück zum Login.
-    const [games, devices, conflicts, activity, pairing] = await Promise.all([
+    // /game-states und /server-info sind ebenfalls master-only, aber optional:
+    // fehlt ein Ergebnis, zeigt das Dashboard einfach leere/geerbte Werte.
+    const [games, devices, conflicts, activity, pairing, gameStates, serverInfo] = await Promise.all([
       api("/api/games"),
       api("/api/devices"),
       api("/api/conflicts"),
       api("/api/activity?limit=200"),
-      api("/api/pairing-code")
+      api("/api/pairing-code"),
+      apiTolerant("/api/game-states"),
+      apiTolerant("/api/server-info")
     ]);
     state.data.games = (games && games.games) || [];
     state.data.devices = Array.isArray(devices) ? devices : [];
     state.data.conflicts = (conflicts && conflicts.conflicts) || [];
     state.data.activity = Array.isArray(activity) ? activity : [];
     state.data.pairing = pairing || null;
+    state.data.gameStates = (gameStates && gameStates.states) || [];
+    state.data.serverInfo = serverInfo || null;
     state.revCache = {};
     state.loaded = true;
   }
@@ -605,7 +626,7 @@
     head.appendChild(avatar);
     head.appendChild(el("div", null, [
       el("div", { class: "client-card__name", text: device.name }),
-      el("div", { class: "client-card__sub", text: device.os || "unbekanntes System" })
+      el("div", { class: "client-card__sub", text: (device.os || "unbekanntes System") + " · " + deviceIp(device) })
     ]));
     card.appendChild(head);
 
@@ -615,8 +636,8 @@
     const grid = el("div", { class: "client-card__grid" });
     grid.appendChild(kv("Agent", device.agentVersion || "—"));
     grid.appendChild(kv("Zuletzt gesehen", relTime(device.lastSeenUtc)));
-    grid.appendChild(kv("System", device.os || "—"));
-    grid.appendChild(kv("Spiele aktiv", String(distinctGamesForDevice(device.id))));
+    grid.appendChild(kv("Speicher", formatBytes(device.storageBytes)));
+    grid.appendChild(kv("Spiele", deviceGameCount(device)));
     card.appendChild(grid);
     return card;
   }
@@ -680,15 +701,21 @@
     const grid = el("div", { class: "settings-grid" });
     const ls = state.localSettings;
 
-    // Server-Info
+    // Server-Info (echte Werte aus /api/server-info; alle Felder via textContent).
+    const info = state.data.serverInfo;
     const server = el("div", { class: "settings-card" });
     server.appendChild(el("div", { class: "settings-card__title", text: "Server" }));
-    server.appendChild(el("div", { class: "settings-card__sub", text: "Verbindung zum SaveVault-Dienst" }));
+    server.appendChild(el("div", { class: "settings-card__sub",
+      text: info && info.version ? ("SaveVault-Server · Version " + info.version) : "Verbindung zum SaveVault-Dienst" }));
     const sl = el("div", { class: "settings-list" });
-    sl.appendChild(settingsRow("Host", location.host || "—"));
-    sl.appendChild(settingsRow("Protokoll", location.protocol.replace(":", "")));
-    const statusVal = el("span", { class: "settings-row__val status--synced" },
-      [el("span", { class: "dot dot--synced" }), document.createTextNode(" Online")]);
+    sl.appendChild(settingsRow("Container", info && info.container ? info.container : "—"));
+    sl.appendChild(settingsRow("Port", info && info.port != null ? String(info.port) : "—"));
+    sl.appendChild(settingsRow("Storage-Pfad", info && info.dataRoot ? info.dataRoot : "—"));
+    const configured = info ? !!info.configured : false;
+    const statusCls = configured ? "synced" : "offline";
+    const statusText = configured ? "Eingerichtet" : "Nicht eingerichtet";
+    const statusVal = el("span", { class: "settings-row__val status--" + statusCls },
+      [el("span", { class: "dot dot--" + statusCls }), document.createTextNode(" " + statusText)]);
     statusVal.style.display = "inline-flex"; statusVal.style.alignItems = "center"; statusVal.style.gap = "6px";
     sl.appendChild(el("div", { class: "settings-row" }, [el("span", { class: "settings-row__key", text: "Status" }), statusVal]));
     server.appendChild(sl);
@@ -855,31 +882,26 @@
       return;
     }
 
-    // Clients-Zustände aus Revisionen + Konflikt ableiten (kein per-Gerät-Status-Endpunkt vorhanden).
+    // Per-Gerät-Zustand aus dem echten /api/game-states-Endpunkt (statt aus der
+    // Revisionshistorie abgeleitet). Die Revisionen liefern zusätzlich den
+    // Zeitpunkt der letzten Übertragung je Gerät für die Unterzeile.
     clear(clientsBody);
     const latestByDevice = {};
     for (const r of revisions) {
       if (!latestByDevice[r.deviceId] || r.number > latestByDevice[r.deviceId].number) latestByDevice[r.deviceId] = r;
     }
-    const conflictDevices = new Set();
-    if (conflict) for (const p of (conflict.participants || [])) conflictDevices.add(p.deviceId);
-
-    const devIds = Object.keys(latestByDevice);
-    if (devIds.length === 0) {
+    const gameStates = (state.data.gameStates || []).filter(s => s.game && s.game.value === keyValue);
+    if (gameStates.length === 0) {
       clientsBody.appendChild(el("div", { class: "empty", text: "Noch kein Client hat dieses Spiel synchronisiert." }));
     } else {
-      for (const id of devIds) {
-        const r = latestByDevice[id];
-        let statusKey;
-        if (conflictDevices.has(id)) statusKey = "Conflict";
-        else if (r.number >= summary.currentRevision) statusKey = "Synced";
-        else statusKey = "Pending";
+      for (const gs of gameStates) {
+        const r = latestByDevice[gs.deviceId];
         const item = el("div", { class: "drawer-item" });
         item.appendChild(el("div", null, [
-          el("div", { class: "drawer-item__name", text: deviceName(id) }),
-          el("div", { class: "drawer-item__sub", text: "zuletzt " + relTime(r.timestampUtc) })
+          el("div", { class: "drawer-item__name", text: deviceName(gs.deviceId) }),
+          el("div", { class: "drawer-item__sub", text: r ? ("zuletzt " + relTime(r.timestampUtc)) : "noch nicht übertragen" })
         ]));
-        item.appendChild(statusLine(statusKey));
+        item.appendChild(statusLine(gs.status));
         clientsBody.appendChild(item);
       }
     }
@@ -985,7 +1007,7 @@
       avatar,
       el("div", null, [
         el("div", { class: "drawer__title", text: device.name }),
-        el("div", { class: "drawer__sub", text: (device.os || "unbekanntes System") })
+        el("div", { class: "drawer__sub", text: (device.os || "unbekanntes System") + " · " + deviceIp(device) })
       ])
     ]);
     const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: closeOverlay } });
@@ -1000,8 +1022,8 @@
     const info = el("div", { class: "client-info-grid" });
     info.appendChild(kv("Agent", device.agentVersion || "—"));
     info.appendChild(kv("Zuletzt gesehen", relTime(device.lastSeenUtc)));
-    info.appendChild(kv("System", device.os || "—"));
-    info.appendChild(kv("Spiele aktiv", String(distinctGamesForDevice(device.id))));
+    info.appendChild(kv("Speicher", formatBytes(device.storageBytes)));
+    info.appendChild(kv("Spiele", deviceGameCount(device)));
     drawer.appendChild(info);
 
     drawer.appendChild(el("div", { class: "section-label", text: "Zuletzt synchronisierte Spiele" }));

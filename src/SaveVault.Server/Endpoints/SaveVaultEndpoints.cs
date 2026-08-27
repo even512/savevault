@@ -37,7 +37,8 @@ public static class SaveVaultEndpoints
                 return ApiResults.Error(400, "Heartbeat ohne Geräteangabe.");
             if (!principal.CanActAsDevice(req.Device.Id))
                 return ApiResults.Error(403, "Token gehört zu einem anderen Gerät.");
-            return Results.Json(await store.HeartbeatAsync(req, ct));
+            // Client-IP serverseitig aus der Verbindung ableiten (nie vom Client gemeldet).
+            return Results.Json(await store.HeartbeatAsync(req, ClientIp(ctx), ct));
         });
 
         // --- Spiele & Revisionen ----------------------------------------------------
@@ -144,6 +145,45 @@ public static class SaveVaultEndpoints
             var (code, updated) = await store.RegeneratePairingCodeAsync(ct);
             return Results.Json(new { code, updatedUtc = updated });
         });
+
+        // Per-Spiel-Geräte-Status (fürs Spiel-Drawer). Master-only wie /devices und /activity.
+        api.MapGet("/game-states", async (HttpContext ctx, VaultStore store, CancellationToken ct) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+            return Results.Json(await store.GetGameStatesAsync(ct));
+        });
+
+        // Server-Info für die Einstellungen (echte Werte aus Config + Umgebung). Master-only.
+        // Gibt bewusst KEIN Secret aus (nie das Master-Token).
+        api.MapGet("/server-info", (HttpContext ctx, ServerConfig cfg) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+            return Results.Json(new
+            {
+                port = cfg.Port,
+                dataRoot = cfg.DataRoot,
+                configured = cfg.IsConfigured,
+                container = Environment.MachineName,
+                version = ServerVersion,
+            });
+        });
+    }
+
+    /// <summary>Assembly-Version der Server-Assembly (robust; Fallback „?", falls nicht ermittelbar).</summary>
+    private static readonly string ServerVersion =
+        typeof(SaveVaultEndpoints).Assembly.GetName().Version?.ToString() ?? "?";
+
+    /// <summary>
+    /// Ermittelt die Client-IP aus der Verbindung. IPv4-mapped-IPv6-Adressen (<c>::ffff:…</c>)
+    /// werden auf ihre IPv4-Form reduziert. Null, wenn keine Adresse vorliegt.
+    /// </summary>
+    private static string? ClientIp(HttpContext ctx)
+    {
+        var ip = ctx.Connection.RemoteIpAddress;
+        if (ip is null) return null;
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+        return ip.ToString();
     }
 
     private static IResult AdminOnly()
