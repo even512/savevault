@@ -1,12 +1,46 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
-**Aktueller Stand (2026-08-27):** 5h-Fenster frisch (0 %), Woche 46 %. Core-Gate
-GRÜN abgeschlossen (reviewer + security-auditor + inspekteur + budgetverwalter, alle
-grün). Schritt 3 (Server-API) läuft gerade beim `bauer`. Budget-Vorgabe: Schritt 3 im
-selben 5h-Fenster, danach **Halt vor Schritt 4** (Web-Dashboard), frischer `/usage`.
-Zwei niedrige Core-Härtungen des security-auditors gehen im Schritt-3-Bau mit:
-(1) Options-Terminator `--` in `LudusaviClient` vor dem Positionsparameter;
-(2) try/catch in `PathSanitizer.TryResolveWithin` → `false` statt Exception.
+**Aktueller Stand (2026-08-27):** **HALT an der Schritt-3-Grenze** (Tim-Entscheidung).
+Budget bei Halt: **5h = 80 % (Reset in ~4h16m), Woche = 53 %.** Core-Gate GRÜN
+abgeschlossen. Schritt 3 (Server-API) gebaut + HTTP-selbstverifiziert + **committet**
+(9847744, Gerüst+Core+Server).
+
+**Fahrplan (Tim, Option 2):** Nichts mehr im laufenden 5h-Fenster. Nach dem 5h-Reset
+frischen `/usage` holen, dann im frischen Fenster: (1) bauer-Nachbesserungs-Lauf für die
+Punkte unten, (2) right-sized Re-Gate, (3) Schritt 4 (Web-Dashboard). Woche mit 53 % im
+Blick behalten — die Reststrecke (4–8) inkl. Laufzeit-Gate ist noch groß.
+
+**Schritt-3-Gate gelaufen — Ergebnis ROT (bedingt):** inspekteur GRÜN, security-auditor
+GRÜN (6 Härtungen), budgetverwalter „Halt vor Schritt 4", **reviewer ROT (1 blockierender
+Punkt)**. Schritt 3 ist erst abgeschlossen, wenn die Nacharbeit unten grün nachgeprüft ist.
+
+## Offene Nacharbeit an Schritt 3 (bevor Schritt 4 startet)
+**Blockierend (reviewer):**
+- KeepBoth reiht KEINEN Download-Befehl für das Verlierer-Gerät ein → Geräte divergent,
+  Akzeptanzkriterium Z.188 nicht erfüllt. `VaultStore.cs:534-608`. Klären, welcher Download
+  (Gewinner-Head oder Fork) fürs Verlierer-Gerät gewünscht ist, und einreihen.
+
+**Vor Schritt 4 relevant (Dashboard-Optik / Korrektheit):**
+- reviewer [mittel]: Anzeigename/Store-Metadaten gehen verloren (`GameKey(routeValue,
+  routeValue)`), Dashboard zeigt „the witcher 3" statt „The Witcher 3".
+  `SaveVaultEndpoints.cs:134-139` + `VaultStore.cs:172-176, 710-724`. Anzeigename beim Upload
+  mitführen oder aus Heartbeat-`GameKey` übernehmen.
+- reviewer [niedrig]: ResolveKeepDevice — Gewinner-Validierung fehlt (`winnerDevice=""` möglich).
+  `VaultStore.cs:473-490`.
+- security H1 [mittel]: Revisions-Upload prüft `CanActAsDevice(req.Device.Id)` nicht →
+  Attributions-Spoofing. `SaveVaultEndpoints.cs:53`.
+- security H3 [mittel]: `/devices`, `/activity`, `/pairing-code`, `regenerate` per `IsMaster`
+  absichern (nicht jeder Geräte-Token). `SaveVaultEndpoints.cs:111-127`.
+- security H4 [mittel]: Pairing-Code single-use ODER kurzlebig + Rate-Limit auf `/api/pair`.
+  `VaultStore.cs:110`.
+
+**Backlog (später, kein Blocker im Ein-Nutzer-LAN):**
+- security H2 (Restore/Resolve nur Master), H5 (Upload-Größenlimit), H6 (Timing-Länge Master-Token).
+
+## Nächster Schritt
+Bauer-Nachbesserungs-Lauf (blockierend + „vor Schritt 4"-Punkte gebündelt) → right-sized
+Re-Gate (reviewer auf berührte Sync-Semantik, security-auditor auf H1/H3/H4) → dann erst
+Schritt 4. Halt-/Weiterlauf-Entscheidung liegt bei Tim (Budget).
 
 ---
 
