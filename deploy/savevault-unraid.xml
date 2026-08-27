@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<!--
+  Unraid-Container-Vorlage für den SaveVault-Server.
+  VOR dem Import EINEN Wert anpassen: <Repository> auf dein Docker-Hub-Image setzen,
+  d. h. DOCKERHUB_USER durch deinen Docker-Hub-Benutzernamen ersetzen (2x: Repository + Registry).
+  Danach in Unraid: Docker → Add Container → Template: diese XML (bzw. Inhalt) verwenden.
+-->
+<Container version="2">
+  <Name>SaveVault-Server</Name>
+  <Repository>DOCKERHUB_USER/savevault-server:latest</Repository>
+  <Registry>https://hub.docker.com/r/DOCKERHUB_USER/savevault-server</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Selbst-gehostete "Cloud" für Spielstände: jedes Gerät sichert und synchronisiert seine Savegames automatisch über den Heim-Server, mit sichtbarem Status und ohne Datenverlust. Web-Dashboard + JSON-API. LAN-only (Fernzugriff über VPN).</Overview>
+  <Category>Backup: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8420]/</WebUI>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Web-UI / API Port" Target="8420" Default="8420" Mode="tcp" Description="Host-Port für Dashboard und API (Container lauscht auf 8420)." Type="Port" Display="always" Required="true" Mask="false">8420</Config>
+  <Config Name="Datenverzeichnis" Target="/data/savevault" Default="/mnt/user/appdata/savevault" Mode="rw" Description="Persistenter Speicher für Spielstände, Versionen und den Index." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/savevault</Config>
+  <Config Name="SAVEVAULT_TOKEN" Target="SAVEVAULT_TOKEN" Default="" Description="PFLICHT: Master-Token (Basis fürs Pairing). Ohne Token verweigert der Server alle API-Aufrufe. Lange Zufallszeichenkette wählen." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="SAVEVAULT_PORT" Target="SAVEVAULT_PORT" Default="8420" Description="Lauscht-Port im Container. Nur ändern, wenn der Host-Port oben ebenfalls geändert wird." Type="Variable" Display="advanced" Required="false" Mask="false">8420</Config>
+</Container>

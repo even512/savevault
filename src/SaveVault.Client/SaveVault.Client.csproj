@@ -4,6 +4,16 @@
     <ProjectReference Include="..\SaveVault.Core\SaveVault.Core.csproj" />
   </ItemGroup>
 
+  <!-- ludusavi-Binary (fuer die Spielerkennung) in die Ausgabe/Veroeffentlichung buendeln,
+       unter dem von LudusaviClient.DefaultRelativePath erwarteten Pfad tools/ludusavi/.
+       Condition: bricht Builds ohne die (gitignorierte) Binary nicht – dann einfach kein Kopieren. -->
+  <ItemGroup>
+    <None Include="..\..\tools\ludusavi\ludusavi.exe"
+          Link="tools\ludusavi\ludusavi.exe"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\tools\ludusavi\ludusavi.exe')" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>

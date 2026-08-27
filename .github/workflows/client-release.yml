@@ -1,0 +1,55 @@
+name: Client-Release bauen
+
+# Baut den Windows-WPF-Tray-Client self-contained (kein .NET auf dem Ziel-PC nötig),
+# bündelt die ludusavi-Binary (für die Spielerkennung) und hängt ein ZIP an das GitHub-Release.
+# Auslöser: ein Versions-Tag (z. B. v1.0.0) oder manuell. Der Client wird per Download+Entpacken
+# installiert; die enthaltene SaveVault.Client.exe starten.
+
+on:
+  push:
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:
+
+env:
+  LUDUSAVI_VERSION: '0.31.0'
+
+jobs:
+  build-client:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # nötig, um das Release-Asset anzuhängen
+    steps:
+      - name: Quellen auschecken
+        uses: actions/checkout@v4
+
+      - name: .NET 9 SDK einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: ludusavi beziehen (wird in den Client gebündelt)
+        shell: pwsh
+        run: |
+          $ver = "${env:LUDUSAVI_VERSION}"
+          $url = "https://github.com/mtkennerly/ludusavi/releases/download/v$ver/ludusavi-v$ver-win64.zip"
+          New-Item -ItemType Directory -Force -Path tools/ludusavi | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP/ludusavi.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP/ludusavi.zip" -DestinationPath tools/ludusavi -Force
+          if (-not (Test-Path tools/ludusavi/ludusavi.exe)) { throw "ludusavi.exe nach dem Entpacken nicht gefunden." }
+
+      - name: Client veröffentlichen (self-contained win-x64)
+        shell: pwsh
+        run: >
+          dotnet publish src/SaveVault.Client/SaveVault.Client.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=false
+          -o publish/SaveVault-Client
+
+      - name: ZIP packen
+        shell: pwsh
+        run: Compress-Archive -Path publish/SaveVault-Client/* -DestinationPath "SaveVault-Client-${{ github.ref_name }}-win-x64.zip" -Force
+
+      - name: An GitHub-Release anhängen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SaveVault-Client-*.zip
