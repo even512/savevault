@@ -5,16 +5,19 @@ Schritt 4 (Web-Dashboard) Gate: **reviewer GRÜN + security-auditor GRÜN**. Dam
 Gerüst, Core, Server-API und Web-Dashboard. **Staffel-Halt zur Client-Strecke (5–8).**
 Commits: 9847744 (Gerüst+Core+Server) · 25b9f91 (Schritt-3-Nachbesserung) · ac4b4fc (Dashboard).
 
-**Offener Entscheidungspunkt vor Schritt 5 (Anzeige-Kompromisse des Dashboards):** Drei
-Felder aus Spec/Mockup sind datengetrieben (noch) nicht darstellbar, weil das Server-Modell
-sie nicht führt — Entscheidung, ob in Schritt 5 (Client meldet sie) + kleiner Server-Nachtrag
-mitgenommen oder als MVP-Kompromiss belassen:
-- **Speicher je Client** (Spec Z.121): braucht per-Gerät-Bytes (+ ggf. IP) in `DeviceInfo` +
-  Heartbeat-Meldung durch den Client (Schritt 5).
-- **per-Spiel-Geräte-Status** (echte Syncing/Error-Zustände): braucht einen Server-Endpunkt,
-  der die schon gemeldeten `DeviceGameState` je Spiel ausliefert. Aktuell nur Synced/Pending/
-  Conflict aus Revisionshistorie ableitbar.
-- Server-Info in Einstellungen (Container/Port/Storage-Pfad): optional über `/health`-Erweiterung.
+**Entschieden (Tim): ALLE DREI Anzeige-Felder nachrüsten** — eigener Nachrüst-Block auf der
+Server-Strecke VOR Schritt 5, im nächsten frischen Fenster. Größtenteils Server+Dashboard
+(Server kennt die Daten selbst), kaum/kein Client-Beitrag:
+- **Speicher je Client + IP** (Spec Z.121): `DeviceInfo` (Core) um per-Gerät-Bytes + IP
+  erweitern; Server erfasst Client-IP beim Heartbeat (`RemoteIpAddress`), rechnet per-Gerät-
+  Bytes aus den Revisionen; Dashboard zeigt sie (Client-Karte + Drawer).
+- **per-Spiel-Geräte-Status**: neuer Server-Endpunkt (z.B. `GET /api/game-states`), der die
+  schon per Heartbeat gemeldeten `DeviceGameState` (echter SyncStatus) je Spiel ausliefert;
+  Dashboard nutzt ihn im Spiel-Drawer statt der Ableitung aus der Revisionshistorie.
+- **Server-Info** (Container/Port/Storage-Pfad): `/health` oder `/api/server-info` erweitern;
+  Dashboard-Einstellungen zeigen echte Werte statt Host/Protokoll.
+- Nachrüst-Block: bauer (Core+Server) → oberflaechen-bauer (Dashboard) → right-sized Re-Gate
+  (reviewer + security-auditor: neue Fremddaten-Felder XSS-sicher ausgeben).
 
 **Erledigt Schritt 3-Nachbesserung:** KeepBoth-Konvergenz-Befehle; Anzeigename/Store aus
 Heartbeat; ResolveKeepDevice-Validierung; H1/H3/H4.
