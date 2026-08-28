@@ -237,12 +237,20 @@ public sealed class CoverService
             if (!forceRefresh && _token is not null && DateTime.UtcNow < _tokenExpiresUtc)
                 return _token;
 
-            var url = $"{TokenUrl}?client_id={Uri.EscapeDataString(_cfg.IgdbClientId!)}"
-                    + $"&client_secret={Uri.EscapeDataString(_cfg.IgdbClientSecret!)}"
-                    + "&grant_type=client_credentials";
-
+            // WICHTIG: client_id/client_secret gehören in den POST-Body, NICHT in die Query.
+            // Der IHttpClientFactory-Default-Logger schreibt die volle Request-URI (inkl. Query)
+            // auf Info-Level – ein Secret im Query-String würde damit im Container-Log landen.
+            // Der Body wird vom Logger nicht ausgegeben.
             using var http = NewClient();
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            using var req = new HttpRequestMessage(HttpMethod.Post, TokenUrl)
+            {
+                Content = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("client_id", _cfg.IgdbClientId!),
+                    new KeyValuePair<string, string>("client_secret", _cfg.IgdbClientSecret!),
+                    new KeyValuePair<string, string>("grant_type", "client_credentials"),
+                }),
+            };
             using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 return null;
