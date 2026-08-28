@@ -8,6 +8,11 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Server-Version (wird in den Einstellungen des Dashboards angezeigt → zeigt, welches
+         Image tatsächlich läuft). -->
+    <Version>1.0.3</Version>
+    <AssemblyVersion>1.0.3</AssemblyVersion>
+    <FileVersion>1.0.3</FileVersion>
   </PropertyGroup>
 
 </Project>

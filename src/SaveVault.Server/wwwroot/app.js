@@ -770,8 +770,11 @@
       text: info && info.version ? ("SaveVault-Server · Version " + info.version) : "Verbindung zum SaveVault-Dienst" }));
     const sl = el("div", { class: "settings-list" });
     sl.appendChild(settingsRow("Container", info && info.container ? info.container : "—"));
+    sl.appendChild(settingsRow("Server-Version", info && info.version ? info.version : "—"));
     sl.appendChild(settingsRow("Port", info && info.port != null ? String(info.port) : "—"));
     sl.appendChild(settingsRow("Storage-Pfad", info && info.dataRoot ? info.dataRoot : "—"));
+    sl.appendChild(settingsRow("Box-Art (IGDB)",
+      info && typeof info.coverEnabled === "boolean" ? (info.coverEnabled ? "aktiv" : "inaktiv (keine IGDB-Zugangsdaten)") : "—"));
     const configured = info ? !!info.configured : false;
     const statusCls = configured ? "synced" : "offline";
     const statusText = configured ? "Eingerichtet" : "Nicht eingerichtet";

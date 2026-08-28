@@ -206,6 +206,9 @@ public static class SaveVaultEndpoints
                 configured = cfg.IsConfigured,
                 container = Environment.MachineName,
                 version = ServerVersion,
+                // Ob der Server die IGDB-Zugangsdaten sieht (Box-Art aktiv). Diagnose fürs Dashboard;
+                // gibt kein Secret preis, nur den An/Aus-Zustand.
+                coverEnabled = cfg.IsCoverEnabled,
             });
         });
     }
