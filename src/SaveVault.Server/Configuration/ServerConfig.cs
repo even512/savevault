@@ -48,16 +48,31 @@ public sealed class ServerConfig
         if (string.IsNullOrWhiteSpace(data))
             data = "/data/savevault";
 
-        var igdbId = Environment.GetEnvironmentVariable("SAVEVAULT_IGDB_CLIENT_ID");
-        var igdbSecret = Environment.GetEnvironmentVariable("SAVEVAULT_IGDB_CLIENT_SECRET");
+        // Box-Art-Zugangsdaten: bevorzugt die SAVEVAULT_-präfixierten Namen, ersatzweise die
+        // unpräfixierten IGDB_-Namen – so lassen sich exakt dieselben Zugangsdaten wie im
+        // dashsharp-Modul „game-releases" (dort IGDB_CLIENT_ID/SECRET) ohne Umbenennen nutzen.
+        var igdbId = FirstNonEmptyEnv("SAVEVAULT_IGDB_CLIENT_ID", "IGDB_CLIENT_ID");
+        var igdbSecret = FirstNonEmptyEnv("SAVEVAULT_IGDB_CLIENT_SECRET", "IGDB_CLIENT_SECRET");
 
         return new ServerConfig
         {
             MasterToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
             Port = port,
             DataRoot = data.Trim(),
-            IgdbClientId = string.IsNullOrWhiteSpace(igdbId) ? null : igdbId.Trim(),
-            IgdbClientSecret = string.IsNullOrWhiteSpace(igdbSecret) ? null : igdbSecret.Trim(),
+            IgdbClientId = igdbId,
+            IgdbClientSecret = igdbSecret,
         };
+    }
+
+    /// <summary>Erste nicht-leere Umgebungsvariable aus der Namensliste (getrimmt), sonst null.</summary>
+    private static string? FirstNonEmptyEnv(params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+        return null;
     }
 }
