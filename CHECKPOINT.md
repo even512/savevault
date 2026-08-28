@@ -1,5 +1,23 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-28)
 
+**v1.0.4 — Übersprungene Spiele bleiben im Client sichtbar (manuell zuordnen).** Bisher
+tauchten rausgefallene Spiele (mehrdeutiger/kollabierter Ordner, zu großes Save-Set) nur einmalig
+im Hinweis-Dialog nach der Erkennung auf. Jetzt bleiben sie dauerhaft als Zeile in der Status-
+Fläche, amber markiert („Nicht automatisch erfasst" + Grund) mit eigenem Button „Ordner zuordnen".
+- Erkennung liefert strukturierte Skips: neue Typen `SkipReason`/`SkippedGame`; `DiscoveryResult.
+  Skipped` (die alten `SkippedAmbiguous`/`SkippedTooLarge` bleiben als abgeleitete Anzeige-Helfer,
+  Dialog unverändert).
+- `AgentState`: `GameStatusView.IsSkipped/SkipReason`; neue `ReplaceSkipped(...)` (ersetzt die
+  Skip-Menge, entfernt veraltete Skips, lässt echt verwaltete Spiele unangetastet); `EnsureGame`/
+  `SetStatus` löschen den Skip-Marker (echter Zustand hat Vorrang). `ClientAgent.RefreshDiscovery`
+  füllt die Skips nur bei erfolgreicher Erkennung (kein Löschen bei ludusavi-Aussetzer).
+- GUI: `GameRow` zeigt Skip-Zeile + „Ordner zuordnen"; `OnAssignFolderClick` ordnet den gewählten
+  Ordner GENAU diesem Spiel zu (`AddManualFolder(row.Game, path)`) → danach regulär synchronisiert.
+  Neuer Amber-Brush `StatusVisuals.Attention`.
+- Build 0/0, 88 Tests grün. Client-Version → 1.0.4. (Reine Client-Änderung; Server unberührt.)
+
+
+
 **v1.0.3 — Server-Export + Box-Art (IGDB).** Zwei neue Features (Delta-Spec
 `specs/savevault-change-export-boxart.md`):
 - **Revision-Export als ZIP** (master-only): `GET /api/games/{key}/revisions/{n}/export`

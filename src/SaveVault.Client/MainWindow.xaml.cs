@@ -213,6 +213,40 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnAssignFolderClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: GameRow row })
+            return;
+
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = $"Save-Ordner für »{row.DisplayName}« auswählen",
+            Multiselect = false,
+        };
+
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        var path = dialog.FolderName;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            Info("Der gewählte Ordner ist ungültig.");
+            return;
+        }
+
+        try
+        {
+            // Ordner GENAU diesem (übersprungenen) Spiel zuordnen – nicht aus dem Ordnernamen
+            // ein neues Spiel ableiten. Danach ist das Spiel regulär verwaltet.
+            _agent.AddManualFolder(row.Game, path);
+            Info($"Ordner für »{row.DisplayName}« zugeordnet. Das Spiel wird jetzt synchronisiert.");
+        }
+        catch (Exception ex)
+        {
+            Info("Ordner konnte nicht zugeordnet werden: " + ex.Message);
+        }
+    }
+
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
         var window = new SettingsWindow(_agent) { Owner = this };

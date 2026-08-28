@@ -34,6 +34,15 @@ public sealed class GameStatusView
     /// <summary>Zeitpunkt der letzten Aktion (UTC).</summary>
     public DateTime? LastActionUtc { get; internal set; }
 
+    /// <summary>
+    /// Ob dieses Spiel bei der Erkennung ÜBERSPRUNGEN wurde (Save-Ordner nicht automatisch
+    /// bestimmbar oder Save-Set zu groß) und deshalb manuell zugeordnet werden muss.
+    /// </summary>
+    public bool IsSkipped { get; internal set; }
+
+    /// <summary>Menschenlesbarer Grund/Hinweis für das Überspringen (nur wenn <see cref="IsSkipped"/>).</summary>
+    public string? SkipReason { get; internal set; }
+
     internal GameStatusView Clone() => new(Game)
     {
         Status = Status,
@@ -41,6 +50,8 @@ public sealed class GameStatusView
         FolderPath = FolderPath,
         LastAction = LastAction,
         LastActionUtc = LastActionUtc,
+        IsSkipped = IsSkipped,
+        SkipReason = SkipReason,
     };
 }
 
@@ -115,6 +126,9 @@ public sealed class AgentState
             var view = GetOrCreate(game);
             if (folder is not null) view.FolderPath = folder;
             if (baseRevision is not null) view.BaseRevision = baseRevision.Value;
+            // Ein echt verwaltetes Spiel ist nicht (mehr) „übersprungen".
+            view.IsSkipped = false;
+            view.SkipReason = null;
         }
         RaiseChanged();
     }
@@ -142,6 +156,44 @@ public sealed class AgentState
             }
             if (folder is not null) view.FolderPath = folder;
             if (baseRevision is not null) view.BaseRevision = baseRevision.Value;
+            // Ein Spiel mit echtem Sync-Status ist nicht (mehr) „übersprungen".
+            view.IsSkipped = false;
+            view.SkipReason = null;
+        }
+        RaiseChanged();
+    }
+
+    /// <summary>
+    /// Ersetzt die Menge der als „übersprungen" markierten Spiele (aus der letzten Erkennung).
+    /// Bestehende Skip-Einträge, die nicht mehr in <paramref name="skipped"/> vorkommen, werden
+    /// entfernt; echt verwaltete Spiele (mit Ordner/Status) bleiben unangetastet und werden nie
+    /// als übersprungen markiert. So bleiben rausgefallene Spiele sichtbar (mit Hinweis), ohne den
+    /// echten Zustand zu überschreiben.
+    /// </summary>
+    public void ReplaceSkipped(IReadOnlyList<(GameKey Game, string Reason)> skipped)
+    {
+        ArgumentNullException.ThrowIfNull(skipped);
+        lock (_lock)
+        {
+            var newKeys = new HashSet<string>(skipped.Select(s => s.Game.Value), StringComparer.Ordinal);
+
+            // Veraltete Skip-Einträge entfernen (nur reine Skip-Einträge, echte Spiele bleiben).
+            var stale = _games.Where(kv => kv.Value.IsSkipped && !newKeys.Contains(kv.Key))
+                              .Select(kv => kv.Key).ToList();
+            foreach (var key in stale)
+                _games.Remove(key);
+
+            foreach (var (game, reason) in skipped)
+            {
+                // Ist das Spiel inzwischen echt verwaltet (Ordner vorhanden), Vorrang für den echten
+                // Eintrag – nicht als übersprungen markieren.
+                if (_games.TryGetValue(game.Value, out var existing) && !existing.IsSkipped)
+                    continue;
+                var view = GetOrCreate(game);
+                view.IsSkipped = true;
+                view.SkipReason = reason;
+                view.FolderPath = null;
+            }
         }
         RaiseChanged();
     }

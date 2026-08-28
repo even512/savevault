@@ -71,14 +71,22 @@
                                                    TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
-                                    <Button Grid.Column="2" Content="Lösen"
-                                            Style="{StaticResource BaseButton}"
-                                            Background="{StaticResource ConflictBrush}"
-                                            Foreground="#221206" BorderThickness="0"
-                                            Padding="12,7" VerticalAlignment="Top"
-                                            Visibility="{Binding ConflictVisibility}"
-                                            Click="OnResolveConflictClick"
-                                            Tag="{Binding}" />
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                                        <Button Content="Lösen"
+                                                Style="{StaticResource BaseButton}"
+                                                Background="{StaticResource ConflictBrush}"
+                                                Foreground="#221206" BorderThickness="0"
+                                                Padding="12,7"
+                                                Visibility="{Binding ConflictVisibility}"
+                                                Click="OnResolveConflictClick"
+                                                Tag="{Binding}" />
+                                        <Button Content="Ordner zuordnen"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Padding="12,7"
+                                                Visibility="{Binding AssignFolderVisibility}"
+                                                Click="OnAssignFolderClick"
+                                                Tag="{Binding}" />
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>

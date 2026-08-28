@@ -201,7 +201,25 @@ public sealed class ClientAgent : IAsyncDisposable
             foreach (var g in result.Games)
                 State.EnsureGame(g.Game, g.SaveFolder, _stateStore.Load(g.Game).BaseRevision);
         }
+
+        // Übersprungene Spiele dauerhaft sichtbar machen (mit Hinweis „manuell zuordnen").
+        // Nur bei einer tatsächlich erfolgreichen Erkennung – ein ludusavi-Aussetzer (nicht
+        // verfügbar / Fehler) darf bestehende Skip-Marker nicht löschen.
+        if (result.LudusaviAvailable && result.Error is null)
+        {
+            State.ReplaceSkipped(result.Skipped
+                .Select(s => (GameKey.FromName(s.Name), SkipReasonText(s)))
+                .ToList());
+        }
         return result;
+
+        static string SkipReasonText(SkippedGame s) => s.Reason switch
+        {
+            SkipReason.TooLarge => s.Detail is null
+                ? "Save-Set zu groß – bitte gezielt einen kleineren Unterordner zuordnen."
+                : $"Save-Set zu groß ({s.Detail}) – bitte gezielt einen kleineren Unterordner zuordnen.",
+            _ => "Save-Ordner nicht eindeutig – bitte manuell den richtigen Save-Ordner zuordnen.",
+        };
     }
 
     /// <summary>Stößt einen Sync-Durchlauf über alle bekannten Save-Sets an.</summary>

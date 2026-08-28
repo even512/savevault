@@ -40,6 +40,13 @@ public sealed class GameRow : INotifyPropertyChanged
     private Visibility _conflictVisibility = Visibility.Collapsed;
     public Visibility ConflictVisibility { get => _conflictVisibility; private set => Set(ref _conflictVisibility, value); }
 
+    private Visibility _assignFolderVisibility = Visibility.Collapsed;
+    /// <summary>Sichtbarkeit des „Ordner zuordnen"-Buttons (nur bei übersprungenen Spielen).</summary>
+    public Visibility AssignFolderVisibility { get => _assignFolderVisibility; private set => Set(ref _assignFolderVisibility, value); }
+
+    /// <summary>Ob dieses Spiel übersprungen wurde und eine manuelle Zuordnung braucht.</summary>
+    public bool IsSkipped { get; private set; }
+
     /// <summary>Aktueller Status (für Aktionslogik, z. B. Konflikt erkennen).</summary>
     public SyncStatus Status { get; private set; }
 
@@ -48,6 +55,22 @@ public sealed class GameRow : INotifyPropertyChanged
     {
         Status = view.Status;
         DisplayName = view.DisplayName;
+        IsSkipped = view.IsSkipped;
+
+        if (view.IsSkipped)
+        {
+            // Übersprungenes Spiel: Hinweis statt Sync-Status, „Ordner zuordnen"-Aktion anbieten.
+            StatusLabel = "Nicht automatisch erfasst";
+            StatusBrush = StatusVisuals.Attention;
+            FolderText = string.IsNullOrWhiteSpace(view.SkipReason)
+                ? "Kein Ordner zugeordnet – bitte manuell zuordnen."
+                : view.SkipReason!;
+            LastActionText = "Bei der Erkennung übersprungen";
+            ConflictVisibility = Visibility.Collapsed;
+            AssignFolderVisibility = Visibility.Visible;
+            return;
+        }
+
         StatusLabel = StatusVisuals.LabelFor(view.Status);
         StatusBrush = StatusVisuals.BrushFor(view.Status);
         FolderText = string.IsNullOrWhiteSpace(view.FolderPath) ? "Kein Ordner zugeordnet" : view.FolderPath!;
@@ -59,6 +82,7 @@ public sealed class GameRow : INotifyPropertyChanged
             : (view.LastActionUtc is null ? action : $"{action} · {time}");
 
         ConflictVisibility = view.Status == SyncStatus.Conflict ? Visibility.Visible : Visibility.Collapsed;
+        AssignFolderVisibility = Visibility.Collapsed;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

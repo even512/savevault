@@ -8,31 +8,48 @@ namespace SaveVault.Client.Services;
 /// <summary>Ein von ludusavi erkanntes Spiel samt abgeleitetem lokalem Save-Ordner.</summary>
 public sealed record DiscoveredGame(GameKey Game, string SaveFolder, int FileCount, long TotalBytes);
 
+/// <summary>Warum ein erkanntes Spiel NICHT automatisch übernommen wurde.</summary>
+public enum SkipReason
+{
+    /// <summary>Der abgeleitete Save-Ordner war zu breit gefasst / mehrdeutig (Laufwerks-/
+    /// Systemwurzel oder auf eine breite Ahnen-Wurzel kollabiert, z. B. Steam-Root).</summary>
+    AmbiguousFolder,
+
+    /// <summary>Das Save-Set war zu groß (zu viele Dateien / zu viele Bytes) für den Auto-Sync.</summary>
+    TooLarge,
+}
+
+/// <summary>
+/// Ein bei der Erkennung übersprungenes Spiel: sein Anzeigename, der Grund und – optional –
+/// eine Detailangabe (z. B. Datei-/Größenangabe bei <see cref="SkipReason.TooLarge"/>).
+/// </summary>
+public sealed record SkippedGame(string Name, SkipReason Reason, string? Detail = null);
+
 /// <summary>
 /// Ergebnis einer Erkennung. <see cref="LudusaviAvailable"/> = false bedeutet: die
 /// mitgelieferte Binary fehlt (sauberer „nicht eingerichtet"-Pfad, kein Fehler).
-/// <see cref="Error"/> trägt eine Meldung, wenn der Aufruf zwar möglich war, aber
-/// scheiterte. <see cref="SkippedAmbiguous"/> nennt die Anzeigenamen der Spiele, deren
-/// abgeleiteter Save-Ordner zu breit war (Laufwerks-/Systemwurzel) und die deshalb
-/// übersprungen wurden – für eine spätere Anzeige. <see cref="SkippedTooLarge"/> nennt die
-/// Spiele, deren Save-Set zu groß war (zu viele Dateien / zu viele Bytes) und die deshalb
-/// nicht automatisch synchronisiert werden – jeweils mit Größenangabe. Beide Parameter sind
-/// optional, damit bestehende Aufrufer unverändert bleiben; <c>null</c> wird als „keine" behandelt.
+/// <see cref="Error"/> trägt eine Meldung, wenn der Aufruf zwar möglich war, aber scheiterte.
+/// <see cref="Skipped"/> nennt die Spiele, die erkannt, aber NICHT automatisch übernommen
+/// wurden (mehrdeutiger Ordner oder zu großes Save-Set) – damit die GUI sie dauerhaft mit dem
+/// Hinweis „bitte manuell zuordnen" anzeigen kann.
 /// </summary>
 public sealed record DiscoveryResult(
     bool LudusaviAvailable,
     IReadOnlyList<DiscoveredGame> Games,
     string? Error,
-    IReadOnlyList<string>? SkippedAmbiguous = null,
-    IReadOnlyList<string>? SkippedTooLarge = null)
+    IReadOnlyList<SkippedGame>? Skipped = null)
 {
-    /// <summary>Übersprungene, mehrdeutige Spiele (nie <c>null</c>).</summary>
-    public IReadOnlyList<string> SkippedAmbiguous { get; init; }
-        = SkippedAmbiguous ?? Array.Empty<string>();
+    /// <summary>Übersprungene Spiele (nie <c>null</c>).</summary>
+    public IReadOnlyList<SkippedGame> Skipped { get; init; } = Skipped ?? Array.Empty<SkippedGame>();
 
-    /// <summary>Übersprungene, zu große Spiele mit Größenangabe (nie <c>null</c>).</summary>
-    public IReadOnlyList<string> SkippedTooLarge { get; init; }
-        = SkippedTooLarge ?? Array.Empty<string>();
+    /// <summary>Anzeige-Helfer: Namen der mehrdeutig übersprungenen Spiele (für den Hinweis-Dialog).</summary>
+    public IReadOnlyList<string> SkippedAmbiguous
+        => Skipped.Where(s => s.Reason == SkipReason.AmbiguousFolder).Select(s => s.Name).ToList();
+
+    /// <summary>Anzeige-Helfer: zu große Spiele mit Größenangabe (für den Hinweis-Dialog).</summary>
+    public IReadOnlyList<string> SkippedTooLarge
+        => Skipped.Where(s => s.Reason == SkipReason.TooLarge)
+                  .Select(s => s.Detail is null ? s.Name : $"{s.Name} ({s.Detail})").ToList();
 }
 
 /// <summary>
@@ -73,8 +90,7 @@ public sealed class GameDiscovery
         }
 
         var games = new List<DiscoveredGame>();
-        var skipped = new List<string>();
-        var skippedTooLarge = new List<string>();
+        var skipped = new List<SkippedGame>();
         foreach (var (name, backup) in preview.Games)
         {
             ct.ThrowIfCancellationRequested();
@@ -90,7 +106,7 @@ public sealed class GameDiscovery
             // Scannen/Überwachen die ganze Platte umfassen und den Client blockieren.
             if (SaveFolderSafety.IsTooBroad(folder))
             {
-                skipped.Add(name);
+                skipped.Add(new SkippedGame(name, SkipReason.AmbiguousFolder));
                 continue;
             }
 
@@ -102,7 +118,8 @@ public sealed class GameDiscovery
             // blockieren und (weil der Rescan sequenziell läuft) alle weiteren Spiele ausbremsen.
             if (SaveFolderSafety.IsSaveSetTooLarge(fileCount, totalBytes))
             {
-                skippedTooLarge.Add($"{name} ({FormatFileCount(fileCount)} Dateien, {FormatBytes(totalBytes)})");
+                skipped.Add(new SkippedGame(name, SkipReason.TooLarge,
+                    $"{FormatFileCount(fileCount)} Dateien, {FormatBytes(totalBytes)}"));
                 continue;
             }
 
@@ -114,14 +131,14 @@ public sealed class GameDiscovery
             // laut ludusavi besitzt, ist er zu weit gefasst → überspringen (als mehrdeutig melden).
             if (FolderMuchLargerThanSaves(folder, fileCount, ct))
             {
-                skipped.Add(name);
+                skipped.Add(new SkippedGame(name, SkipReason.AmbiguousFolder));
                 continue;
             }
 
             games.Add(new DiscoveredGame(GameKey.FromName(name), folder, fileCount, totalBytes));
         }
 
-        return new DiscoveryResult(true, games, null, skipped, skippedTooLarge);
+        return new DiscoveryResult(true, games, null, skipped);
     }
 
     /// <summary>Dateizahl mit Tausenderpunkten (de-DE), z. B. <c>12.480</c>.</summary>
