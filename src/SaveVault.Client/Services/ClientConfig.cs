@@ -26,6 +26,14 @@ public sealed class ClientConfig
     public int SyncIntervalSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Ob der Client automatisch mit dem Windows-Login starten soll (Default <c>true</c>).
+    /// Fehlt das Feld in einer alten <c>config.json</c>, wird es als <c>true</c> gelesen –
+    /// also „Autostart an", konsistent mit der Standardentscheidung. Der tatsächliche
+    /// Eintrag im Registry-Run-Key wird über <see cref="AutostartService"/> abgeglichen.
+    /// </summary>
+    public bool AutostartEnabled { get; set; } = true;
+
+    /// <summary>
     /// Ob der Client vollständig eingerichtet ist (Server-URL + Geräte-ID + Token). Ohne
     /// das gilt der „nicht eingerichtet"-Zustand und es werden keine Netz-Schleifen gestartet.
     /// </summary>

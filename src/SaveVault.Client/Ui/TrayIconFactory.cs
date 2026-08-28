@@ -11,41 +11,60 @@ namespace SaveVault.Client.Ui;
 /// </summary>
 public static class TrayIconFactory
 {
-    /// <summary>Baut ein 32×32-Icon. Der Aufrufer hält es für die App-Lebensdauer und entsorgt es beim Beenden.</summary>
-    public static Icon Create()
+    /// <summary>
+    /// Baut ein quadratisches Icon der Kantenlänge <paramref name="size"/> (Default 32; das
+    /// Tray nutzt weiterhin 32 und bleibt damit optisch unverändert). Die Geometrie ist im
+    /// 32er-Designraster definiert und wird über <see cref="Graphics.ScaleTransform(float,float)"/>
+    /// gleichmäßig skaliert – bei 32 ist der Skalierungsfaktor 1, also pixelgleich zum
+    /// bisherigen Symbol. Der Aufrufer hält das Icon und entsorgt es beim Beenden.
+    /// </summary>
+    public static Icon Create(int size = 32)
     {
-        using var bmp = new Bitmap(32, 32, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-
-            // Abgerundete Teal-Kachel als Hintergrund.
-            using (var bg = new SolidBrush(ColorFromHex("#2A9D93")))
-            using (var path = RoundedRect(1, 1, 30, 30, 7))
-                g.FillPath(bg, path);
-
-            // Stilisierte Speicher-/Disk-Form in Weiß.
-            using (var white = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
-            {
-                // Oberer „Schieber".
-                using var top = RoundedRect(10, 7, 12, 6, 1);
-                g.FillPath(white, top);
-                // Unteres „Label"-Feld.
-                using var body = RoundedRect(9, 16, 14, 9, 2);
-                g.FillPath(white, body);
-            }
-            using (var teal = new SolidBrush(ColorFromHex("#2A9D93")))
-            {
-                g.FillRectangle(teal, 12, 18, 8, 2);
-                g.FillRectangle(teal, 12, 21, 5, 2);
-            }
-        }
-
+        using var bmp = RenderBitmap(size);
         var hicon = bmp.GetHicon();
         // Kopie erzeugen, die vom Bitmap-Handle unabhängig ist.
         using var tmp = Icon.FromHandle(hicon);
         return (Icon)tmp.Clone();
+    }
+
+    /// <summary>
+    /// Zeichnet das Symbol als 32-bit-ARGB-Bitmap der Kantenlänge <paramref name="size"/>.
+    /// Wird vom Tray (indirekt über <see cref="Create(int)"/>) und vom Einmal-Icon-Generator
+    /// genutzt, damit es genau eine Zeichenquelle für alle Größen gibt.
+    /// </summary>
+    public static Bitmap RenderBitmap(int size)
+    {
+        var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.Clear(Color.Transparent);
+
+        // Alle Koordinaten im 32er-Designraster; für andere Größen gleichmäßig skalieren.
+        g.ScaleTransform(size / 32f, size / 32f);
+
+        // Abgerundete Teal-Kachel als Hintergrund.
+        using (var bg = new SolidBrush(ColorFromHex("#2A9D93")))
+        using (var path = RoundedRect(1, 1, 30, 30, 7))
+            g.FillPath(bg, path);
+
+        // Stilisierte Speicher-/Disk-Form in Weiß.
+        using (var white = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
+        {
+            // Oberer „Schieber".
+            using var top = RoundedRect(10, 7, 12, 6, 1);
+            g.FillPath(white, top);
+            // Unteres „Label"-Feld.
+            using var body = RoundedRect(9, 16, 14, 9, 2);
+            g.FillPath(white, body);
+        }
+        using (var teal = new SolidBrush(ColorFromHex("#2A9D93")))
+        {
+            g.FillRectangle(teal, 12, 18, 8, 2);
+            g.FillRectangle(teal, 12, 21, 5, 2);
+        }
+
+        return bmp;
     }
 
     private static GraphicsPath RoundedRect(int x, int y, int w, int h, int r)

@@ -1,5 +1,29 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-28)
 
+**Client v1.0.5 — Autostart + eigenes exe-Icon.** Delta-Spec
+`specs/savevault-change-autostart-icon.md` (von Tim freigegeben 2026-08-28), Weg über
+`/projekt-edit`.
+- **Autostart:** neues Feld `ClientConfig.AutostartEnabled` (Default `true`, config.json nur
+  erweitert, rückwärtskompatibel). Neuer `AutostartService` kapselt den HKCU-Run-Key
+  `…\Run\SaveVault` (nur HKCU, kein Admin): `IsEnabled/Enable/Disable/Apply`, Pfad aus
+  `Environment.ProcessPath` quotiert, alle Registry-Zugriffe fehlertolerant, `Disable`
+  idempotent. `App.OnStartup` gleicht best-effort ab (`SyncAutostart`), sodass „Standard AN"
+  schon beim ersten Lauf greift. Einstellungen: Checkbox „Automatisch mit Windows starten"
+  (neuer `DarkCheckBox`-Stil), lädt aus der Config, schreibt + wendet beim Speichern an.
+- **exe-Icon:** mehrauflösende `Assets/SaveVault.ico` (16/32/48/256) aus der Tray-Zeichnung
+  erzeugt (`TrayIconFactory` minimal auf `Create(int size=32)` + `RenderBitmap` refaktoriert,
+  Tray bleibt pixelgleich); `<ApplicationIcon>` gesetzt. Einmal-Generator war ein Wegwerf-
+  Werkzeug, nicht im Laufzeit-Code.
+- **Gates:** Delta-, Kern- und Oberflächen-Gate grün (reviewer + inspekteur; security-auditor
+  auf die Registry-Fläche: sauber). Laufzeit: Build 0/0, **88 Tests grün**, Icon in der exe
+  belegt (RT_GROUP_ICON/RT_ICON). Autostart-Mechanik per isoliertem Harness real geprüft
+  (Enable→quotierter Pfad, idempotent, Disable→weg). Offen (Umgebung, nicht Code): der echte
+  App-Start des neuen Builds gegen Tims reale Config ließ sich auf diesem Rechner nicht
+  gefahrlos isolieren (.NET 9 ignoriert die APPDATA-Env-Var; Tims echter Client lief) →
+  App-Start-Abgleich + Checkbox live per Handtest ausständig.
+- **Bekannte Altlast (unverändert):** GDI-HICON in `TrayIconFactory` ohne `DestroyIcon` —
+  vorbestehend, vom Delta nicht berührt.
+
 **Server 1.0.5 — Dashboard-Login statt Master-Token.** Das `SAVEVAULT_TOKEN` als Dashboard-
 Zugang ist komplett raus. Neu: ein im Dashboard eingerichtetes Admin-Konto (Benutzer + Passwort).
 - **Ersteinrichtung:** `POST /api/setup {username,password}` legt das EINZIGE Admin-Konto an (nur

@@ -37,8 +37,26 @@ public partial class App : Application
 
         CreateTray();
 
+        // Registry-Autostart an die Config angleichen (best-effort): „Standard AN" greift
+        // so schon beim ersten Lauf ohne Öffnen der Einstellungen, ein verschobener exe-Pfad
+        // wird korrigiert. Ein Fehler darf den Start nie abbrechen.
+        SyncAutostart();
+
         // Hintergrunddienst starten (nicht eingerichtet → Ruhezustand, kein Fehler).
         _ = StartAgentAsync();
+    }
+
+    private static void SyncAutostart()
+    {
+        try
+        {
+            var config = new ClientConfigStore(new AppPaths()).Load();
+            AutostartService.Apply(config.AutostartEnabled);
+        }
+        catch
+        {
+            // Best-effort: jeder Fehler beim Abgleich wird verschluckt, der Start läuft weiter.
+        }
     }
 
     private async Task StartAgentAsync()

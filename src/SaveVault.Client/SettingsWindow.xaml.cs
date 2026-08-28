@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         ServerUrlBox.Text = config.ServerUrl ?? "";
         DeviceNameBox.Text = config.DeviceName ?? Environment.MachineName;
         IntervalBox.Text = config.SyncIntervalSeconds.ToString();
+        AutostartCheck.IsChecked = config.AutostartEnabled;
         // Pairing-Code bleibt leer; der Token wird nicht geladen/angezeigt.
     }
 
@@ -97,8 +98,12 @@ public partial class SettingsWindow : Window
             var config = _configStore.Load();
             config.DeviceName = deviceName;
             config.SyncIntervalSeconds = seconds;
+            config.AutostartEnabled = AutostartCheck.IsChecked == true;
             _configStore.Save(config);
             IntervalBox.Text = seconds.ToString();
+
+            // Autostart-Zustand sofort in der Registry anwenden (fehlertolerant, kein Abbruch).
+            AutostartService.Apply(config.AutostartEnabled);
 
             // Änderungen wirksam machen: Dienst kurz neu starten (kein Fehler, wenn nicht eingerichtet).
             await _agent.StopAsync();

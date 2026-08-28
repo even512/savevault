@@ -59,6 +59,11 @@
                                    FontSize="12" Margin="0,14,0,4" />
                         <TextBox x:Name="IntervalBox" Style="{StaticResource DarkTextBox}" />
 
+                        <CheckBox x:Name="AutostartCheck" Style="{StaticResource DarkCheckBox}"
+                                  Content="Automatisch mit Windows starten" Margin="0,18,0,0" />
+                        <TextBlock Text="Der Client startet still im Infobereich."
+                                   Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="27,4,0,0" />
+
                         <Button x:Name="SaveButton" Content="Speichern" Style="{StaticResource PrimaryButton}"
                                 HorizontalAlignment="Left" Margin="0,16,0,0" Padding="22,9"
                                 Click="OnSaveClick" />
