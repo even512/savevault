@@ -19,3 +19,7 @@ tools/ludusavi/*.zip
 
 # Client-Laufzeitdaten
 *.log
+
+# Lokale Release-Ausgaben (der CI-Workflow baut das offizielle Release-ZIP)
+/publish/
+SaveVault-Client-*.zip
