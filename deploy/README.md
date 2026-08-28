@@ -33,11 +33,10 @@ baut das linux/amd64-Image und pusht es bei jedem Push auf `main` (Tag `latest`)
 2. Unraid → **Docker → Add Container**, die Vorlage verwenden (Template-XML-Inhalt einfügen
    bzw. die Datei in `/boot/config/plugins/dockerMan/templates-user/` ablegen).
 3. Pflichtfelder setzen:
-   - **SAVEVAULT_TOKEN** – lange Zufallszeichenkette (Master-Token; ohne ihn verweigert der
-     Server alle API-Aufrufe).
    - **Datenverzeichnis** – z. B. `/mnt/user/appdata/savevault` (persistenter Speicher).
    - **Port** – Standard `8420`.
-4. Starten → Dashboard unter `http://<UNRAID-IP>:8420/` (mit dem Master-Token anmelden).
+4. Starten → Dashboard unter `http://<UNRAID-IP>:8420/`. Beim ersten Aufruf legst du dort
+   **Benutzername + Passwort** an (kein Server-Token mehr nötig); danach meldest du dich damit an.
 
 > Zugriff bleibt LAN-only; von unterwegs über dein bestehendes VPN ins Heimnetz.
 

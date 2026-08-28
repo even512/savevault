@@ -10,6 +10,11 @@ public static class ApiRoutes
 {
     public const string Base = "/api";
 
+    // Dashboard-Anmeldung (Benutzer/Passwort; ersetzt das frühere Master-Token)
+    public const string Setup = Base + "/setup";     // Ersteinrichtung (nur solange kein Admin existiert)
+    public const string Login = Base + "/login";     // Anmeldung → Session-Token
+    public const string Logout = Base + "/logout";   // Session beenden
+
     // Pairing & Gerät
     public const string Pair = Base + "/pair";
     public const string Heartbeat = Base + "/heartbeat";

@@ -28,6 +28,11 @@ public sealed class VaultStore
     private const int MaxPairFailures = 10;
     private static readonly TimeSpan PairFailureWindow = TimeSpan.FromMinutes(5);
 
+    // Anmelde-Bremse (Passwort-Raten) analog zum Pairing, plus die Session-Lebensdauer.
+    private const int MaxLoginFailures = 10;
+    private static readonly TimeSpan LoginFailureWindow = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(30);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly StoragePaths _paths;
     private readonly string _indexPath;
@@ -39,6 +44,10 @@ public sealed class VaultStore
     // Pairing-Fehlversuchszähler (gleitendes Fenster) – siehe MaxPairFailures.
     private int _pairFailureCount;
     private DateTime _pairFailureWindowStartUtc;
+
+    // Anmelde-Fehlversuchszähler (gleitendes Fenster) – siehe MaxLoginFailures.
+    private int _loginFailureCount;
+    private DateTime _loginFailureWindowStartUtc;
 
     public VaultStore(string dataRoot, ILogger<VaultStore> logger)
     {
@@ -61,6 +70,149 @@ public sealed class VaultStore
     }
 
     public string DataRoot => _paths.DataRoot;
+
+    // =============================================================================
+    // Admin-Konto / Dashboard-Anmeldung (ersetzt das frühere Master-Token)
+    // =============================================================================
+
+    /// <summary>Ob bereits ein Admin-Konto eingerichtet ist (sonst: Ersteinrichtung nötig).</summary>
+    public async Task<bool> HasAdminAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return _index.Admin is not null; }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Synchron nutzbare Variante für den Start (Log-Meldung); blockiert kurz das Gate.</summary>
+    public bool HasAdmin
+    {
+        get
+        {
+            _gate.Wait();
+            try { return _index.Admin is not null; }
+            finally { _gate.Release(); }
+        }
+    }
+
+    /// <summary>
+    /// Richtet das (einzige) Admin-Konto ein und meldet direkt an (Session). Schlägt mit 409 fehl,
+    /// wenn bereits ein Konto existiert – so kann die offene Ersteinrichtung nur EINMAL genutzt werden.
+    /// </summary>
+    public async Task<LoginResponse> SetupAdminAsync(string username, string password, CancellationToken ct)
+    {
+        ValidateCredentials(username, password);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_index.Admin is not null)
+                throw new VaultException(409, "Der Server ist bereits eingerichtet.");
+
+            _index.Admin = new AdminAccount
+            {
+                Username = username.Trim(),
+                PasswordHash = Secrets.HashPassword(password),
+                CreatedUtc = DateTime.UtcNow,
+            };
+            var response = CreateSessionLocked(_index.Admin.Username);
+            Save();
+            return response;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// Meldet mit Benutzername + Passwort an und gibt einen Session-Token zurück. Ratenbegrenzt
+    /// (gleitendes Fehlversuchsfenster → 429); falsche Zugangsdaten → 401. Kein Konto → 401.
+    /// </summary>
+    public async Task<LoginResponse> LoginAsync(string username, string password, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
+            throw new VaultException(400, "Benutzername und Passwort sind erforderlich.");
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var now = DateTime.UtcNow;
+            if (now - _loginFailureWindowStartUtc > LoginFailureWindow)
+            {
+                _loginFailureWindowStartUtc = now;
+                _loginFailureCount = 0;
+            }
+            if (_loginFailureCount >= MaxLoginFailures)
+                throw new VaultException(429, "Zu viele Fehlversuche. Bitte später erneut versuchen.");
+
+            var admin = _index.Admin;
+            var ok = admin is not null
+                     && string.Equals(admin.Username, username.Trim(), StringComparison.OrdinalIgnoreCase)
+                     && Secrets.VerifyPassword(password, admin.PasswordHash);
+            if (!ok)
+            {
+                _loginFailureCount++;
+                throw new VaultException(401, "Benutzername oder Passwort ist falsch.");
+            }
+
+            _loginFailureCount = 0;
+            var response = CreateSessionLocked(admin!.Username);
+            Save();
+            return response;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Löst einen Session-Token zu einem Master-Prinzipal auf (oder null, wenn ungültig/abgelaufen).</summary>
+    public async Task<AuthPrincipal?> ResolveSessionAsync(string token, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        var hash = Secrets.HashToken(token);
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var now = DateTime.UtcNow;
+            var match = _index.Sessions.Any(s => s.ExpiresUtc > now && Secrets.FixedTimeEquals(s.TokenHash, hash));
+            return match ? AuthPrincipal.Master : null;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Beendet die zum Token gehörende Sitzung (idempotent).</summary>
+    public async Task LogoutAsync(string token, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return;
+        var hash = Secrets.HashToken(token);
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_index.Sessions.RemoveAll(s => Secrets.FixedTimeEquals(s.TokenHash, hash)) > 0)
+                Save();
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Erzeugt eine neue Sitzung (nur unter <see cref="_gate"/> aufrufen).</summary>
+    private LoginResponse CreateSessionLocked(string username)
+    {
+        var now = DateTime.UtcNow;
+        _index.Sessions.RemoveAll(s => s.ExpiresUtc <= now); // abgelaufene aufräumen
+        var token = Secrets.NewSessionToken();
+        var expires = now.Add(SessionLifetime);
+        _index.Sessions.Add(new SessionRecord { TokenHash = Secrets.HashToken(token), ExpiresUtc = expires });
+        return new LoginResponse(token, expires, username);
+    }
+
+    private static void ValidateCredentials(string username, string password)
+    {
+        var user = username?.Trim() ?? string.Empty;
+        if (user.Length < 3)
+            throw new VaultException(400, "Der Benutzername muss mindestens 3 Zeichen haben.");
+        if (user.Length > 60)
+            throw new VaultException(400, "Der Benutzername ist zu lang (max. 60 Zeichen).");
+        if (string.IsNullOrEmpty(password) || password.Length < 8)
+            throw new VaultException(400, "Das Passwort muss mindestens 8 Zeichen haben.");
+        if (password.Length > 200)
+            throw new VaultException(400, "Das Passwort ist zu lang (max. 200 Zeichen).");
+    }
 
     // =============================================================================
     // Auth / Pairing

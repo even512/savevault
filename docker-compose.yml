@@ -1,7 +1,8 @@
 # SaveVault Server — Docker-Compose-Vorlage (Zielumgebung: Unraid)
-#   1) cp .env.example .env  und SAVEVAULT_TOKEN eintragen
+#   1) (optional) cp .env.example .env  und Port/Datenpfad anpassen
 #   2) den Host-Pfad unter volumes auf ein Unraid-Array-Share zeigen lassen
 #   3) docker compose up -d
+#   4) Dashboard öffnen und beim ersten Aufruf Benutzer + Passwort anlegen
 services:
   savevault-server:
     build: .
@@ -9,8 +10,7 @@ services:
     container_name: savevault-server
     restart: unless-stopped
     environment:
-      # PFLICHT: aus .env gelesen. Ohne Token verweigert der Server alle API-Aufrufe.
-      SAVEVAULT_TOKEN: ${SAVEVAULT_TOKEN:?SAVEVAULT_TOKEN muss in .env gesetzt sein}
+      # Kein Server-Token mehr: die Anmeldung wird als Konto im Dashboard eingerichtet.
       # Einzige Port-Quelle: der Server bindet selbst http://0.0.0.0:$SAVEVAULT_PORT.
       SAVEVAULT_PORT: ${SAVEVAULT_PORT:-8420}
       SAVEVAULT_DATA: /data/savevault

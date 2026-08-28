@@ -8,6 +8,17 @@ namespace SaveVault.Core.Api;
 // Serialisierung über SaveVault.Core.Serialization.SaveVaultJson (Enums als String).
 // =================================================================================
 
+// --- Dashboard-Anmeldung (Benutzer/Passwort → Session-Token) -----------------------
+
+/// <summary>Ersteinrichtung: legt das (einzige) Admin-Konto an. Nur solange keins existiert.</summary>
+public sealed record SetupRequest(string Username, string Password);
+
+/// <summary>Anmeldung mit Benutzername + Passwort.</summary>
+public sealed record LoginRequest(string Username, string Password);
+
+/// <summary>Antwort auf erfolgreiche Anmeldung/Einrichtung: Session-Token + Ablauf + Anzeigename.</summary>
+public sealed record LoginResponse(string SessionToken, DateTime ExpiresUtc, string Username);
+
 // --- Pairing: Code -> Geräte-Token -------------------------------------------------
 
 /// <summary>Client tauscht einen Pairing-Code samt Selbstauskunft gegen einen Geräte-Token.</summary>

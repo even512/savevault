@@ -49,12 +49,12 @@ var app = builder.Build();
 
 // Store früh erzeugen, damit Startprobleme (z. B. Datenverzeichnis nicht schreibbar) sofort auffallen.
 var startupLog = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("SaveVault.Startup");
-_ = app.Services.GetRequiredService<VaultStore>();
-if (!config.IsConfigured)
+var vaultStore = app.Services.GetRequiredService<VaultStore>();
+if (!vaultStore.HasAdmin)
 {
     startupLog.LogWarning(
-        "SAVEVAULT_TOKEN ist nicht gesetzt – der Server läuft, verweigert aber alle API-Aufrufe, " +
-        "bis ein Token gesetzt und neu gestartet wurde.");
+        "Noch kein Benutzerkonto eingerichtet – der Server läuft, verweigert aber alle API-Aufrufe " +
+        "(außer der Ersteinrichtung), bis im Web-Dashboard ein Konto angelegt wurde.");
 }
 startupLog.LogInformation("SaveVault-Server bereit. Datenverzeichnis: {DataRoot}", config.DataRoot);
 

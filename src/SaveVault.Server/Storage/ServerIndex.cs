@@ -16,6 +16,15 @@ public sealed class ServerIndex
 {
     public int Version { get; set; } = 1;
 
+    /// <summary>
+    /// Das (einzige) Admin-Konto fürs Dashboard. Null, solange der Server noch nicht eingerichtet
+    /// ist (dann zeigt das Dashboard die Ersteinrichtung). Ersetzt das frühere Master-Token.
+    /// </summary>
+    public AdminAccount? Admin { get; set; }
+
+    /// <summary>Aktive Dashboard-Sitzungen (nur Token-Hash + Ablauf; nie der rohe Session-Token).</summary>
+    public List<SessionRecord> Sessions { get; set; } = new();
+
     /// <summary>Aktueller Pairing-Code (Klartext; LAN-only, wird im Dashboard angezeigt).</summary>
     public string? PairingCode { get; set; }
     public DateTime PairingCodeUpdatedUtc { get; set; }
@@ -26,6 +35,24 @@ public sealed class ServerIndex
     public List<Conflict> Conflicts { get; set; } = new();
     public List<Command> Commands { get; set; } = new();
     public List<ActivityEntry> Activity { get; set; } = new();
+}
+
+/// <summary>
+/// Das Admin-Konto fürs Web-Dashboard. Das Passwort liegt nur als PBKDF2-Hash vor
+/// (siehe <see cref="Security.Secrets.HashPassword"/>) – nie im Klartext.
+/// </summary>
+public sealed class AdminAccount
+{
+    public string Username { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public DateTime CreatedUtc { get; set; }
+}
+
+/// <summary>Eine aktive Dashboard-Sitzung: nur der SHA-256-Hash des Session-Tokens + Ablaufzeit.</summary>
+public sealed class SessionRecord
+{
+    public string TokenHash { get; set; } = string.Empty;
+    public DateTime ExpiresUtc { get; set; }
 }
 
 /// <summary>

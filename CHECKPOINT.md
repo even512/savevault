@@ -1,5 +1,29 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-28)
 
+**Server 1.0.5 — Dashboard-Login statt Master-Token.** Das `SAVEVAULT_TOKEN` als Dashboard-
+Zugang ist komplett raus. Neu: ein im Dashboard eingerichtetes Admin-Konto (Benutzer + Passwort).
+- **Ersteinrichtung:** `POST /api/setup {username,password}` legt das EINZIGE Admin-Konto an (nur
+  solange keins existiert → sonst 409) und meldet direkt an. Passwort nur als PBKDF2-Hash
+  (`Secrets.HashPassword`, 100k Iterationen, Zufalls-Salt) im Index; nie Klartext.
+- **Login:** `POST /api/login` → Session-Token (30 Tage; nur Hash + Ablauf im Index, restart-fest),
+  ratenbegrenzt (10 Fehlversuche/5 min → 429). `POST /api/logout` beendet die Sitzung.
+- **Middleware:** `/setup`+`/login` token-frei; ohne Admin → 503 (Dashboard zeigt Ersteinrichtung);
+  Session-Token = Master, sonst Geräte-Token. Master-Token-Vergleich entfernt. `ServerConfig`:
+  `MasterToken`/`IsConfigured` raus; `/health` liefert jetzt `needsSetup`.
+- **Clients unberührt** (Pairing-Code + Geräte-Token wie bisher); `/api/pair` weiter token-frei,
+  verlangt aber ein eingerichtetes Konto.
+- **Dashboard:** Token-Eingabe ersetzt durch Setup-/Login-Screen (Benutzer+Passwort, bei Setup mit
+  Bestätigung); Session in sessionStorage; „Abmelden" in den Einstellungen. Header-Kommentar/Texte
+  angepasst.
+- **Docs:** `SAVEVAULT_TOKEN` aus `.env.example`, Unraid-Template, docker-compose (erzwang die Var!),
+  README, deploy/README, Dockerfile entfernt.
+- **Verifiziert (Laufzeit-Smoke):** needsSetup→503→setup→Session→409-Re-Setup→login(falsch=401,
+  richtig, case-insensitiver Benutzer)→master-Endpunkt 200→logout→401; Pairing weiter ok. Build 0/0,
+  88 Tests grün. Server-Version → 1.0.5 (in Einstellungen sichtbar). Verteilung: master-Push → neues
+  Server-`:latest`-Image. **security-auditor auf die Auth-Fläche noch offen (Angebot an Tim).**
+
+
+
 **v1.0.4 — Übersprungene Spiele bleiben im Client sichtbar (manuell zuordnen).** Bisher
 tauchten rausgefallene Spiele (mehrdeutiger/kollabierter Ordner, zu großes Save-Set) nur einmalig
 im Hinweis-Dialog nach der Erkennung auf. Jetzt bleiben sie dauerhaft als Zeile in der Status-

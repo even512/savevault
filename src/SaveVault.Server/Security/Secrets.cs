@@ -29,6 +29,52 @@ public static class Secrets
     public static string NewId()
         => Guid.NewGuid().ToString("N");
 
+    /// <summary>Erzeugt einen langen, zufälligen Session-Token (wie ein Geräte-Token).</summary>
+    public static string NewSessionToken() => NewDeviceToken();
+
+    // --- Passwort-Hashing (PBKDF2/SHA-256) -----------------------------------------
+    // Format: pbkdf2$<iterationen>$<salt-base64>$<hash-base64>. Das Klartext-Passwort wird
+    // NIE gespeichert; verglichen wird konstant-zeitig über die abgeleiteten Bytes.
+
+    private const int Pbkdf2Iterations = 100_000;
+    private const int Pbkdf2SaltBytes = 16;
+    private const int Pbkdf2HashBytes = 32;
+
+    /// <summary>Leitet aus einem Passwort einen speicherbaren PBKDF2-Hash (mit Zufalls-Salt) ab.</summary>
+    public static string HashPassword(string password)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(password);
+        var salt = RandomNumberGenerator.GetBytes(Pbkdf2SaltBytes);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password), salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, Pbkdf2HashBytes);
+        return $"pbkdf2${Pbkdf2Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    /// <summary>Prüft ein Passwort gegen einen mit <see cref="HashPassword"/> erzeugten Hash (konstant-zeitig).</summary>
+    public static bool VerifyPassword(string password, string stored)
+    {
+        if (string.IsNullOrEmpty(password) || string.IsNullOrEmpty(stored))
+            return false;
+        var parts = stored.Split('$');
+        if (parts.Length != 4 || parts[0] != "pbkdf2")
+            return false;
+        if (!int.TryParse(parts[1], out var iterations) || iterations < 1)
+            return false;
+        byte[] salt, expected;
+        try
+        {
+            salt = Convert.FromBase64String(parts[2]);
+            expected = Convert.FromBase64String(parts[3]);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        var actual = Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password), salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+        return CryptographicOperations.FixedTimeEquals(actual, expected);
+    }
+
     /// <summary>Hex-SHA-256 eines Tokens – so wird nie der rohe Token gespeichert.</summary>
     public static string HashToken(string token)
         => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

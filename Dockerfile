@@ -20,8 +20,8 @@ COPY --from=build /app ./
 # Standard-Konfiguration (per Umgebungsvariablen/.env überschreibbar).
 # Der Lauscht-Port wird aus SAVEVAULT_PORT abgeleitet (der Server bindet selbst
 # http://0.0.0.0:$SAVEVAULT_PORT, solange ASPNETCORE_URLS nicht gesetzt ist) – so ist
-# SAVEVAULT_PORT die EINZIGE Port-Quelle. SAVEVAULT_TOKEN wird bewusst NICHT im Image
-# gesetzt (kommt aus .env/compose); ohne Token verweigert der Server alle API-Aufrufe.
+# SAVEVAULT_PORT die EINZIGE Port-Quelle. Ein Server-Token gibt es nicht mehr: das
+# Dashboard-Konto (Benutzer + Passwort) wird beim ersten Aufruf im Dashboard angelegt.
 ENV SAVEVAULT_PORT=8420
 ENV SAVEVAULT_DATA=/data/savevault
 EXPOSE 8420

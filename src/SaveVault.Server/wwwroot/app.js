@@ -6,9 +6,10 @@
      Aktionstexte …) werden ausschliesslich über textContent in den DOM
      gesetzt. innerHTML wird NUR mit festen, im Code definierten SVG-
      Konstanten (ICONS) benutzt – nie mit Serverdaten.
-   - Das Master-Token liegt in sessionStorage und wird nur als
-     Authorization-Header gesendet; es wird nie ins DOM oder in die
-     Konsole geschrieben.
+   - Die Anmeldung läuft über Benutzername + Passwort (POST /api/login bzw.
+     /api/setup bei der Ersteinrichtung). Der zurückgegebene Session-Token
+     liegt in sessionStorage und wird nur als Authorization-Header gesendet;
+     er wird nie ins DOM oder in die Konsole geschrieben.
    ===================================================================== */
 (function () {
   "use strict";
@@ -344,6 +345,7 @@
     opts = opts || {};
     clear(gate);
     const card = el("div", { class: "gate__card" });
+    const isSetup = !!opts.setup;
 
     const brand = el("div", { class: "gate__brand" }, [
       (function () { const l = el("div", { class: "gate__logo" }); l.innerHTML = ICONS.logo; return l; })(),
@@ -352,66 +354,91 @@
     ]);
     card.appendChild(brand);
 
-    if (opts.notConfigured) {
-      card.appendChild(el("div", { class: "gate__sub",
-        text: "Der Server läuft, ist aber noch nicht eingerichtet. Es wurde kein Master-Token (SAVEVAULT_TOKEN) gesetzt. Bitte setze die Umgebungsvariable und starte den Server neu." }));
-      card.appendChild(el("div", { class: "gate__msg gate__msg--warn", text: "Status: nicht eingerichtet" }));
-      const retry = el("div", { class: "gate__actions" }, [
-        el("button", { class: "btn btn--accent", type: "button", text: "Erneut prüfen",
-          on: { click: () => boot() } })
-      ]);
-      card.appendChild(retry);
-      gate.appendChild(card);
-      showGate();
-      return;
-    }
-
     card.appendChild(el("div", { class: "gate__sub",
-      text: "Melde dich mit dem Master-Token deines Servers an (die Variable SAVEVAULT_TOKEN). Das Token bleibt nur in dieser Browser-Sitzung und wird ausschliesslich als Zugangskopf gesendet." }));
+      text: isSetup
+        ? "Erste Einrichtung: Lege ein Dashboard-Konto an. Der Benutzername und das Passwort werden sicher (nur als Hash) auf dem Server gespeichert."
+        : "Melde dich mit deinem Dashboard-Konto an." }));
 
-    const label = el("label", { class: "field-label", text: "Master-Token", attrs: { for: "token-input" } });
-    const input = el("input", { class: "text-input", type: "password",
-      attrs: { id: "token-input", placeholder: "Token eingeben…", autocomplete: "current-password", spellcheck: "false" } });
-    input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+    const userInput = el("input", { class: "text-input", type: "text",
+      attrs: { id: "user-input", placeholder: "Benutzername", autocomplete: "username", spellcheck: "false" } });
+    const passInput = el("input", { class: "text-input", type: "password",
+      attrs: { id: "pass-input", placeholder: "Passwort", autocomplete: isSetup ? "new-password" : "current-password", spellcheck: "false" } });
+    const pass2Input = isSetup
+      ? el("input", { class: "text-input", type: "password",
+          attrs: { id: "pass2-input", placeholder: "Passwort wiederholen", autocomplete: "new-password", spellcheck: "false" } })
+      : null;
 
     const msg = el("div", { class: "gate__msg gate__msg--error" });
     if (opts.error) msg.textContent = opts.error;
+    function showErr(t) { msg.classList.remove("muted"); msg.classList.add("gate__msg--error"); msg.textContent = t; }
 
     async function submit() {
-      const value = input.value.trim();
-      if (!value) { msg.textContent = "Bitte ein Token eingeben."; return; }
-      state.token = value;
-      msg.classList.remove("gate__msg--error");
-      msg.classList.add("muted");
-      msg.textContent = "Anmeldung läuft…";
+      const username = userInput.value.trim();
+      const password = passInput.value;
+      if (!username || !password) { showErr("Bitte Benutzername und Passwort eingeben."); return; }
+      if (isSetup) {
+        if (password.length < 8) { showErr("Das Passwort muss mindestens 8 Zeichen haben."); return; }
+        if (password !== pass2Input.value) { showErr("Die Passwörter stimmen nicht überein."); return; }
+      }
+      msg.classList.remove("gate__msg--error"); msg.classList.add("muted");
+      msg.textContent = isSetup ? "Konto wird angelegt…" : "Anmeldung läuft…";
       try {
+        const res = await fetch(isSetup ? "/api/setup" : "/api/login", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username, password: password })
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((data && data.error) || (isSetup ? "Einrichtung fehlgeschlagen." : "Anmeldung fehlgeschlagen."));
+        if (!data || !data.sessionToken) throw new Error("Unerwartete Serverantwort.");
+        state.token = data.sessionToken;
+        sessionStorage.setItem(TOKEN_KEY, data.sessionToken);
         await loadAll();
-        sessionStorage.setItem(TOKEN_KEY, value);
         msg.textContent = "";
         startApp();
       } catch (err) {
         state.token = null;
         sessionStorage.removeItem(TOKEN_KEY);
-        msg.classList.remove("muted");
-        msg.classList.add("gate__msg--error");
-        msg.textContent = err && err.message ? err.message : "Anmeldung fehlgeschlagen.";
+        showErr(err && err.message ? err.message : "Fehlgeschlagen.");
       }
     }
 
-    const btn = el("button", { class: "btn btn--accent", type: "button", text: "Anmelden", on: { click: submit } });
-    card.appendChild(label);
-    card.appendChild(input);
+    passInput.addEventListener("keydown", e => { if (e.key === "Enter" && !isSetup) submit(); });
+    if (pass2Input) pass2Input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+
+    card.appendChild(el("label", { class: "field-label", text: "Benutzername", attrs: { for: "user-input" } }));
+    card.appendChild(userInput);
+    card.appendChild(el("label", { class: "field-label", text: "Passwort", attrs: { for: "pass-input" } }));
+    card.appendChild(passInput);
+    if (isSetup) {
+      card.appendChild(el("label", { class: "field-label", text: "Passwort wiederholen", attrs: { for: "pass2-input" } }));
+      card.appendChild(pass2Input);
+    }
+    const btn = el("button", { class: "btn btn--accent", type: "button",
+      text: isSetup ? "Konto anlegen" : "Anmelden", on: { click: submit } });
     card.appendChild(el("div", { class: "gate__actions" }, [btn]));
     card.appendChild(msg);
 
     gate.appendChild(card);
     showGate();
-    input.focus();
+    userInput.focus();
   }
 
-  // Auth-Fehler zentral behandeln: Token verwerfen, zurück zum Tor.
+  // Meldet die aktuelle Sitzung ab (Session serverseitig beenden, Token verwerfen, zurück zum Login).
+  async function doLogout() {
+    const token = state.token;
+    state.token = null;
+    sessionStorage.removeItem(TOKEN_KEY);
+    if (token) {
+      try {
+        await fetch("/api/logout", { method: "POST", headers: { "Authorization": "Bearer " + token } });
+      } catch (_) { /* egal – lokal sind wir bereits abgemeldet */ }
+    }
+    renderGate({});
+  }
+
+  // Auth-Fehler zentral behandeln: Sitzung verwerfen, zurück zum Tor.
   function handleAuthFailure(err) {
-    if (err && err.status === 503) { renderGate({ notConfigured: true }); return true; }
+    if (err && err.status === 503) { renderGate({ setup: true }); return true; }
     if (err && err.isAuth) {
       state.token = null;
       sessionStorage.removeItem(TOKEN_KEY);
@@ -784,6 +811,15 @@
     sl.appendChild(el("div", { class: "settings-row" }, [el("span", { class: "settings-row__key", text: "Status" }), statusVal]));
     server.appendChild(sl);
     grid.appendChild(server);
+
+    // Konto (Dashboard-Anmeldung)
+    const account = el("div", { class: "settings-card" });
+    account.appendChild(el("div", { class: "settings-card__title", text: "Konto" }));
+    account.appendChild(el("div", { class: "settings-card__sub", text: "Dashboard-Anmeldung dieses Browsers" }));
+    const logoutBtn = el("button", { class: "btn btn--ghost", type: "button", text: "Abmelden",
+      on: { click: () => doLogout() } });
+    account.appendChild(el("div", { style: { "margin-top": "10px" } }, [logoutBtn]));
+    grid.appendChild(account);
 
     // Sync (lokal)
     const sync = el("div", { class: "settings-card" });
@@ -1238,18 +1274,18 @@
   // Bootstrap
   // =====================================================================
   async function boot() {
-    // Zuerst Gesundheits-Check (ohne Token) für „nicht eingerichtet".
-    let configured = true;
+    // Zuerst Gesundheits-Check (ohne Token): braucht der Server noch eine Ersteinrichtung?
+    let needsSetup = false;
     try {
       const res = await fetch("/health");
-      if (res.ok) { const h = await res.json(); configured = !!h.configured; }
+      if (res.ok) { const h = await res.json(); needsSetup = !!h.needsSetup; }
     } catch (_) { /* Server evtl. nicht erreichbar – Login zeigt dann Fehler */ }
 
-    if (!configured) { renderGate({ notConfigured: true }); return; }
+    if (needsSetup) { renderGate({ setup: true }); return; }
 
     if (!state.token) { renderGate({}); return; }
 
-    // Mit vorhandenem Token direkt versuchen zu laden.
+    // Mit vorhandener Sitzung direkt versuchen zu laden.
     try {
       await loadAll();
       startApp();

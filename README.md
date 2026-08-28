@@ -36,7 +36,8 @@ dotnet build SaveVault.sln
 dotnet test
 
 # Server (Web-Dashboard unter http://localhost:8420)
-SAVEVAULT_TOKEN=dev-token dotnet run --project src/SaveVault.Server
+# Beim ersten Aufruf legst du im Dashboard Benutzer + Passwort an (kein Token nötig).
+dotnet run --project src/SaveVault.Server
 
 # Client (Windows)
 dotnet run --project src/SaveVault.Client
@@ -45,8 +46,9 @@ dotnet run --project src/SaveVault.Client
 ## Server per Docker (Zielumgebung Unraid)
 
 ```bash
-cp .env.example .env      # SAVEVAULT_TOKEN eintragen
+cp .env.example .env      # optional: Port/Datenpfad anpassen
 docker compose up -d
+# danach Dashboard öffnen und Benutzer + Passwort anlegen
 ```
 
 Details siehe `docker-compose.yml`. Der Storage liegt im gemounteten Volume

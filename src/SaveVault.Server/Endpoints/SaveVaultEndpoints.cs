@@ -18,13 +18,38 @@ public static class SaveVaultEndpoints
     public static void MapSaveVault(this WebApplication app)
     {
         // --- Health (ohne Auth) -----------------------------------------------------
-        app.MapGet("/health", (ServerConfig cfg) => Results.Json(new
+        // needsSetup steuert das Dashboard: true → Ersteinrichtung anzeigen, sonst Login.
+        app.MapGet("/health", async (VaultStore store, CancellationToken ct) => Results.Json(new
         {
             status = "ok",
-            configured = cfg.IsConfigured,
+            needsSetup = !await store.HasAdminAsync(ct),
         }));
 
         var api = app.MapGroup(ApiRoutes.Base);
+
+        // --- Dashboard-Anmeldung (token-frei; ersetzt das frühere Master-Token) ------
+        // Ersteinrichtung: legt das einzige Admin-Konto an – nur solange keins existiert (sonst 409).
+        api.MapPost("/setup", async (SetupRequest req, VaultStore store, CancellationToken ct) =>
+        {
+            if (req is null) return ApiResults.Error(400, "Ungültige Anfrage.");
+            return Results.Json(await store.SetupAdminAsync(req.Username, req.Password, ct));
+        });
+
+        // Anmeldung mit Benutzername + Passwort → Session-Token (ratenbegrenzt im Store).
+        api.MapPost("/login", async (LoginRequest req, VaultStore store, CancellationToken ct) =>
+        {
+            if (req is null) return ApiResults.Error(400, "Ungültige Anfrage.");
+            return Results.Json(await store.LoginAsync(req.Username, req.Password, ct));
+        });
+
+        // Abmelden: beendet die zum vorgelegten Session-Token gehörende Sitzung.
+        api.MapPost("/logout", async (HttpContext ctx, VaultStore store, CancellationToken ct) =>
+        {
+            var token = BearerToken(ctx);
+            if (token is not null)
+                await store.LogoutAsync(token, ct);
+            return Results.Ok();
+        });
 
         // --- Pairing & Heartbeat ----------------------------------------------------
         api.MapPost("/pair", async (PairRequest req, VaultStore store, CancellationToken ct)
@@ -203,7 +228,7 @@ public static class SaveVaultEndpoints
             {
                 port = cfg.Port,
                 dataRoot = cfg.DataRoot,
-                configured = cfg.IsConfigured,
+                configured = true, // erreichbar nur mit gültiger Sitzung → Server ist eingerichtet
                 container = Environment.MachineName,
                 version = ServerVersion,
                 // Ob der Server die IGDB-Zugangsdaten sieht (Box-Art aktiv). Diagnose fürs Dashboard;
@@ -236,6 +261,17 @@ public static class SaveVaultEndpoints
     private static AuthPrincipal Principal(HttpContext ctx)
         => ctx.Items[TokenAuthMiddleware.PrincipalKey] as AuthPrincipal
            ?? throw new VaultException(401, "Kein authentifizierter Kontext.");
+
+    /// <summary>Extrahiert den rohen Bearer-Token aus dem Authorization-Header (oder null).</summary>
+    private static string? BearerToken(HttpContext ctx)
+    {
+        var header = ctx.Request.Headers.Authorization.ToString();
+        if (string.IsNullOrWhiteSpace(header)) return null;
+        const string prefix = "Bearer ";
+        if (!header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var token = header[prefix.Length..].Trim();
+        return token.Length == 0 ? null : token;
+    }
 
     private static GameKey KeyFrom(string routeValue)
     {

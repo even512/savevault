@@ -8,11 +8,14 @@ namespace SaveVault.Server.Security;
 
 /// <summary>
 /// Bewacht alle <c>/api</c>-Endpunkte:
-///   * Ist der Server nicht konfiguriert (kein <c>SAVEVAULT_TOKEN</c>) → 503 mit klarer Meldung
-///     für JEDEN API-Aufruf (kein Absturz, klarer „nicht eingerichtet"-Pfad).
-///   * <c>POST /api/pair</c> ist die einzige token-freie Operation (Einlösung des Pairing-Codes).
-///   * Sonst ist ein gültiger Bearer-Token Pflicht: entweder das Master-Token (Admin/Dashboard)
-///     oder ein bekannter Geräte-Token. Fehlt/ungültig → 401.
+///   * <c>POST /api/setup</c> und <c>POST /api/login</c> sind IMMER token-frei (Ersteinrichtung
+///     und Anmeldung erzeugen erst den Zugang). <c>/api/setup</c> setzt sich selbst außer Kraft,
+///     sobald ein Konto existiert (→ 409 im Endpunkt).
+///   * Existiert noch KEIN Admin-Konto (Server nicht eingerichtet) → 503 für alle übrigen
+///     API-Aufrufe, mit klarer Meldung (das Dashboard zeigt dann die Ersteinrichtung).
+///   * <c>POST /api/pair</c> ist token-frei (der Pairing-Code selbst ist das Geheimnis).
+///   * Sonst ist ein gültiger Bearer-Token Pflicht: entweder ein Dashboard-Session-Token
+///     (Master/Admin) oder ein bekannter Geräte-Token. Fehlt/ungültig → 401.
 /// Der erkannte <see cref="AuthPrincipal"/> wird in <c>HttpContext.Items</c> abgelegt.
 /// Nicht-API-Pfade (statisches Dashboard, /health) laufen unberührt durch.
 /// </summary>
@@ -21,12 +24,10 @@ public sealed class TokenAuthMiddleware
     public const string PrincipalKey = "savevault.principal";
 
     private readonly RequestDelegate _next;
-    private readonly ServerConfig _config;
 
-    public TokenAuthMiddleware(RequestDelegate next, ServerConfig config)
+    public TokenAuthMiddleware(RequestDelegate next)
     {
         _next = next;
-        _config = config;
     }
 
     public async Task InvokeAsync(HttpContext context, VaultStore store)
@@ -40,17 +41,27 @@ public sealed class TokenAuthMiddleware
             return;
         }
 
-        // Ohne Master-Token verweigert der Server jeden API-Aufruf mit klarer Meldung.
-        if (!_config.IsConfigured)
+        var isPost = HttpMethods.IsPost(context.Request.Method);
+
+        // Ersteinrichtung + Anmeldung sind immer token-frei (die Endpunkte prüfen selbst ihre Regeln).
+        var isSetup = isPost && path.Equals(ApiRoutes.Setup, StringComparison.OrdinalIgnoreCase);
+        var isLogin = isPost && path.Equals(ApiRoutes.Login, StringComparison.OrdinalIgnoreCase);
+        if (isSetup || isLogin)
+        {
+            await _next(context);
+            return;
+        }
+
+        // Ohne eingerichtetes Admin-Konto verweigert der Server jeden weiteren API-Aufruf.
+        if (!await store.HasAdminAsync(context.RequestAborted))
         {
             await WriteAsync(context, ApiResults.Error(503,
-                "Server ist nicht eingerichtet: SAVEVAULT_TOKEN fehlt. Bitte Token setzen und neu starten."));
+                "Server ist noch nicht eingerichtet. Bitte im Web-Dashboard ein Benutzerkonto anlegen."));
             return;
         }
 
         // Pairing-Einlösung ist bewusst token-frei (der Pairing-Code selbst ist das Geheimnis).
-        var isPair = path.Equals(ApiRoutes.Pair, StringComparison.OrdinalIgnoreCase)
-                     && HttpMethods.IsPost(context.Request.Method);
+        var isPair = isPost && path.Equals(ApiRoutes.Pair, StringComparison.OrdinalIgnoreCase);
         if (isPair)
         {
             await _next(context);
@@ -67,7 +78,7 @@ public sealed class TokenAuthMiddleware
         var principal = await AuthenticateAsync(token, store, context.RequestAborted);
         if (principal is null)
         {
-            await WriteAsync(context, ApiResults.Error(401, "Ungültiger Token."));
+            await WriteAsync(context, ApiResults.Error(401, "Nicht angemeldet oder Sitzung abgelaufen."));
             return;
         }
 
@@ -75,11 +86,12 @@ public sealed class TokenAuthMiddleware
         await _next(context);
     }
 
-    private async Task<AuthPrincipal?> AuthenticateAsync(string token, VaultStore store, CancellationToken ct)
+    private static async Task<AuthPrincipal?> AuthenticateAsync(string token, VaultStore store, CancellationToken ct)
     {
-        // Master-Token (konstant-zeitiger Vergleich).
-        if (!string.IsNullOrEmpty(_config.MasterToken) && Secrets.FixedTimeEquals(token, _config.MasterToken))
-            return AuthPrincipal.Master;
+        // Dashboard-Session (Master/Admin)?
+        var session = await store.ResolveSessionAsync(token, ct);
+        if (session is not null)
+            return session;
 
         // Sonst gegen die bekannten Geräte-Token (nur als Hash gespeichert) prüfen.
         return await store.ResolveDeviceTokenAsync(token, ct);

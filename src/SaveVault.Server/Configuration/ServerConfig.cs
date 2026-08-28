@@ -1,16 +1,13 @@
 namespace SaveVault.Server.Configuration;
 
 /// <summary>
-/// Aus Umgebungsvariablen gelesene Server-Konfiguration. Bewusst tolerant beim Start:
-/// fehlt das Master-Token, startet der Server trotzdem (damit Health/Dashboard den
-/// „nicht eingerichtet"-Zustand zeigen können), verweigert aber jeden API-Aufruf mit
-/// klarer Meldung (siehe Auth-Middleware). Secrets werden NIE geloggt oder ausgegeben.
+/// Aus Umgebungsvariablen gelesene Server-Konfiguration (Port, Datenpfad, optionale
+/// Box-Art-Zugangsdaten). Die Dashboard-Anmeldung läuft NICHT mehr über ein Env-Token,
+/// sondern über ein im Dashboard eingerichtetes Admin-Konto (Benutzer/Passwort, siehe
+/// <see cref="Storage.VaultStore"/>). Secrets werden NIE geloggt oder ausgegeben.
 /// </summary>
 public sealed class ServerConfig
 {
-    /// <summary>Master-Token (Basis fürs Pairing). Leer/null = Server nicht konfiguriert.</summary>
-    public string? MasterToken { get; init; }
-
     /// <summary>Lauscht-Port (Default 8420).</summary>
     public int Port { get; init; } = 8420;
 
@@ -23,9 +20,6 @@ public sealed class ServerConfig
     /// <summary>IGDB/Twitch-Client-Secret für den Box-Art-Bezug (optional). Leer = Cover-Feature aus.</summary>
     public string? IgdbClientSecret { get; init; }
 
-    /// <summary>True, sobald ein nicht-leeres Master-Token vorliegt.</summary>
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(MasterToken);
-
     /// <summary>True, wenn beide IGDB-Zugangsdaten vorliegen (Box-Art aktiv).</summary>
     public bool IsCoverEnabled =>
         !string.IsNullOrWhiteSpace(IgdbClientId) && !string.IsNullOrWhiteSpace(IgdbClientSecret);
@@ -33,8 +27,6 @@ public sealed class ServerConfig
     /// <summary>Liest die Konfiguration aus den SAVEVAULT_*-Umgebungsvariablen.</summary>
     public static ServerConfig FromEnvironment()
     {
-        var token = Environment.GetEnvironmentVariable("SAVEVAULT_TOKEN");
-
         var port = 8420;
         var rawPort = Environment.GetEnvironmentVariable("SAVEVAULT_PORT");
         if (!string.IsNullOrWhiteSpace(rawPort)
@@ -56,7 +48,6 @@ public sealed class ServerConfig
 
         return new ServerConfig
         {
-            MasterToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
             Port = port,
             DataRoot = data.Trim(),
             IgdbClientId = igdbId,
