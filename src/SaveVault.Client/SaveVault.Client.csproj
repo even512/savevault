@@ -20,6 +20,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Client-Version (wird als AgentVersion an den Server gemeldet). -->
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2</AssemblyVersion>
+    <FileVersion>1.0.2</FileVersion>
     <!-- Fuer das eingebaute System.Windows.Forms.NotifyIcon (Tray-Symbol) –
          kein externes NuGet-Paket noetig, Teil der Windows-Desktop-Runtime. -->
     <UseWindowsForms>true</UseWindowsForms>

@@ -123,8 +123,21 @@ public sealed class SaveFolderRegistry
     }
 
     /// <summary>
-    /// Übernimmt die Ergebnisse der ludusavi-Erkennung. Manuell gesetzte Ordner bleiben
-    /// unangetastet; für alle anderen Spiele wird der erkannte Ordner gesetzt/aktualisiert.
+    /// Gleicht die nicht-manuellen Einträge mit dem Erkennungsergebnis ab (nicht nur
+    /// hinzufügen/aktualisieren). Ablauf unter <see cref="_lock"/>:
+    /// <list type="bullet">
+    /// <item>Für jedes übergebene (nutzbare) Spiel wird der erkannte Ordner gesetzt bzw.
+    /// aktualisiert. Zu breite Ordner werden nie gesetzt; manuelle Einträge
+    /// (<see cref="SaveFolderEntry.Manual"/> = <c>true</c>) bleiben IMMER unangetastet.</item>
+    /// <item>Anschließend werden ALLE nicht-manuellen Einträge entfernt, deren
+    /// <c>GameKey.Value</c> NICHT in der übergebenen Menge enthalten ist. Damit fällt ein
+    /// Spiel, das die Erkennung nicht mehr liefert (z. B. Project Zomboid, weil sein Save-Set
+    /// jetzt als zu groß übersprungen wird), beim nächsten Lauf automatisch aus der Registry –
+    /// Selbstheilung, ohne dass die Registry die Größe selbst kennen muss.</item>
+    /// </list>
+    /// Persistiert wird nur, wenn sich tatsächlich etwas geändert hat (Hinzufügen,
+    /// Aktualisieren ODER Entfernen). Der Aufrufer ruft dies nur bei mindestens einem
+    /// erkannten Spiel auf – ein leeres/transientes Ergebnis darf die Registry nicht leeren.
     /// </summary>
     public void SetDiscovered(IEnumerable<(GameKey Game, string FolderPath)> discovered)
     {
@@ -132,14 +145,19 @@ public sealed class SaveFolderRegistry
         lock (_lock)
         {
             var changed = false;
+            var discoveredKeys = new HashSet<string>(StringComparer.Ordinal);
+
             foreach (var (game, folderPath) in discovered)
             {
                 if (game is null || string.IsNullOrWhiteSpace(folderPath))
                     continue;
 
-                // Zu breite Ordner (Laufwerks-/Systemwurzel) nie setzen.
+                // Zu breite Ordner (Laufwerks-/Systemwurzel) nie setzen und nicht als
+                // „gesehen" merken (sonst würden sie den Abgleich verwässern).
                 if (SaveFolderSafety.IsTooBroad(folderPath))
                     continue;
+
+                discoveredKeys.Add(game.Value);
 
                 // Manuelle Ordner haben Vorrang und werden nicht überschrieben.
                 if (_byGame.TryGetValue(game.Value, out var existing) && existing.Manual)
@@ -151,6 +169,18 @@ public sealed class SaveFolderRegistry
                     _byGame[game.Value] = entry;
                     changed = true;
                 }
+            }
+
+            // Abgleich: nicht-manuelle Einträge entfernen, die die Erkennung nicht (mehr)
+            // liefert. Manuelle Einträge bleiben unangetastet.
+            var toRemove = _byGame.Values
+                .Where(e => !e.Manual && !discoveredKeys.Contains(e.Game.Value))
+                .Select(e => e.Game.Value)
+                .ToList();
+            foreach (var key in toRemove)
+            {
+                _byGame.Remove(key);
+                changed = true;
             }
 
             if (changed)

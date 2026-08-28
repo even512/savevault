@@ -165,6 +165,13 @@ public partial class MainWindow : Window
                        "gefassten Ordner (Laufwerks-/Systemwurzel) streuen. Bei Bedarf über »Ordner hinzufügen« mit dem " +
                        "konkreten Save-Ordner nachtragen:\n• " + string.Join("\n• ", result.SkippedAmbiguous);
             }
+            if (result.SkippedTooLarge.Count > 0)
+            {
+                msg += $"\n\n{result.SkippedTooLarge.Count} Spiel(e) übersprungen, weil ihr Save-Ordner zu groß ist " +
+                       "(zu viele Dateien oder zu viele Daten) und den Sync über Stunden blockieren würde. Bei Bedarf " +
+                       "über »Ordner hinzufügen« einen konkreten, kleineren Unterordner nachtragen:\n• " +
+                       string.Join("\n• ", result.SkippedTooLarge);
+            }
             Info(msg);
         }
     }

@@ -147,4 +147,23 @@ public static class SaveFolderSafety
 
     private static string TrimEndSeparators(string path)
         => path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    /// <summary>Obergrenze für die Dateizahl eines Save-Sets, bevor es als „zu groß" gilt.</summary>
+    public const int MaxFileCount = 5000;
+
+    /// <summary>Obergrenze für die Gesamtgröße eines Save-Sets in Bytes (2 GiB).</summary>
+    public const long MaxTotalBytes = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// <c>true</c>, wenn ein Save-Set ZU GROSS ist: mehr als <see cref="MaxFileCount"/> Dateien
+    /// ODER mehr als <see cref="MaxTotalBytes"/> Bytes. Solche Sets werden bewusst NICHT
+    /// automatisch synchronisiert: Ordner wie der von Project Zomboid legen zehntausende
+    /// Karten-Chunk-Dateien, Logs und Mods (mehrere GB) an, die beim ersten Sync das Hashen
+    /// und Hochladen über Stunden blockieren würden – und damit (weil der Rescan sequenziell
+    /// läuft) alle nachfolgenden Spiele ausbremsen. Standard ist deshalb: überspringen und
+    /// melden; der Nutzer trägt bei Bedarf einen konkreten, kleineren Unterordner manuell nach.
+    /// Rein rechnend – kein Netz, kein IO. Grenzen sind exklusiv (<c>&gt;</c>, nicht <c>&gt;=</c>).
+    /// </summary>
+    public static bool IsSaveSetTooLarge(int fileCount, long totalBytes)
+        => fileCount > MaxFileCount || totalBytes > MaxTotalBytes;
 }

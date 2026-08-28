@@ -1,3 +1,27 @@
+# SaveVault — Fortschritt (fortgeschrieben 2026-08-28)
+
+**v1.0.2 — Pfad-Härtung fertiggestellt (2026-08-28).** Der vorherige Worker war beim Bau von
+1.02 mitten in `GameDiscovery` gekappt worden: er hatte den Aufruf `FolderMuchLargerThanSaves`
+(Street-Fighter-/Steam-Root-Kollaps) geschrieben, die Methode aber nie definiert → genau **ein**
+CS0103-Compile-Fehler, Client baute nicht. Zusätzlich war die UI-Info für die **zu großen**
+Spiele (Project Zomboid) nicht verdrahtet.
+- **Fix 1 (Compile):** `FolderMuchLargerThanSaves(folder, saveFileCount, ct)` in `GameDiscovery.cs`
+  implementiert. Zählt die Dateien im abgeleiteten Ordner **beschränkt** (bricht bei
+  `max(saveFileCount*4, saveFileCount+100)` ab → enumeriert NIE einen Riesenbaum, ist selbst kein
+  Show-Stopper), `EnumerationOptions{RecurseSubdirectories, IgnoreInaccessible, AttributesToSkip=
+  ReparsePoint}` (keine Symlink-Verfolgung). Unlesbarer Ordner ⇒ sicherer Default „zu weit gefasst".
+- **Fix 2 (UI-Info):** `MainWindow.OnRediscoverClick` zeigt jetzt auch `SkippedTooLarge` an —
+  der Anwender erfährt, welche Spiele wegen zu großem Save-Ordner ausgelassen wurden und über
+  »Ordner hinzufügen« einen kleineren Unterordner nachtragen kann. `SkippedAmbiguous` (zu breit /
+  kollabiert) wurde schon gemeldet.
+- **Version** auf 1.0.2 (`SaveVault.Client.csproj`: Version/AssemblyVersion/FileVersion) → wird als
+  AgentVersion an den Server gemeldet.
+- **Grün:** `dotnet build SaveVault.sln` 0/0, `dotnet test` **77/0/0**.
+- **Offen/noch nicht getan:** Gate (reviewer + security-auditor auf die neue Disk-Enumerations-
+  Fläche + tester) und Commit stehen noch aus — Entscheidung bei Tim (Limit-Lage).
+
+---
+
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-27)
 
 **Aktueller Stand (2026-08-27): ✅ MVP FERTIG — ALLE 8 BAU-PLAN-SCHRITTE + LAUFZEIT-GATE GRÜN.**
