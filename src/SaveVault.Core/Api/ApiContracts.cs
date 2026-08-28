@@ -49,7 +49,8 @@ public sealed record RevisionInfo(
     int FileCount,
     string ManifestHash,
     bool IsConflict,
-    long? BasedOnRevision);
+    long? BasedOnRevision,
+    string? SaveRoot = null);
 
 /// <summary>Versionsverlauf eines Spiels.</summary>
 public sealed record RevisionListResponse(GameKey Game, IReadOnlyList<RevisionInfo> Revisions);
@@ -65,7 +66,8 @@ public sealed record UploadRevisionRequest(
     DeviceInfo Device,
     FileManifest Manifest,
     bool IsConflict,
-    long? BasedOnRevision);
+    long? BasedOnRevision,
+    string? SaveRoot = null);
 
 /// <summary>
 /// Antwort auf die Revisions-Anmeldung: die zugeteilte Nummer und die Hashes der
@@ -79,7 +81,8 @@ public sealed record RevisionDownload(
     GameKey Game,
     string DeviceId,
     DateTime TimestampUtc,
-    FileManifest Manifest);
+    FileManifest Manifest,
+    string? SaveRoot = null);
 
 // --- Konflikte ---------------------------------------------------------------------
 

@@ -67,6 +67,33 @@ public static class SaveVaultEndpoints
             async (string gameKey, long number, VaultStore store, CancellationToken ct)
             => Results.Json(await store.GetRevisionAsync(KeyFrom(gameKey), number, ct)));
 
+        // Export einer Revision als ZIP (Originalstruktur der Savegames + SaveVault-Info.txt mit
+        // dem Standard-Save-Pfad). Master-only (Dashboard). Der 404-Fall (unbekannte Revision) wird
+        // von GetRevisionAsync geworfen, BEVOR in den Body gestreamt wird → saubere Fehlerantwort.
+        api.MapGet("/games/{gameKey}/revisions/{number:long}/export",
+            async (string gameKey, long number, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            {
+                if (!Principal(ctx).IsMaster) return AdminOnly();
+
+                var key = KeyFrom(gameKey);
+                var rev = await store.GetRevisionAsync(key, number, ct);
+                var deviceName = await store.GetDeviceNameAsync(rev.DeviceId, ct) ?? rev.DeviceId;
+
+                // ZipArchive schreibt sein Central Directory beim Dispose synchron – Kestrel verbietet
+                // synchrones IO am Response-Body per Default. Für diesen (seltenen, master-only)
+                // Download gezielt erlauben, damit der ZIP direkt gestreamt werden kann.
+                var bodyControl = ctx.Features.Get<IHttpBodyControlFeature>();
+                if (bodyControl is not null)
+                    bodyControl.AllowSynchronousIO = true;
+
+                ctx.Response.ContentType = "application/zip";
+                ctx.Response.Headers.ContentDisposition =
+                    $"attachment; filename=\"{RevisionExporter.SuggestFileName(rev)}\"";
+                await RevisionExporter.WriteZipAsync(
+                    rev, deviceName, sha => store.OpenContent(key, sha), ctx.Response.Body, ct);
+                return Results.Empty;
+            });
+
         // --- Inhalte (inhaltsadressiert) --------------------------------------------
         api.MapPut("/games/{gameKey}/content/{hash}",
             async (string gameKey, string hash, HttpContext ctx, VaultStore store, CancellationToken ct) =>
@@ -154,6 +181,17 @@ public static class SaveVaultEndpoints
         {
             if (!Principal(ctx).IsMaster) return AdminOnly();
             return Results.Json(await store.GetGameStatesAsync(ct));
+        });
+
+        // Box-Art/Cover eines Spiels (aus dem Platten-Cache, sonst on-demand via IGDB). Master-only.
+        // Liefert das Bild (image/jpeg) oder 404, wenn keins verfügbar ist / das Feature inaktiv ist.
+        api.MapGet("/games/{gameKey}/cover", async (string gameKey, HttpContext ctx, CoverService covers, CancellationToken ct) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+            var file = await covers.GetCoverFileAsync(KeyFrom(gameKey), ct);
+            return file is null
+                ? ApiResults.Error(404, "Kein Cover verfügbar.")
+                : Results.File(file, "image/jpeg");
         });
 
         // Server-Info für die Einstellungen (echte Werte aus Config + Umgebung). Master-only.

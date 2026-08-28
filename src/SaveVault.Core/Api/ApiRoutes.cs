@@ -22,6 +22,12 @@ public static class ApiRoutes
     public static string Content(string gameKeyEncoded, string hashEncoded) => $"{Base}/games/{gameKeyEncoded}/content/{hashEncoded}";
     public static string Restore(string gameKeyEncoded) => $"{Base}/games/{gameKeyEncoded}/restore";
 
+    /// <summary>Export einer Revision als ZIP (master-only, Dashboard).</summary>
+    public static string Export(string gameKeyEncoded, long number) => $"{Base}/games/{gameKeyEncoded}/revisions/{number}/export";
+
+    /// <summary>Box-Art/Cover eines Spiels (master-only, Dashboard); 404 wenn keins.</summary>
+    public static string Cover(string gameKeyEncoded) => $"{Base}/games/{gameKeyEncoded}/cover";
+
     // Konflikte
     public const string Conflicts = Base + "/conflicts";
     public static string ResolveConflict(string conflictIdEncoded) => $"{Base}/conflicts/{conflictIdEncoded}/resolve";

@@ -1,5 +1,33 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-28)
 
+**v1.0.3 — Server-Export + Box-Art (IGDB).** Zwei neue Features (Delta-Spec
+`specs/savevault-change-export-boxart.md`):
+- **Revision-Export als ZIP** (master-only): `GET /api/games/{key}/revisions/{n}/export`
+  rekonstruiert aus Manifest + Blobs die Originalstruktur der Savegames und legt eine
+  `SaveVault-Info.txt` bei (Spiel, Revision, Quell-Gerät, Zeit, **Standard-Save-Pfad**). Pfad-
+  Sicherheit über `PathSanitizer.SafeZipEntryName` (kein `..`, nicht rooted, Segmente saniert) –
+  **live verifiziert**: ein manipulierter Manifest-Eintrag `../../evil.txt` landet als `evil.txt`
+  im ZIP. Streaming mit gezieltem `AllowSynchronousIO` nur für diesen Endpunkt (ZipArchive
+  schreibt Central Directory synchron). Dashboard: Export-Button je Revision (Blob-Download mit
+  Bearer-Header), Anzeige des Standard-Pfads im Drawer.
+- **Standard-Save-Pfad** durchgereicht: `UploadRevisionRequest.SaveRoot` (Client sendet den
+  ohnehin bekannten Save-Ordner) → an `Revision`/`RevisionDownload`/`RevisionInfo` persistiert.
+- **Box-Art via IGDB** (wie dashsharp „game-releases"): `CoverService` (Twitch-OAuth →
+  IGDB-Namenssuche → Cover von `images.igdb.com`, Platten-Cache `dataRoot/covers`, Negativ-Cache).
+  `GET /api/games/{key}/cover` (master-only) → image/jpeg oder 404. Konfiguration
+  `SAVEVAULT_IGDB_CLIENT_ID/SECRET`; **ohne Keys sauber deaktiviert** (live: 404, kein Crash).
+  Strikte Outbound-Allowlist (id.twitch.tv, api.igdb.com, images.igdb.com), image_id auf
+  `[a-z0-9_]` gefiltert, Bildgröße/Timeout begrenzt, Secrets nie geloggt. Dashboard: echtes Cover
+  per Blob-Fetch, Fallback auf die farbige `coverColor`-Kachel.
+- **Grün:** Build 0/0, `dotnet test` **88/0/0** (+11 für `SafeZipEntryName`). Laufzeit-Smoke
+  end-to-end (Pairing→Upload→Export) belegt. `.env.example` dokumentiert die IGDB-Keys.
+- **Verteilung:** master-Push → neues Server-`:latest`-Image (Docker-Workflow); Tag `v1.0.3` →
+  Client-Release-ZIP + versioniertes Server-Image. Client-Version → 1.0.3 (sendet SaveRoot).
+- **Sicherheits-Selbstprüfung** am Gate statt security-auditor-Agent (Budget): Traversal live
+  entschärft, SSRF durch feste Hosts ausgeschlossen, Auth master-only, keine Secret-Leaks.
+
+
+
 **v1.0.2 — Pfad-Härtung fertiggestellt (2026-08-28).** Der vorherige Worker war beim Bau von
 1.02 mitten in `GameDiscovery` gekappt worden: er hatte den Aufruf `FolderMuchLargerThanSaves`
 (Street-Fighter-/Steam-Root-Kollaps) geschrieben, die Methode aber nie definiert → genau **ein**

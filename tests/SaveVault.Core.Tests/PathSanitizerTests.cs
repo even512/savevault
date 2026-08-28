@@ -192,4 +192,54 @@ public class PathSanitizerTests
         Assert.DoesNotContain('/', result);
         Assert.DoesNotContain('\\', result);
     }
+
+    // --- SafeZipEntryName: Export-Pfadsicherheit ----------------------------
+
+    [Fact]
+    public void SafeZipEntryName_erhaelt_normale_Struktur()
+    {
+        Assert.Equal("saves/slot1/game.sav",
+            PathSanitizer.SafeZipEntryName("saves/slot1/game.sav"));
+    }
+
+    [Fact]
+    public void SafeZipEntryName_normalisiert_Backslashes()
+    {
+        Assert.Equal("a/b/c.dat", PathSanitizer.SafeZipEntryName("a\\b\\c.dat"));
+    }
+
+    [Theory]
+    [InlineData("../../etc/passwd")]
+    [InlineData("..\\..\\Windows\\system32\\evil.dll")]
+    [InlineData("saves/../../secret.txt")]
+    [InlineData("./saves/./x.sav")]
+    public void SafeZipEntryName_entfernt_Traversal_Segmente(string input)
+    {
+        var result = PathSanitizer.SafeZipEntryName(input);
+
+        Assert.DoesNotContain("..", result.Split('/'));
+        Assert.False(result.StartsWith('/'));
+        // Nach dem Entschärfen darf beim Kombinieren mit einem Zielordner nichts ausbrechen.
+        Assert.True(PathSanitizer.TryResolveWithin(Path.GetTempPath(), result, out _));
+    }
+
+    [Fact]
+    public void SafeZipEntryName_entfernt_absoluten_Wurzelpfad()
+    {
+        var result = PathSanitizer.SafeZipEntryName("C:\\Users\\tim\\save.dat");
+
+        Assert.False(result.Contains(':'));
+        Assert.False(Path.IsPathRooted(result));
+        Assert.True(PathSanitizer.TryResolveWithin(Path.GetTempPath(), result, out _));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("..")]
+    [InlineData("../..")]
+    public void SafeZipEntryName_entartete_Eingabe_wird_zu_Unterstrich(string input)
+    {
+        Assert.Equal("_", PathSanitizer.SafeZipEntryName(input));
+    }
 }

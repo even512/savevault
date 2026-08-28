@@ -223,6 +223,18 @@ public sealed class VaultStore
         finally { _gate.Release(); }
     }
 
+    /// <summary>Anzeigename eines Geräts (oder null, wenn unbekannt) – z. B. für den Export.</summary>
+    public async Task<string?> GetDeviceNameAsync(string deviceId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return null;
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return _index.Devices.FirstOrDefault(d => d.Id == deviceId)?.Name;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<IReadOnlyList<DeviceView>> ListDevicesAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -330,7 +342,7 @@ public sealed class VaultStore
                 infos.Add(new RevisionInfo(
                     rev.Number, rev.DeviceId, rev.TimestampUtc,
                     rev.Manifest.TotalBytes, rev.Manifest.FileCount, rev.Manifest.ManifestHash,
-                    rev.IsConflict, rev.BasedOnRevision));
+                    rev.IsConflict, rev.BasedOnRevision, rev.SaveRoot));
             }
             return new RevisionListResponse(ToGameKey(g), infos);
         }
@@ -346,7 +358,7 @@ public sealed class VaultStore
                 ?? throw new VaultException(404, "Unbekanntes Spiel.");
             var rev = LoadRevision(g, revision)
                 ?? throw new VaultException(404, $"Revision {revision} nicht gefunden.");
-            return new RevisionDownload(rev.Number, ToGameKey(g), rev.DeviceId, rev.TimestampUtc, rev.Manifest);
+            return new RevisionDownload(rev.Number, ToGameKey(g), rev.DeviceId, rev.TimestampUtc, rev.Manifest, rev.SaveRoot);
         }
         finally { _gate.Release(); }
     }
@@ -375,7 +387,8 @@ public sealed class VaultStore
             var number = g.LastRevisionNumber + 1;
             var rev = new Revision(
                 number, ToGameKey(g), req.Device.Id, DateTime.UtcNow,
-                req.Manifest, req.IsConflict, req.BasedOnRevision);
+                req.Manifest, req.IsConflict, req.BasedOnRevision,
+                SaveRoot: Clip(req.SaveRoot, string.Empty, 400) is { Length: > 0 } sr ? sr : null);
             WriteRevision(g, rev);
             g.LastRevisionNumber = number;
 
@@ -640,7 +653,8 @@ public sealed class VaultStore
         var number = g.LastRevisionNumber + 1;
         var newRev = new Revision(
             number, ToGameKey(g), winnerDevice, DateTime.UtcNow,
-            winning.Manifest, IsConflict: false, BasedOnRevision: g.CurrentRevision);
+            winning.Manifest, IsConflict: false, BasedOnRevision: g.CurrentRevision,
+            SaveRoot: winning.SaveRoot);
         WriteRevision(g, newRev);
         g.LastRevisionNumber = number;
         g.CurrentRevision = number;
@@ -730,7 +744,8 @@ public sealed class VaultStore
         var forkNumber = fork.LastRevisionNumber + 1;
         var forkRev = new Revision(
             forkNumber, forkKey, forkParticipant.DeviceId, DateTime.UtcNow,
-            loser.Manifest, IsConflict: false, BasedOnRevision: null);
+            loser.Manifest, IsConflict: false, BasedOnRevision: null,
+            SaveRoot: loser.SaveRoot);
         WriteRevision(fork, forkRev);
         fork.LastRevisionNumber = forkNumber;
         fork.CurrentRevision = forkNumber;
@@ -742,7 +757,8 @@ public sealed class VaultStore
         var headNumber = g.LastRevisionNumber + 1;
         var newHead = new Revision(
             headNumber, ToGameKey(g), winnerDevice, DateTime.UtcNow,
-            winner.Manifest, IsConflict: false, BasedOnRevision: g.CurrentRevision);
+            winner.Manifest, IsConflict: false, BasedOnRevision: g.CurrentRevision,
+            SaveRoot: winner.SaveRoot);
         WriteRevision(g, newHead);
         g.LastRevisionNumber = headNumber;
         g.CurrentRevision = headNumber;

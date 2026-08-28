@@ -17,8 +17,18 @@ public sealed class ServerConfig
     /// <summary>Datenwurzel für Spiele/Revisionen/Index (Default /data/savevault).</summary>
     public string DataRoot { get; init; } = "/data/savevault";
 
+    /// <summary>IGDB/Twitch-Client-ID für den Box-Art-Bezug (optional). Leer = Cover-Feature aus.</summary>
+    public string? IgdbClientId { get; init; }
+
+    /// <summary>IGDB/Twitch-Client-Secret für den Box-Art-Bezug (optional). Leer = Cover-Feature aus.</summary>
+    public string? IgdbClientSecret { get; init; }
+
     /// <summary>True, sobald ein nicht-leeres Master-Token vorliegt.</summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(MasterToken);
+
+    /// <summary>True, wenn beide IGDB-Zugangsdaten vorliegen (Box-Art aktiv).</summary>
+    public bool IsCoverEnabled =>
+        !string.IsNullOrWhiteSpace(IgdbClientId) && !string.IsNullOrWhiteSpace(IgdbClientSecret);
 
     /// <summary>Liest die Konfiguration aus den SAVEVAULT_*-Umgebungsvariablen.</summary>
     public static ServerConfig FromEnvironment()
@@ -38,11 +48,16 @@ public sealed class ServerConfig
         if (string.IsNullOrWhiteSpace(data))
             data = "/data/savevault";
 
+        var igdbId = Environment.GetEnvironmentVariable("SAVEVAULT_IGDB_CLIENT_ID");
+        var igdbSecret = Environment.GetEnvironmentVariable("SAVEVAULT_IGDB_CLIENT_SECRET");
+
         return new ServerConfig
         {
             MasterToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
             Port = port,
             DataRoot = data.Trim(),
+            IgdbClientId = string.IsNullOrWhiteSpace(igdbId) ? null : igdbId.Trim(),
+            IgdbClientSecret = string.IsNullOrWhiteSpace(igdbSecret) ? null : igdbSecret.Trim(),
         };
     }
 }

@@ -116,7 +116,7 @@ public sealed class SyncEngine
 
     private async Task<SyncCycleResult> UploadAsync(GameKey game, string folder, FileManifest local, SyncState state, CancellationToken ct)
     {
-        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: state.BaseRevision);
+        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
         var response = await _api.UploadRevisionAsync(game, request, ct).ConfigureAwait(false);
         await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
 
@@ -155,7 +155,7 @@ public sealed class SyncEngine
 
         // Neue/geänderte lokale Fassung: als Konflikt-Revision sichern (damit sie nicht
         // verloren geht) und die Konflikt-Marke auf diesen Stand setzen.
-        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: true, BasedOnRevision: state.BaseRevision);
+        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: true, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
         var response = await _api.UploadRevisionAsync(game, request, ct).ConfigureAwait(false);
         await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
         _stateStore.SaveConflictHash(game, local.ManifestHash);

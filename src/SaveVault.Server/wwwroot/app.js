@@ -272,6 +272,65 @@
     return list;
   }
 
+  // Box-Art: wird als Blob mit dem Bearer-Header geladen (das Token darf nie in eine URL/CSS),
+  // dann als Hintergrundbild über die farbige Platzhalter-Kachel gelegt. Ergebnis wird je Spiel
+  // gecacht ("none" = kein Cover verfügbar), damit nicht bei jedem Rendern neu geladen wird.
+  const coverCache = {};
+  async function loadCover(keyValue, coverEl) {
+    if (!keyValue || !coverEl) return;
+    const cached = coverCache[keyValue];
+    if (cached === "none") return;
+    if (cached) { applyCover(coverEl, cached); return; }
+    try {
+      const headers = {};
+      if (state.token) headers["Authorization"] = "Bearer " + state.token;
+      const res = await fetch("/api/games/" + encodeURIComponent(keyValue) + "/cover", { headers });
+      if (!res.ok) { coverCache[keyValue] = "none"; return; }
+      const url = URL.createObjectURL(await res.blob());
+      coverCache[keyValue] = url;
+      applyCover(coverEl, url);
+    } catch (_) {
+      coverCache[keyValue] = "none";
+    }
+  }
+  function applyCover(coverEl, url) {
+    coverEl.style.backgroundImage = 'url("' + url + '")';
+    coverEl.style.backgroundSize = "cover";
+    coverEl.style.backgroundPosition = "center";
+  }
+
+  // Export einer Revision als ZIP: Blob-Fetch mit Bearer-Header (Token bleibt im Header),
+  // dann ein kurzlebiger <a download> löst den Browser-Download aus.
+  async function downloadRevisionExport(keyValue, number, btn) {
+    const original = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = "Exportiere…"; }
+    try {
+      const headers = {};
+      if (state.token) headers["Authorization"] = "Bearer " + state.token;
+      const res = await fetch(
+        "/api/games/" + encodeURIComponent(keyValue) + "/revisions/" + number + "/export", { headers });
+      if (res.status === 401 || res.status === 403) { handleAuthFailure(AuthError("Nicht autorisiert.", res.status)); return; }
+      if (!res.ok) throw new Error("Export fehlgeschlagen (HTTP " + res.status + ").");
+
+      const blob = await res.blob();
+      let filename = "export-rev" + number + ".zip";
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename="?([^"]+)"?/i.exec(cd);
+      if (m) { try { filename = decodeURIComponent(m[1]); } catch (_) { filename = m[1]; } }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast("Export „" + filename + "“ heruntergeladen.");
+    } catch (err) {
+      toast(err.message || "Export fehlgeschlagen.", true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+    }
+  }
+
   // =====================================================================
   // Anmelde-/Zustands-Tor
   // =====================================================================
@@ -526,7 +585,9 @@
 
     const card = el("button", { class: "game-card" + (big ? " is-big" : ""), type: "button",
       on: { click: () => openGameDrawer(game.value) } });
-    card.appendChild(el("div", { class: "game-card__cover", style: { background: coverColor(game.value) } }));
+    const coverEl = el("div", { class: "game-card__cover", style: { background: coverColor(game.value) } });
+    card.appendChild(coverEl);
+    loadCover(game.value, coverEl);
     const body = el("div", { class: "game-card__body" });
     body.appendChild(el("div", { class: "game-card__name", text: name }));
     body.appendChild(el("div", { class: "game-card__meta", text: metaParts.join(" · ") }));
@@ -829,11 +890,16 @@
 
     // Kopf
     const head = el("div", { class: "drawer__head" });
+    const drawerCover = el("div", { class: "drawer__cover", style: { background: coverColor(keyValue) } });
+    loadCover(keyValue, drawerCover);
+    // Zeile für den Standard-Save-Pfad (wird nach dem Laden der Revisionen befüllt, falls bekannt).
+    const pathEl = el("div", { class: "drawer__sub", style: { "margin-top": "2px", opacity: "0.75", "word-break": "break-all" } });
     const idBlock = el("div", { class: "drawer__id" }, [
-      el("div", { class: "drawer__cover", style: { background: coverColor(keyValue) } }),
+      drawerCover,
       el("div", null, [
         el("div", { class: "drawer__title", text: gameDisplay(game) }),
-        el("div", { class: "drawer__sub", text: (game.store ? game.store + " · " : "") + formatBytes(summary.totalBytes) + " · " + (summary.fileCount || 0) + " Dateien" })
+        el("div", { class: "drawer__sub", text: (game.store ? game.store + " · " : "") + formatBytes(summary.totalBytes) + " · " + (summary.fileCount || 0) + " Dateien" }),
+        pathEl
       ])
     ]);
     const closeBtn = el("button", { class: "close-btn", type: "button", title: "Schließen", on: { click: closeOverlay } });
@@ -906,6 +972,10 @@
       }
     }
 
+    // Standard-Save-Pfad (aus der neuesten Revision, die einen kennt) im Kopf anzeigen.
+    const withRoot = revisions.find(r => r.saveRoot);
+    if (withRoot) pathEl.textContent = "Standard-Pfad: " + withRoot.saveRoot;
+
     // Versionsverlauf
     clear(versionBody);
     if (revisions.length === 0) {
@@ -921,8 +991,13 @@
           el("div", { class: "version-row__sub", text: deviceName(r.deviceId) + " · " + formatBytes(r.totalBytes) + " · " + r.fileCount + " Dateien" })
         ]);
         row.appendChild(info);
-        row.appendChild(el("button", { class: "btn-inline", type: "button", text: "Wiederherstellen",
+        const actions = el("div", { class: "version-row__actions" });
+        actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Export",
+          title: "Diese Version als ZIP herunterladen",
+          on: { click: (ev) => downloadRevisionExport(keyValue, r.number, ev.currentTarget) } }));
+        actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Wiederherstellen",
           on: { click: () => openRestorePicker(keyValue, r.number) } }));
+        row.appendChild(actions);
         versionBody.appendChild(row);
       }
     }

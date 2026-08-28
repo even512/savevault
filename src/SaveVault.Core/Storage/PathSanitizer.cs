@@ -53,6 +53,32 @@ public static class PathSanitizer
     }
 
     /// <summary>
+    /// Wandelt einen fremd gelieferten RELATIVEN Pfad (aus einem Manifest) in einen
+    /// sicheren, strukturerhaltenden ZIP-Eintragsnamen um: '\' wird zu '/', ein etwaiges
+    /// Laufwerk/Root wird entfernt, jedes Segment wird hart saniert (<see cref="SanitizeSegment"/>),
+    /// und Traversal-Segmente (<c>.</c>, <c>..</c>, leer) fallen weg. Ergebnis ist immer
+    /// relativ, enthält nie <c>..</c> und kann beim Entpacken nicht aus dem Zielordner
+    /// ausbrechen. Entartet der Pfad zu nichts, wird <c>"_"</c> geliefert.
+    /// </summary>
+    public static string SafeZipEntryName(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+            return "_";
+
+        var normalized = relativePath.Replace('\\', '/');
+        var safeSegments = new List<string>();
+        foreach (var segment in normalized.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment is "." or "..")
+                continue; // Traversal/aktuelles Verzeichnis nie übernehmen
+            // Laufwerks-/UNC-Reste (z. B. "C:") werden von SanitizeSegment entschärft.
+            safeSegments.Add(SanitizeSegment(segment));
+        }
+
+        return safeSegments.Count == 0 ? "_" : string.Join('/', safeSegments);
+    }
+
+    /// <summary>
     /// Liegt <paramref name="candidate"/> garantiert unterhalb (oder auf) von
     /// <paramref name="root"/>? Beide Pfade werden zu absoluten Vollpfaden aufgelöst,
     /// bevor verglichen wird (fängt <c>..</c>-Auflösungen ab).

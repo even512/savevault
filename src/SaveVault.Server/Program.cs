@@ -32,6 +32,19 @@ builder.Services.AddSingleton(sp => new VaultStore(
     config.DataRoot,
     sp.GetRequiredService<ILoggerFactory>().CreateLogger<VaultStore>()));
 
+// Box-Art-Bezug (IGDB): benannter HttpClient (knapper Timeout) + der Cover-Dienst als Singleton,
+// damit Twitch-Token und Pro-Spiel-Sperren über Aufrufe hinweg erhalten bleiben. Der Dienst ist
+// inaktiv, solange keine IGDB-Zugangsdaten gesetzt sind (siehe ServerConfig.IsCoverEnabled).
+builder.Services.AddHttpClient(CoverService.HttpClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(12);
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("SaveVault/1.0");
+});
+builder.Services.AddSingleton(sp => new CoverService(
+    sp.GetRequiredService<IHttpClientFactory>(),
+    config,
+    sp.GetRequiredService<ILoggerFactory>().CreateLogger<CoverService>()));
+
 var app = builder.Build();
 
 // Store früh erzeugen, damit Startprobleme (z. B. Datenverzeichnis nicht schreibbar) sofort auffallen.
