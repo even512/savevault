@@ -20,10 +20,10 @@ jobs:
       contents: write   # nötig, um das Release-Asset anzuhängen
     steps:
       - name: Quellen auschecken
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: .NET 9 SDK einrichten
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
 
@@ -50,6 +50,6 @@ jobs:
         run: Compress-Archive -Path publish/SaveVault-Client/* -DestinationPath "SaveVault-Client-${{ github.ref_name }}-win-x64.zip" -Force
 
       - name: An GitHub-Release anhängen
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: SaveVault-Client-*.zip
