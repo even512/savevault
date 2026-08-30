@@ -312,6 +312,41 @@ public sealed class ClientAgent : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Stellt eine ältere Revision eines Spiels auf diesem Gerät wieder her („Rückspiel").
+    /// Reine Weiterleitung an die Server-API: der Server hinterlegt einen Restore-Befehl für
+    /// dieses Gerät, der über den bestehenden Befehls-Poller / <see cref="SyncEngine.ApplyRevisionAsync"/>
+    /// lokal angewandt wird – es entsteht <b>kein</b> neuer Schreibpfad. Bei Annahme wird sofort
+    /// ein Sync angestoßen, damit das Ergebnis lokal ankommt. Liefert <c>false</c>, wenn nicht
+    /// eingerichtet, abgelehnt oder ein Fehler auftrat – nie eine Exception in die GUI.
+    /// </summary>
+    public async Task<bool> RestoreAsync(GameKey game, long targetRevision, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var api = _api;
+        if (api is null)
+            return false;
+        var deviceId = CurrentDeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return false;
+        try
+        {
+            var request = new RestoreRequest(deviceId, targetRevision);
+            var response = await api.RestoreAsync(game, request, ct).ConfigureAwait(false);
+            if (response.Accepted)
+                await SyncNowAsync(ct).ConfigureAwait(false);
+            return response.Accepted;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Geräte-ID dieses Geräts (aus der lokalen Konfiguration) oder <c>null</c>.</summary>
     public string? CurrentDeviceId => _configStore.Load().DeviceId;
 

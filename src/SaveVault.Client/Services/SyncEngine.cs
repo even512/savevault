@@ -122,6 +122,8 @@ public sealed class SyncEngine
 
         _stateStore.Save(state with { BaseRevision = response.Revision, BaseManifest = local });
         _stateStore.ClearConflictHash(game); // sauberer Upload – etwaige Konflikt-Marke ist überholt.
+        // Echte Übertragung abgeschlossen → meldenswert (Toast „gesichert").
+        _state.NotifySyncActivity(game, SyncActivityKind.Uploaded);
         return Report(game, SyncAction.Upload, SyncStatus.Synced,
             $"Hochgeladen → Revision {response.Revision}", folder, response.Revision);
     }
@@ -130,6 +132,8 @@ public sealed class SyncEngine
     {
         var revision = await _api.GetRevisionAsync(game, serverRevision, ct).ConfigureAwait(false);
         await ApplyRevisionAsync(game, folder, revision.Manifest, revision.Number, ct).ConfigureAwait(false);
+        // Echte Übertragung abgeschlossen → meldenswert (Toast „synchronisiert").
+        _state.NotifySyncActivity(game, SyncActivityKind.Downloaded);
         return Report(game, SyncAction.Download, SyncStatus.Synced,
             $"Heruntergeladen ← Revision {revision.Number}", folder, revision.Number);
     }
@@ -160,6 +164,11 @@ public sealed class SyncEngine
         await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
         _stateStore.SaveConflictHash(game, local.ManifestHash);
 
+        // Neu erkannter/geänderter Konflikt (eine echte Konflikt-Revision wurde angelegt) →
+        // meldenswert. Der Zweig oben („Konflikt besteht weiter", unveränderte lokale Fassung)
+        // lädt NICHTS hoch und ist ein reiner Statuswechsel – dort bewusst KEINE Meldung, sonst
+        // entstünde bei jedem Rescan/Watcher-Tick ein Toast.
+        _state.NotifySyncActivity(game, SyncActivityKind.Conflict);
         return Report(game, SyncAction.Conflict, SyncStatus.Conflict,
             $"Konflikt erkannt – lokale Fassung als Konflikt-Revision {response.Revision} gesichert, nichts überschrieben",
             folder, state.BaseRevision);

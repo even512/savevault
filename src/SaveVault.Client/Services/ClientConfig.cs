@@ -34,6 +34,14 @@ public sealed class ClientConfig
     public bool AutostartEnabled { get; set; } = true;
 
     /// <summary>
+    /// Ob der Client kurze Windows-Benachrichtigungen (Tray-Toasts) über abgeschlossene
+    /// Sync-Aktionen (gesichert/synchronisiert/Konflikt) anzeigen soll (Default <c>true</c>).
+    /// Fehlt das Feld in einer alten <c>config.json</c>, wird es als <c>true</c> gelesen –
+    /// also „Benachrichtigungen an", konsistent mit den anderen Default-AN-Feldern.
+    /// </summary>
+    public bool ToastsEnabled { get; set; } = true;
+
+    /// <summary>
     /// Ob der Client vollständig eingerichtet ist (Server-URL + Geräte-ID + Token). Ohne
     /// das gilt der „nicht eingerichtet"-Zustand und es werden keine Netz-Schleifen gestartet.
     /// </summary>

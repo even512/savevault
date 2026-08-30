@@ -4,6 +4,29 @@ using SaveVault.Core.Sync;
 namespace SaveVault.Client.Services;
 
 /// <summary>
+/// Art einer abgeschlossenen, meldenswerten Sync-Aktion (Grundlage für die Tray-Toasts).
+/// <see cref="Uploaded"/> = „gesichert" (Upload zum Server), <see cref="Downloaded"/> =
+/// „synchronisiert" (Download vom Server), <see cref="Conflict"/> = neu erkannter Konflikt.
+/// </summary>
+public enum SyncActivityKind
+{
+    /// <summary>Lokaler Stand wurde zum Server hochgeladen („gesichert").</summary>
+    Uploaded,
+
+    /// <summary>Server-Stand wurde lokal angewandt („synchronisiert").</summary>
+    Downloaded,
+
+    /// <summary>Ein neuer Konflikt wurde erkannt.</summary>
+    Conflict,
+}
+
+/// <summary>
+/// Nutzlast des <see cref="AgentState.SyncActivityOccurred"/>-Ereignisses: welches Spiel,
+/// welche Art von Aktion und wann (UTC). Rein informativ für die GUI (Toast-Ausgabe).
+/// </summary>
+public sealed record SyncActivity(GameKey Game, SyncActivityKind Kind, DateTime WhenUtc);
+
+/// <summary>
 /// Beobachtbarer Zustand eines Spiels aus Sicht dieses Geräts – die Datengrundlage, die
 /// die WPF-GUI (Schritt 6) pro Spiel anzeigt. Reine Anzeige-Sicht (kein WPF), veränderbar
 /// nur über <see cref="AgentState"/>.
@@ -73,6 +96,14 @@ public sealed class AgentState
 
     /// <summary>Wird bei jeder Zustandsänderung ausgelöst (für Datenbindung/Refresh der GUI).</summary>
     public event EventHandler? Changed;
+
+    /// <summary>
+    /// Wird <b>nur</b> bei einer echten, abgeschlossenen Übertragung ausgelöst (Upload,
+    /// Download, neu erkannter Konflikt) – zusätzlich zu <see cref="Changed"/>. Grundlage für
+    /// die Tray-Toasts. Wird bewusst <b>nicht</b> bei jedem <see cref="SetStatus"/>, bei
+    /// reinem Statuswechsel oder bei „NoOp" gefeuert.
+    /// </summary>
+    public event EventHandler<SyncActivity>? SyncActivityOccurred;
 
     /// <summary>Ob der Client eingerichtet ist (Server-URL + Token vorhanden).</summary>
     public bool IsConfigured { get; private set; }
@@ -211,6 +242,17 @@ public sealed class AgentState
     {
         lock (_lock)
             return _games.Values.Select(v => v.Clone()).ToList();
+    }
+
+    /// <summary>
+    /// Meldet eine echte, abgeschlossene Sync-Aktion und feuert <see cref="SyncActivityOccurred"/>
+    /// (Zeitstempel über den injizierten <c>nowUtc</c>-Delegaten). Ausschließlich aus den echten
+    /// Aktions-Pfaden der <see cref="SyncEngine"/> aufgerufen – nie bei NoOp/reinem Statuswechsel.
+    /// </summary>
+    public void NotifySyncActivity(GameKey game, SyncActivityKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        SyncActivityOccurred?.Invoke(this, new SyncActivity(game, kind, _nowUtc()));
     }
 
     private GameStatusView GetOrCreate(GameKey game)

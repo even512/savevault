@@ -5,15 +5,45 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:SaveVault.Client"
         mc:Ignorable="d"
-        Title="SaveVault" Height="640" Width="470"
-        MinWidth="420" MinHeight="480"
+        Title="SaveVault" Height="720" Width="480"
+        MinWidth="440" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource WindowBgBrush}"
         TextOptions.TextFormattingMode="Ideal"
         UseLayoutRounding="True">
 
+    <Window.Resources>
+        <!-- Zeilen-Button für den Aufmerksamkeits-Bereich (linksbündig, Karte, Hover) -->
+        <Style x:Key="ListRowButton" TargetType="{x:Type Button}">
+            <Setter Property="Background" Value="#1D1E26" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                                CornerRadius="9" Padding="11,9">
+                            <ContentPresenter HorizontalAlignment="Stretch" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid Margin="20,18,20,18">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -28,7 +58,7 @@
         </StackPanel>
 
         <!-- Verbindungszustand -->
-        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,14">
+        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,12">
             <StackPanel Orientation="Horizontal">
                 <Ellipse x:Name="ConnDot" Width="10" Height="10" Fill="{StaticResource OfflineBrush}"
                          VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -40,58 +70,155 @@
             </StackPanel>
         </Border>
 
-        <!-- Spiele-Liste / Leerzustand -->
-        <Grid Grid.Row="2">
-            <ScrollViewer x:Name="GamesScroll" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
-                <ItemsControl x:Name="GamesList">
+        <!-- Gesamt-Status / Übersicht -->
+        <Border Grid.Row="2" x:Name="OverallCard" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,12"
+                Visibility="Collapsed">
+            <StackPanel>
+                <Grid>
+                    <TextBlock Text="Übersicht" FontWeight="SemiBold" FontSize="13" />
+                    <TextBlock x:Name="TotalGamesText" HorizontalAlignment="Right"
+                               Foreground="{StaticResource MutedBrush}" FontSize="12" />
+                </Grid>
+                <WrapPanel x:Name="CountersPanel" Margin="0,10,0,0" />
+                <TextBlock x:Name="LastSyncText" Foreground="{StaticResource MutedBrush}"
+                           FontSize="11.5" Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- Braucht Aufmerksamkeit -->
+        <Border Grid.Row="3" x:Name="AttentionCard" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,12"
+                Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock Text="Braucht Aufmerksamkeit" FontWeight="SemiBold" FontSize="13" />
+                <ItemsControl x:Name="AttentionList" Margin="0,9,0,-6">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,10">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-
-                                    <Ellipse Grid.Column="0" Width="10" Height="10"
-                                             Fill="{Binding StatusBrush}"
-                                             VerticalAlignment="Top" Margin="0,4,12,0" />
-
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="13.5"
+                            <Button Style="{StaticResource ListRowButton}" Margin="0,0,0,6"
+                                    Click="OnAttentionClick" Tag="{Binding}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="9" Height="9" Fill="{Binding AttentionBrush}"
+                                             VerticalAlignment="Center" Margin="0,0,10,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}"
-                                                   FontSize="12" FontWeight="SemiBold" Margin="0,3,0,0" />
-                                        <TextBlock Text="{Binding FolderText}" Foreground="{StaticResource MutedBrush}"
-                                                   FontSize="11.5" Margin="0,4,0,0"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding LastActionText}" Foreground="{StaticResource MutedBrush}"
-                                                   FontSize="11.5" Margin="0,2,0,0"
-                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding AttentionReason}" Foreground="{StaticResource MutedBrush}"
+                                                   FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
-
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Top">
-                                        <Button Content="Lösen"
-                                                Style="{StaticResource BaseButton}"
-                                                Background="{StaticResource ConflictBrush}"
-                                                Foreground="#221206" BorderThickness="0"
-                                                Padding="12,7"
-                                                Visibility="{Binding ConflictVisibility}"
-                                                Click="OnResolveConflictClick"
-                                                Tag="{Binding}" />
-                                        <Button Content="Ordner zuordnen"
-                                                Style="{StaticResource SecondaryButton}"
-                                                Padding="12,7"
-                                                Visibility="{Binding AssignFolderVisibility}"
-                                                Click="OnAssignFolderClick"
-                                                Tag="{Binding}" />
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
+                                </StackPanel>
+                            </Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <!-- Such-Dropdown -->
+        <ComboBox Grid.Row="4" x:Name="GameCombo" Style="{StaticResource DarkComboBox}"
+                  IsEditable="True" IsTextSearchEnabled="True" StaysOpenOnEdit="True"
+                  TextSearch.TextPath="DisplayName"
+                  Margin="0,0,0,12" Visibility="Collapsed"
+                  SelectionChanged="OnGameSelectionChanged">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+
+        <!-- Detail-Panel / Leerzustand -->
+        <Grid Grid.Row="5">
+            <ScrollViewer x:Name="DetailScroll" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0"
+                          Visibility="Collapsed">
+                <StackPanel>
+
+                    <!-- Kopf des Spiels -->
+                    <Border Style="{StaticResource Card}" Padding="16,14">
+                        <StackPanel>
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" FontSize="16"
+                                       TextWrapping="Wrap" />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+                                <Ellipse Width="10" Height="10" Fill="{Binding StatusBrush}"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}"
+                                           FontWeight="SemiBold" FontSize="13" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding LastActionText}" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
+
+                            <TextBlock Text="Gesicherter Ordner" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11.5" Margin="0,14,0,4" />
+                            <TextBlock Text="{Binding FolderText}" FontSize="12.5" TextWrapping="Wrap" />
+
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Content="Ordner öffnen" Style="{StaticResource SecondaryButton}"
+                                        Padding="14,7" Margin="0,0,8,8"
+                                        Visibility="{Binding OpenFolderVisibility}"
+                                        IsEnabled="{Binding CanOpenFolder}"
+                                        Click="OnOpenFolderClick" />
+                                <Button Content="Lösen" Style="{StaticResource BaseButton}"
+                                        Background="{StaticResource ConflictBrush}" Foreground="#221206"
+                                        BorderThickness="0" Padding="14,7" Margin="0,0,8,8"
+                                        Visibility="{Binding ConflictVisibility}"
+                                        Click="OnResolveConflictClick" Tag="{Binding}" />
+                                <Button Content="Ordner zuordnen" Style="{StaticResource SecondaryButton}"
+                                        Padding="14,7" Margin="0,0,8,8"
+                                        Visibility="{Binding AssignFolderVisibility}"
+                                        Click="OnAssignFolderClick" Tag="{Binding}" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Versionshistorie -->
+                    <Border Style="{StaticResource Card}" Padding="16,14" Margin="0,12,0,0">
+                        <StackPanel>
+                            <Grid>
+                                <TextBlock Text="Versionshistorie" FontWeight="SemiBold" FontSize="13" />
+                                <TextBlock x:Name="HistoryHintText" HorizontalAlignment="Right"
+                                           Foreground="{StaticResource MutedBrush}" FontSize="11" Text="" />
+                            </Grid>
+                            <TextBlock x:Name="HistoryEmptyText" Text="Noch keine Versionen vorhanden."
+                                       Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                       Margin="0,9,0,0" Visibility="Collapsed" />
+                            <ItemsControl x:Name="HistoryList" Margin="0,9,0,-6">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#1D1E26" BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1" CornerRadius="9" Padding="11,9" Margin="0,0,0,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12.5"
+                                                                   VerticalAlignment="Center" />
+                                                        <Border Visibility="{Binding ConflictVisibility}"
+                                                                Background="{StaticResource ConflictBrush}" CornerRadius="5"
+                                                                Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                            <TextBlock Text="Konflikt" Foreground="#221206"
+                                                                       FontSize="10" FontWeight="SemiBold" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding MetaText}" Foreground="{StaticResource MutedBrush}"
+                                                               FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding OriginText}" Foreground="{StaticResource MutedBrush}"
+                                                               FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="Wiederherstellen" VerticalAlignment="Center"
+                                                        Style="{StaticResource SecondaryButton}" Padding="11,6" FontSize="11.5"
+                                                        Click="OnRestoreClick" Tag="{Binding}" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
             </ScrollViewer>
 
             <!-- Leerzustand / nicht eingerichtet -->
@@ -111,7 +238,7 @@
         </Grid>
 
         <!-- Aktionen -->
-        <StackPanel Grid.Row="3" Margin="0,14,0,0">
+        <StackPanel Grid.Row="6" Margin="0,14,0,0">
             <Button Content="Jetzt synchronisieren" Style="{StaticResource PrimaryButton}"
                     HorizontalAlignment="Stretch" Click="OnSyncNowClick" Margin="0,0,0,8" />
             <UniformGrid Columns="3">

@@ -28,6 +28,7 @@ public partial class SettingsWindow : Window
         DeviceNameBox.Text = config.DeviceName ?? Environment.MachineName;
         IntervalBox.Text = config.SyncIntervalSeconds.ToString();
         AutostartCheck.IsChecked = config.AutostartEnabled;
+        ToastsCheck.IsChecked = config.ToastsEnabled;
         // Pairing-Code bleibt leer; der Token wird nicht geladen/angezeigt.
     }
 
@@ -99,6 +100,7 @@ public partial class SettingsWindow : Window
             config.DeviceName = deviceName;
             config.SyncIntervalSeconds = seconds;
             config.AutostartEnabled = AutostartCheck.IsChecked == true;
+            config.ToastsEnabled = ToastsCheck.IsChecked == true;
             _configStore.Save(config);
             IntervalBox.Text = seconds.ToString();
 

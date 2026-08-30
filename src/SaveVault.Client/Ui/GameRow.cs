@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using SaveVault.Client.Services;
@@ -44,11 +45,38 @@ public sealed class GameRow : INotifyPropertyChanged
     /// <summary>Sichtbarkeit des „Ordner zuordnen"-Buttons (nur bei übersprungenen Spielen).</summary>
     public Visibility AssignFolderVisibility { get => _assignFolderVisibility; private set => Set(ref _assignFolderVisibility, value); }
 
+    private Visibility _openFolderVisibility = Visibility.Collapsed;
+    /// <summary>Sichtbarkeit des „Ordner öffnen"-Buttons (nur bei echt verwalteten Spielen mit Ordner).</summary>
+    public Visibility OpenFolderVisibility { get => _openFolderVisibility; private set => Set(ref _openFolderVisibility, value); }
+
+    private string? _folderPathRaw;
+    /// <summary>Der tatsächliche Save-Ordner-Pfad (roh) oder <c>null</c>, falls keiner zugeordnet ist.</summary>
+    public string? FolderPathRaw { get => _folderPathRaw; private set => Set(ref _folderPathRaw, value); }
+
+    private bool _canOpenFolder;
+    /// <summary>Ob der zugeordnete Save-Ordner aktuell existiert (steuert die „Ordner öffnen"-Aktivierung).</summary>
+    public bool CanOpenFolder { get => _canOpenFolder; private set => Set(ref _canOpenFolder, value); }
+
+    private bool _needsAttention;
+    /// <summary>Ob dieses Spiel Aufmerksamkeit braucht (Konflikt, Fehler oder übersprungen).</summary>
+    public bool NeedsAttention { get => _needsAttention; private set => Set(ref _needsAttention, value); }
+
+    private string _attentionReason = "";
+    /// <summary>Kurzer Grund für den Aufmerksamkeits-Bereich (nur wenn <see cref="NeedsAttention"/>).</summary>
+    public string AttentionReason { get => _attentionReason; private set => Set(ref _attentionReason, value); }
+
+    private Brush _attentionBrush = Brushes.Gray;
+    /// <summary>Statusfarbe für den Aufmerksamkeits-Chip (Konflikt orange, Fehler rot, Skip amber).</summary>
+    public Brush AttentionBrush { get => _attentionBrush; private set => Set(ref _attentionBrush, value); }
+
     /// <summary>Ob dieses Spiel übersprungen wurde und eine manuelle Zuordnung braucht.</summary>
     public bool IsSkipped { get; private set; }
 
     /// <summary>Aktueller Status (für Aktionslogik, z. B. Konflikt erkennen).</summary>
     public SyncStatus Status { get; private set; }
+
+    /// <summary>Zeitpunkt der letzten Aktion (UTC) – zur Erkennung, ob die Historie neu zu laden ist.</summary>
+    public DateTime? LastActionUtc { get; private set; }
 
     /// <summary>Übernimmt einen frischen Snapshot in die Zeile.</summary>
     public void Update(GameStatusView view)
@@ -56,6 +84,7 @@ public sealed class GameRow : INotifyPropertyChanged
         Status = view.Status;
         DisplayName = view.DisplayName;
         IsSkipped = view.IsSkipped;
+        LastActionUtc = view.LastActionUtc;
 
         if (view.IsSkipped)
         {
@@ -68,6 +97,15 @@ public sealed class GameRow : INotifyPropertyChanged
             LastActionText = "Bei der Erkennung übersprungen";
             ConflictVisibility = Visibility.Collapsed;
             AssignFolderVisibility = Visibility.Visible;
+            OpenFolderVisibility = Visibility.Collapsed;
+            FolderPathRaw = null;
+            CanOpenFolder = false;
+
+            NeedsAttention = true;
+            AttentionReason = string.IsNullOrWhiteSpace(view.SkipReason)
+                ? "Nicht automatisch erfasst – Ordner zuordnen"
+                : view.SkipReason!;
+            AttentionBrush = StatusVisuals.Attention;
             return;
         }
 
@@ -83,6 +121,35 @@ public sealed class GameRow : INotifyPropertyChanged
 
         ConflictVisibility = view.Status == SyncStatus.Conflict ? Visibility.Visible : Visibility.Collapsed;
         AssignFolderVisibility = Visibility.Collapsed;
+
+        // „Ordner öffnen" nur, wenn ein Ordner zugeordnet ist; aktiviert nur, wenn er auch existiert.
+        FolderPathRaw = string.IsNullOrWhiteSpace(view.FolderPath) ? null : view.FolderPath;
+        OpenFolderVisibility = FolderPathRaw is null ? Visibility.Collapsed : Visibility.Visible;
+        CanOpenFolder = FolderPathRaw is not null && SafeDirectoryExists(FolderPathRaw);
+
+        switch (view.Status)
+        {
+            case SyncStatus.Conflict:
+                NeedsAttention = true;
+                AttentionReason = "Konflikt – bitte lösen";
+                AttentionBrush = StatusVisuals.Conflict;
+                break;
+            case SyncStatus.Error:
+                NeedsAttention = true;
+                AttentionReason = action ?? "Fehler beim Synchronisieren";
+                AttentionBrush = StatusVisuals.Error;
+                break;
+            default:
+                NeedsAttention = false;
+                AttentionReason = "";
+                break;
+        }
+    }
+
+    private static bool SafeDirectoryExists(string path)
+    {
+        try { return Directory.Exists(path); }
+        catch { return false; }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
