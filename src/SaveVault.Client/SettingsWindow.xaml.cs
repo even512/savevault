@@ -14,10 +14,24 @@ public partial class SettingsWindow : Window
     private readonly ClientAgent _agent;
     private readonly ClientConfigStore _configStore = new(new AppPaths());
 
+    // Reihenfolge der Ecken-Auswahl (Index ↔ Enum), mit deutschen Labels.
+    private static readonly (WatermarkCorner Corner, string Label)[] Corners =
+    {
+        (WatermarkCorner.BottomRight, "Unten rechts"),
+        (WatermarkCorner.TopRight, "Oben rechts"),
+        (WatermarkCorner.TopLeft, "Oben links"),
+        (WatermarkCorner.BottomLeft, "Unten links"),
+    };
+
     public SettingsWindow(ClientAgent agent)
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         InitializeComponent();
+
+        // Ecken-Auswahl einmalig befüllen (feste, lokalisierte Labels).
+        foreach (var (_, label) in Corners)
+            CornerCombo.Items.Add(label);
+
         LoadFields();
     }
 
@@ -29,7 +43,32 @@ public partial class SettingsWindow : Window
         IntervalBox.Text = config.SyncIntervalSeconds.ToString();
         AutostartCheck.IsChecked = config.AutostartEnabled;
         ToastsCheck.IsChecked = config.ToastsEnabled;
+        NotifyTransfersCheck.IsChecked = config.NotifyTransfers;
+        NotifyConflictsCheck.IsChecked = config.NotifyConflicts;
+        NotificationSoundCheck.IsChecked = config.NotificationSound;
+        WatermarkCheck.IsChecked = config.GameWatermarkEnabled;
+
+        var cornerIndex = Array.FindIndex(Corners, c => c.Corner == config.WatermarkCorner);
+        CornerCombo.SelectedIndex = cornerIndex >= 0 ? cornerIndex : 0;
+
+        UpdateSubOptionsEnabled();
         // Pairing-Code bleibt leer; der Token wird nicht geladen/angezeigt.
+    }
+
+    /// <summary>Graut die Unter-Optionen aus, wenn der Master „Benachrichtigungen anzeigen" aus ist.</summary>
+    private void OnMasterToggled(object sender, RoutedEventArgs e) => UpdateSubOptionsEnabled();
+
+    private void UpdateSubOptionsEnabled()
+    {
+        var on = ToastsCheck.IsChecked == true;
+        // Die Steuerelemente könnten während InitializeComponent noch null sein.
+        if (NotifyTransfersCheck is null)
+            return;
+        NotifyTransfersCheck.IsEnabled = on;
+        NotifyConflictsCheck.IsEnabled = on;
+        NotificationSoundCheck.IsEnabled = on;
+        WatermarkCheck.IsEnabled = on;
+        CornerCombo.IsEnabled = on;
     }
 
     // --- Kopplung ------------------------------------------------------------------
@@ -101,6 +140,14 @@ public partial class SettingsWindow : Window
             config.SyncIntervalSeconds = seconds;
             config.AutostartEnabled = AutostartCheck.IsChecked == true;
             config.ToastsEnabled = ToastsCheck.IsChecked == true;
+            config.NotifyTransfers = NotifyTransfersCheck.IsChecked == true;
+            config.NotifyConflicts = NotifyConflictsCheck.IsChecked == true;
+            config.NotificationSound = NotificationSoundCheck.IsChecked == true;
+            config.GameWatermarkEnabled = WatermarkCheck.IsChecked == true;
+            var idx = CornerCombo.SelectedIndex;
+            config.WatermarkCorner = idx >= 0 && idx < Corners.Length
+                ? Corners[idx].Corner
+                : WatermarkCorner.BottomRight;
             _configStore.Save(config);
             IntervalBox.Text = seconds.ToString();
 

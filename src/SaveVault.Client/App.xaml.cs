@@ -31,6 +31,9 @@ public partial class App : Application
     private Timer? _toastTimer;
     private EventHandler<SyncActivity>? _activityHandler;
 
+    // Höchstens ein laufendes Wasserzeichen-Overlay – kein Fenster-Stapel.
+    private WatermarkWindow? _watermark;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -174,25 +177,87 @@ public partial class App : Application
             _pendingActivities.Clear();
         }
 
-        // Schalter frisch lesen, damit die Einstellung ohne Neustart wirkt.
-        bool enabled;
-        try { enabled = new ClientConfigStore(new AppPaths()).Load().ToastsEnabled; }
-        catch { enabled = true; }
-        if (!enabled)
+        // Config frisch lesen, damit alle Einstellungen ohne Neustart wirken.
+        ClientConfig config;
+        try { config = new ClientConfigStore(new AppPaths()).Load(); }
+        catch { config = new ClientConfig(); }
+
+        // (2) Master: „Benachrichtigungen anzeigen" aus ⇒ weder Toast noch Wasserzeichen.
+        if (!config.ToastsEnabled)
             return;
 
-        var (text, isConflict) = ComposeToast(batch);
-        if (string.IsNullOrEmpty(text))
-            return;
-
-        // Ausgabe über das Tray-Icon auf dem UI-Thread (NotifyIcon wurde dort erzeugt).
-        Dispatcher.BeginInvoke(new Action(() =>
+        // (3) Kategorie-Filter: nur Ereignisse behalten, deren Kategorie aktiv ist.
+        //     Übertragungen (Uploaded/Downloaded) nur bei NotifyTransfers, Konflikte nur bei
+        //     NotifyConflicts. Bleibt nichts übrig ⇒ nichts.
+        var filtered = batch.Where(a => a.Kind switch
         {
-            if (_tray is null || !_tray.Visible)
+            SyncActivityKind.Uploaded or SyncActivityKind.Downloaded => config.NotifyTransfers,
+            SyncActivityKind.Conflict => config.NotifyConflicts,
+            _ => false,
+        }).ToList();
+        if (filtered.Count == 0)
+            return;
+
+        // (4) Vollbild-Weiche: läuft ein Spiel, unterbleibt der laute Toast.
+        if (!FullscreenDetection.IsFullscreenAppRunning())
+        {
+            // Kein Spiel: Toast wie gewohnt – bei „ohne Ton" lautlos (ToolTipIcon.None).
+            var (text, isConflict) = ComposeToast(filtered);
+            if (string.IsNullOrEmpty(text))
                 return;
-            var icon = isConflict ? WinForms.ToolTipIcon.Warning : WinForms.ToolTipIcon.Info;
-            _tray.ShowBalloonTip(5000, "SaveVault", text, icon);
-        }));
+
+            var icon = !config.NotificationSound
+                ? WinForms.ToolTipIcon.None
+                : (isConflict ? WinForms.ToolTipIcon.Warning : WinForms.ToolTipIcon.Info);
+
+            // Ausgabe über das Tray-Icon auf dem UI-Thread (NotifyIcon wurde dort erzeugt).
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_tray is null || !_tray.Visible)
+                    return;
+                _tray.ShowBalloonTip(5000, "SaveVault", text, icon);
+            }));
+        }
+        else
+        {
+            // Spiel läuft: kein Toast, kein Ton. Nur (optional) das Wasserzeichen.
+            if (!config.GameWatermarkEnabled)
+                return;
+
+            // Label aus festem Vokabular: Konflikt hat Vorrang, sonst „gesichert".
+            var hasConflict = filtered.Any(a => a.Kind == SyncActivityKind.Conflict);
+            var label = hasConflict ? "Konflikt" : "gesichert";
+            var corner = config.WatermarkCorner;
+
+            Dispatcher.BeginInvoke(new Action(() => ShowWatermark(label, corner)));
+        }
+    }
+
+    /// <summary>
+    /// Zeigt das Wasserzeichen-Overlay (UI-Thread). Ein evtl. noch offenes wird zuvor geschlossen,
+    /// damit nie ein Fenster-Stapel entsteht. Fehler bleiben lokal – das Overlay darf die App
+    /// nie stören.
+    /// </summary>
+    private void ShowWatermark(string label, WatermarkCorner corner)
+    {
+        try
+        {
+            _watermark?.Close();
+            _watermark = null;
+
+            var window = new WatermarkWindow(label, corner);
+            window.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_watermark, window))
+                    _watermark = null;
+            };
+            _watermark = window;
+            window.Show();
+        }
+        catch
+        {
+            // Das Overlay ist rein kosmetisch: jeder Fehler wird verschluckt.
+        }
     }
 
     /// <summary>
@@ -265,6 +330,11 @@ public partial class App : Application
         _activityHandler = null;
         _toastTimer?.Dispose();
         _toastTimer = null;
+
+        // Ein evtl. noch offenes Wasserzeichen sauber schließen (kein hängendes Fenster).
+        try { _watermark?.Close(); }
+        catch { /* Herunterfahren nie blockieren */ }
+        _watermark = null;
 
         if (_tray is not null)
         {

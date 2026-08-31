@@ -1,0 +1,34 @@
+<Window x:Class="SaveVault.Client.WatermarkWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ShowActivated="False"
+        IsHitTestVisible="False"
+        Focusable="False"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual"
+        Opacity="0"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <!-- Halbtransparente Karte im dunklen Design-Geist (Teal-Rand, Radius 12) -->
+    <Border Background="#E024262F" CornerRadius="12"
+            BorderBrush="{StaticResource AccentBrush}" BorderThickness="1"
+            Padding="14,10">
+        <StackPanel Orientation="Horizontal">
+            <Image x:Name="LogoImage" Width="34" Height="34" VerticalAlignment="Center"
+                   RenderOptions.BitmapScalingMode="HighQuality" />
+            <StackPanel VerticalAlignment="Center" Margin="12,0,2,0">
+                <TextBlock Text="SaveVault" FontSize="11"
+                           Foreground="{StaticResource MutedBrush}" />
+                <TextBlock x:Name="LabelText" FontSize="14" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextBrush}" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
