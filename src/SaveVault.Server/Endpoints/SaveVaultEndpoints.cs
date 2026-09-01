@@ -208,11 +208,13 @@ public static class SaveVaultEndpoints
             return Results.Json(await store.GetGameStatesAsync(ct));
         });
 
-        // Box-Art/Cover eines Spiels (aus dem Platten-Cache, sonst on-demand via IGDB). Master-only.
-        // Liefert das Bild (image/jpeg) oder 404, wenn keins verfügbar ist / das Feature inaktiv ist.
-        api.MapGet("/games/{gameKey}/cover", async (string gameKey, HttpContext ctx, CoverService covers, CancellationToken ct) =>
+        // Box-Art/Cover eines Spiels (aus dem Platten-Cache, sonst on-demand via IGDB). Für jedes
+        // gültig authentifizierte Prinzipal lesbar – gekoppeltes Gerät ODER Master (konsistent zur
+        // bereits geräte-lesbaren /revisions-Route). Die Token-Middleware der /api-Gruppe bleibt
+        // davor: anonymer Zugriff ist weiterhin gesperrt. Liefert das Bild (image/jpeg) oder 404,
+        // wenn keins verfügbar ist / das Feature inaktiv ist.
+        api.MapGet("/games/{gameKey}/cover", async (string gameKey, CoverService covers, CancellationToken ct) =>
         {
-            if (!Principal(ctx).IsMaster) return AdminOnly();
             var file = await covers.GetCoverFileAsync(KeyFrom(gameKey), ct);
             return file is null
                 ? ApiResults.Error(404, "Kein Cover verfügbar.")

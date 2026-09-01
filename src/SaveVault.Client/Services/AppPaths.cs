@@ -27,4 +27,10 @@ public sealed class AppPaths
 
     /// <summary>Datei mit der Ordner-Zuordnung (Spiel → lokaler Ordner).</summary>
     public string FolderRegistryFile => Path.Combine(Root, "folders.json");
+
+    /// <summary>Datei mit den vom Sync ausgeschlossenen Spielen (Menge von <c>GameKey.Value</c>).</summary>
+    public string ExclusionsFile => Path.Combine(Root, "excluded.json");
+
+    /// <summary>Verzeichnis für den lokalen Box-Art-/Cover-Cache (verwerfbar).</summary>
+    public string CoverCacheDirectory => Path.Combine(Root, "covers");
 }

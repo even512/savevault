@@ -25,6 +25,12 @@ public interface ISaveVaultApi
     /// <summary>Versionsverlauf eines Spiels.</summary>
     Task<RevisionListResponse> GetRevisionsAsync(GameKey game, CancellationToken ct = default);
 
+    /// <summary>
+    /// Box-Art/Cover eines Spiels als JPEG-Bytes. Liefert <c>null</c>, wenn der Server kein
+    /// Cover hat (HTTP 404); andere Fehler werfen wie üblich <see cref="SaveVaultApiException"/>.
+    /// </summary>
+    Task<byte[]?> GetCoverAsync(GameKey game, CancellationToken ct = default);
+
     /// <summary>Eine konkrete Revision (Manifest) zum Herunterladen holen.</summary>
     Task<RevisionDownload> GetRevisionAsync(GameKey game, long revision, CancellationToken ct = default);
 

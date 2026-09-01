@@ -26,6 +26,8 @@ public sealed class ClientAgent : IAsyncDisposable
     private readonly ClientConfigStore _configStore;
     private readonly SyncStateStore _stateStore;
     private readonly SaveFolderRegistry _registry;
+    private readonly GameExclusionStore _exclusions;
+    private readonly CoverCache _covers;
     private readonly GameDiscovery _discovery;
     private readonly PairingService _pairing;
     private readonly TimeSpan _debounce;
@@ -49,16 +51,31 @@ public sealed class ClientAgent : IAsyncDisposable
     /// <summary>Die beobachtbare Status-Fläche (von der GUI zu konsumieren).</summary>
     public AgentState State { get; }
 
+    /// <summary>
+    /// Lazy Box-Art-Cache für die GUI (ein Cover je Aufruf). Holt das Cover über den aktuellen
+    /// Geräte-Token/HttpClient; ohne laufende Verbindung oder ohne Cover → <c>null</c> (Fallback).
+    /// </summary>
+    public CoverCache Covers => _covers;
+
     public ClientAgent(AppPaths? paths = null, LudusaviClient? ludusavi = null, TimeSpan? debounce = null)
     {
         _paths = paths ?? new AppPaths();
         _configStore = new ClientConfigStore(_paths);
         _stateStore = new SyncStateStore(_paths);
         _registry = new SaveFolderRegistry(_paths);
+        _exclusions = new GameExclusionStore(_paths);
         _discovery = new GameDiscovery(ludusavi ?? new LudusaviClient());
         _pairing = new PairingService(_configStore);
         _debounce = debounce ?? TimeSpan.FromSeconds(2);
         State = new AgentState();
+
+        // Cover werden über den JEWEILS aktuellen API-Client geholt (er entsteht/vergeht mit
+        // Start/Stop). Ohne verbundenen Client liefert der Fetcher null → die GUI nutzt den Fallback.
+        _covers = new CoverCache(_paths, (game, ct) =>
+        {
+            var api = _api;
+            return api is null ? Task.FromResult<byte[]?>(null) : api.GetCoverAsync(game, ct);
+        });
     }
 
     /// <summary>Ob der Agent gerade seine Netz-/Watcher-Schleifen betreibt.</summary>
@@ -104,6 +121,11 @@ public sealed class ClientAgent : IAsyncDisposable
         await RefreshDiscoveryAsync(token).ConfigureAwait(false);
         foreach (var entry in _registry.GetAll())
             State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game).BaseRevision);
+
+        // Persistierten Ausschluss-Zustand in die Anzeige nachziehen (überlebt so den Neustart).
+        foreach (var entry in _registry.GetAll())
+            if (_exclusions.IsExcluded(entry.Game))
+                State.SetExcluded(entry.Game, true);
 
         StartWatchers(token);
 
@@ -175,6 +197,51 @@ public sealed class ClientAgent : IAsyncDisposable
             token = _cts.Token;
         }
         AddWatcher(entry, token);
+        _ = SyncGameSafeAsync(entry.Game, entry.FolderPath, token);
+    }
+
+    /// <summary>Ob ein Spiel aktuell dauerhaft vom Sync ausgeschlossen ist.</summary>
+    public bool IsExcluded(GameKey game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        return _exclusions.IsExcluded(game);
+    }
+
+    /// <summary>
+    /// Nimmt ein Spiel dauerhaft vom Sync („Sync pausieren"): persistiert den Ausschluss und
+    /// zieht den Anzeige-Zustand nach. Ab sofort überspringt der einzige Sync-Choke-Point
+    /// (<see cref="SyncGameSafeAsync"/>) dieses Spiel bei Rescan, Watcher und „Jetzt
+    /// synchronisieren". Ein laufender Watcher darf bleiben – er löst nur keinen Sync mehr aus.
+    /// </summary>
+    public void ExcludeGame(GameKey game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        _exclusions.Add(game);
+        State.SetExcluded(game, true);
+    }
+
+    /// <summary>
+    /// Hebt den Ausschluss eines Spiels wieder auf („Wieder einschließen"): entfernt ihn aus dem
+    /// persistenten Store, zieht den Anzeige-Zustand nach und stößt – falls der Dienst läuft und
+    /// ein Ordner bekannt ist – gleich einen Sync an, damit der Rückstand aufgeholt wird.
+    /// </summary>
+    public void IncludeGame(GameKey game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        _exclusions.Remove(game);
+        State.SetExcluded(game, false);
+
+        var entry = _registry.TryGet(game);
+        if (entry is null)
+            return;
+
+        CancellationToken token;
+        lock (_lifecycleLock)
+        {
+            if (!_running || _cts is null)
+                return;
+            token = _cts.Token;
+        }
         _ = SyncGameSafeAsync(entry.Game, entry.FolderPath, token);
     }
 
@@ -373,6 +440,13 @@ public sealed class ClientAgent : IAsyncDisposable
     /// </summary>
     private async Task SyncGameSafeAsync(GameKey game, string folder, CancellationToken ct)
     {
+        // Einziger Choke-Point für ALLE automatischen und manuellen Sync-Pfade (periodischer
+        // Rescan über RescanAllAsync, FolderWatcher-Trigger, „Jetzt synchronisieren" via
+        // SyncNowAsync→RescanAllAsync und die Direktaufrufe aus AddManualFolder/IncludeGame):
+        // ist das Spiel ausgeschlossen, wird hier früh ausgestiegen – es wird nie gesynct.
+        if (_exclusions.IsExcluded(game))
+            return;
+
         var engine = _engine;
         if (engine is null)
             return;

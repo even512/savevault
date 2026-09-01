@@ -72,6 +72,17 @@ public sealed class GameRow : INotifyPropertyChanged
     /// <summary>Ob dieses Spiel übersprungen wurde und eine manuelle Zuordnung braucht.</summary>
     public bool IsSkipped { get; private set; }
 
+    private bool _isExcluded;
+    /// <summary>Ob dieses Spiel dauerhaft vom Sync ausgeschlossen ist („Sync pausieren").</summary>
+    public bool IsExcluded { get => _isExcluded; private set => Set(ref _isExcluded, value); }
+
+    private string _pauseLabel = "Sync pausieren";
+    /// <summary>
+    /// Beschriftung der Pause-Aktion: „Wieder einschließen", wenn ausgeschlossen, sonst
+    /// „Sync pausieren".
+    /// </summary>
+    public string PauseLabel { get => _pauseLabel; private set => Set(ref _pauseLabel, value); }
+
     /// <summary>Aktueller Status (für Aktionslogik, z. B. Konflikt erkennen).</summary>
     public SyncStatus Status { get; private set; }
 
@@ -85,6 +96,30 @@ public sealed class GameRow : INotifyPropertyChanged
         DisplayName = view.DisplayName;
         IsSkipped = view.IsSkipped;
         LastActionUtc = view.LastActionUtc;
+        IsExcluded = view.IsExcluded;
+        PauseLabel = view.IsExcluded ? "Wieder einschließen" : "Sync pausieren";
+
+        if (view.IsExcluded)
+        {
+            // Ausgeschlossen ist ein eigener, orthogonaler Anzeige-Zustand: klar sichtbar,
+            // aber KEIN „braucht Aufmerksamkeit". Ordner-Aktionen bleiben nutzbar, damit der
+            // Nutzer den gesicherten Ordner weiterhin öffnen kann; ein Konflikt-Löse-Pfad
+            // entfällt, weil ausgeschlossene Spiele nicht synchronisiert werden.
+            StatusLabel = "Ausgeschlossen";
+            StatusBrush = StatusVisuals.Excluded;
+            LastActionText = "Vom Sync ausgeschlossen";
+
+            FolderPathRaw = string.IsNullOrWhiteSpace(view.FolderPath) ? null : view.FolderPath;
+            FolderText = FolderPathRaw ?? "Kein Ordner zugeordnet";
+            OpenFolderVisibility = FolderPathRaw is null ? Visibility.Collapsed : Visibility.Visible;
+            CanOpenFolder = FolderPathRaw is not null && SafeDirectoryExists(FolderPathRaw);
+            ConflictVisibility = Visibility.Collapsed;
+            AssignFolderVisibility = Visibility.Collapsed;
+
+            NeedsAttention = false;
+            AttentionReason = "";
+            return;
+        }
 
         if (view.IsSkipped)
         {

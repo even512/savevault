@@ -66,6 +66,13 @@ public sealed class GameStatusView
     /// <summary>Menschenlesbarer Grund/Hinweis für das Überspringen (nur wenn <see cref="IsSkipped"/>).</summary>
     public string? SkipReason { get; internal set; }
 
+    /// <summary>
+    /// Ob dieses Spiel vom Nutzer dauerhaft vom Sync ausgeschlossen wurde („Sync pausieren").
+    /// Ein <b>eigener</b>, zum <see cref="Status"/> orthogonaler Anzeige-Zustand: er überschreibt
+    /// den echten Sync-Status nicht und bedeutet <b>nicht</b> „braucht Aufmerksamkeit".
+    /// </summary>
+    public bool IsExcluded { get; internal set; }
+
     internal GameStatusView Clone() => new(Game)
     {
         Status = Status,
@@ -75,6 +82,7 @@ public sealed class GameStatusView
         LastActionUtc = LastActionUtc,
         IsSkipped = IsSkipped,
         SkipReason = SkipReason,
+        IsExcluded = IsExcluded,
     };
 }
 
@@ -225,6 +233,22 @@ public sealed class AgentState
                 view.SkipReason = reason;
                 view.FolderPath = null;
             }
+        }
+        RaiseChanged();
+    }
+
+    /// <summary>
+    /// Markiert ein Spiel als vom Sync ausgeschlossen bzw. wieder eingeschlossen. Setzt allein
+    /// das orthogonale <see cref="GameStatusView.IsExcluded"/>-Flag und lässt den echten
+    /// <see cref="GameStatusView.Status"/> unangetastet.
+    /// </summary>
+    public void SetExcluded(GameKey game, bool excluded)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        lock (_lock)
+        {
+            var view = GetOrCreate(game);
+            view.IsExcluded = excluded;
         }
         RaiseChanged();
     }

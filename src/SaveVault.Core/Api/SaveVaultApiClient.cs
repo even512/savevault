@@ -48,6 +48,19 @@ public sealed class SaveVaultApiClient : ISaveVaultApi
     public Task<RevisionListResponse> GetRevisionsAsync(GameKey game, CancellationToken ct = default)
         => GetJsonAsync<RevisionListResponse>(ApiRoutes.Revisions(Key(game)), ct);
 
+    public async Task<byte[]?> GetCoverAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        // gameKey wird über Key(...) URL-kodiert (EscapeDataString) – identisch zu allen anderen
+        // Routen. Der Server hasht/saniert ihn zusätzlich serverseitig (KeyFrom → StoragePaths).
+        var url = ApiRoutes.Cover(Key(game));
+        using var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
+        if (resp.StatusCode == HttpStatusCode.NotFound)
+            return null; // kein Cover vorhanden – der Aufrufer nutzt den Fallback.
+        await EnsureSuccessAsync(resp, url).ConfigureAwait(false);
+        return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+    }
+
     public Task<RevisionDownload> GetRevisionAsync(GameKey game, long revision, CancellationToken ct = default)
         => GetJsonAsync<RevisionDownload>(ApiRoutes.Revision(Key(game), revision), ct);
 

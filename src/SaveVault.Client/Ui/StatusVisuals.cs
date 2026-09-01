@@ -21,6 +21,9 @@ public static class StatusVisuals
     /// <summary>Für übersprungene Spiele, die eine manuelle Ordner-Zuordnung brauchen (Amber).</summary>
     public static readonly SolidColorBrush Attention = Freeze("#D8A657");
 
+    /// <summary>Für vom Sync ausgeschlossene („pausierte") Spiele (Amber/Orange, Design „paused").</summary>
+    public static readonly SolidColorBrush Excluded = Freeze("#E0A458");
+
     /// <summary>Farbe für den Statuspunkt/-text eines Spiels.</summary>
     public static Brush BrushFor(SyncStatus status) => status switch
     {
