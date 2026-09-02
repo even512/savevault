@@ -31,6 +31,9 @@ public sealed class AppPaths
     /// <summary>Datei mit den vom Sync ausgeschlossenen Spielen (Menge von <c>GameKey.Value</c>).</summary>
     public string ExclusionsFile => Path.Combine(Root, "excluded.json");
 
+    /// <summary>Datei mit den geräteübergreifend geteilten Spielen („Synchron"; Menge von <c>GameKey.Value</c>).</summary>
+    public string SharedGamesFile => Path.Combine(Root, "shared.json");
+
     /// <summary>Verzeichnis für den lokalen Box-Art-/Cover-Cache (verwerfbar).</summary>
     public string CoverCacheDirectory => Path.Combine(Root, "covers");
 }

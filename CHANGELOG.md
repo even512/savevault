@@ -3,6 +3,19 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.3.0 — 2026-09-02
+
+- **Pro Spiel wählbar: „Über Geräte synchronisieren" (Lokal ↔ Synchron).** Jedes
+  Spiel bleibt standardmäßig lokal (eigener Bereich je Gerät). Über den neuen
+  Schalter in der Spielzeile machst du es geräteübergreifend synchron. Gibt es für
+  das Spiel bereits einen geteilten Stand, erscheint ein **Vergleichsdialog**
+  (Dateien, Größe, Zeit, Herkunftsgerät) und du wählst, ob du den vorhandenen
+  geteilten Stand übernimmst oder deinen lokalen als neuen geteilten hochlädst –
+  es wird nie ohne deine Wahl überschrieben. Dein lokaler Stand bleibt beim
+  Übernehmen als privates Backup erhalten.
+- **„Sync pausieren" heißt jetzt „Hochladen deaktivieren".** Gleiche Funktion
+  (das Spiel wird gar nicht hochgeladen, bleibt rein lokal), klarere Beschriftung.
+
 ## v1.2.0 — 2026-09-02
 
 - **Jedes Gerät sichert in seinen eigenen Bereich.** Bisher teilten sich alle PCs

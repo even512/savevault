@@ -455,6 +455,55 @@ public partial class MainWindow : Window
         // Der Rest läuft über State.Changed → Refresh.
     }
 
+    // Verhindert paralleles/mehrfaches Teilen (Doppelklick), ohne die IsEnabled={Binding CanShare}-
+    // Bindung des Buttons zu zerstören (ein direktes Setzen von IsEnabled würde sie überschreiben).
+    private bool _shareInFlight;
+
+    private async void OnToggleShareClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: GameRow row })
+            return;
+        if (row.IsShared || _shareInFlight)
+            return; // bereits geteilt (Rückschalten ist in v1 nicht vorgesehen) oder gerade laufend.
+
+        _shareInFlight = true;
+        try
+        {
+            var probe = await _agent.ProbeShareAsync(row.Game);
+            if (probe is null)
+            {
+                Info("Nicht mit dem Server verbunden – Teilen ist gerade nicht möglich.");
+                return;
+            }
+
+            if (!probe.SharedExists)
+            {
+                // Kein geteilter Stand vorhanden → lokalen Stand als Seed teilen (ohne Rückfrage).
+                await _agent.SeedShareAsync(row.Game);
+                Info($"„{row.DisplayName}“ wird jetzt über Geräte synchronisiert.");
+                return;
+            }
+
+            // Es gibt bereits einen geteilten Stand → Vergleichsdialog: übernehmen oder lokalen teilen.
+            var dialog = new ShareCompareWindow(row.DisplayName, probe) { Owner = this };
+            if (dialog.ShowDialog() != true)
+                return;
+
+            if (dialog.Choice == ShareChoice.TakeShared)
+                await _agent.JoinTakeSharedAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
+            else if (dialog.Choice == ShareChoice.TakeLocal)
+                await _agent.JoinTakeLocalAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
+        }
+        catch (Exception ex)
+        {
+            Info("Teilen fehlgeschlagen: " + ex.Message);
+        }
+        finally
+        {
+            _shareInFlight = false;
+        }
+    }
+
     private void OnOpenFolderClick(object sender, RoutedEventArgs e)
     {
         var path = _selectedRow?.FolderPathRaw;

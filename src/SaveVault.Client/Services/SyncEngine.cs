@@ -68,7 +68,7 @@ public sealed class SyncEngine
     /// Führt einen vollständigen Sync-Zyklus für ein Save-Set aus: lokal scannen,
     /// Server-Head erfragen, entscheiden und die Entscheidung ausführen.
     /// </summary>
-    public async Task<SyncCycleResult> RunCycleAsync(GameKey game, string folder, CancellationToken ct = default)
+    public async Task<SyncCycleResult> RunCycleAsync(GameKey game, string folder, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(game);
         if (string.IsNullOrWhiteSpace(folder))
@@ -78,17 +78,17 @@ public sealed class SyncEngine
 
         try
         {
-            var state = _stateStore.Load(game);
+            var state = _stateStore.Load(game, scope);
             var local = _manifestBuilder.Build(folder, state.BaseManifest, ct);
-            var head = await _api.GetHeadAsync(game, ct: ct).ConfigureAwait(false);
+            var head = await _api.GetHeadAsync(game, scope, ct).ConfigureAwait(false);
             _state.MarkServerReachable(_nowUtc());
 
             var decision = SyncDecider.Decide(local, state, head.CurrentRevision);
             return decision.Action switch
             {
-                SyncAction.Upload => await UploadAsync(game, folder, local, state, ct).ConfigureAwait(false),
-                SyncAction.Download => await DownloadAsync(game, folder, head.CurrentRevision, ct).ConfigureAwait(false),
-                SyncAction.Conflict => await ConflictAsync(game, folder, local, state, ct).ConfigureAwait(false),
+                SyncAction.Upload => await UploadAsync(game, folder, local, state, scope, ct).ConfigureAwait(false),
+                SyncAction.Download => await DownloadAsync(game, folder, head.CurrentRevision, scope, ct).ConfigureAwait(false),
+                SyncAction.Conflict => await ConflictAsync(game, folder, local, state, scope, ct).ConfigureAwait(false),
                 _ => NoOp(game, folder, state.BaseRevision, decision.Reason),
             };
         }
@@ -114,31 +114,31 @@ public sealed class SyncEngine
 
     // --- die vier Fälle ------------------------------------------------------------
 
-    private async Task<SyncCycleResult> UploadAsync(GameKey game, string folder, FileManifest local, SyncState state, CancellationToken ct)
+    private async Task<SyncCycleResult> UploadAsync(GameKey game, string folder, FileManifest local, SyncState state, BucketScope scope, CancellationToken ct)
     {
         var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
-        var response = await _api.UploadRevisionAsync(game, request, ct: ct).ConfigureAwait(false);
-        await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
+        var response = await _api.UploadRevisionAsync(game, request, scope, ct).ConfigureAwait(false);
+        await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, scope, ct).ConfigureAwait(false);
 
-        _stateStore.Save(state with { BaseRevision = response.Revision, BaseManifest = local });
-        _stateStore.ClearConflictHash(game); // sauberer Upload – etwaige Konflikt-Marke ist überholt.
+        _stateStore.Save(state with { BaseRevision = response.Revision, BaseManifest = local }, scope);
+        _stateStore.ClearConflictHash(game, scope); // sauberer Upload – etwaige Konflikt-Marke ist überholt.
         // Echte Übertragung abgeschlossen → meldenswert (Toast „gesichert").
         _state.NotifySyncActivity(game, SyncActivityKind.Uploaded);
         return Report(game, SyncAction.Upload, SyncStatus.Synced,
             $"Hochgeladen → Revision {response.Revision}", folder, response.Revision);
     }
 
-    private async Task<SyncCycleResult> DownloadAsync(GameKey game, string folder, long serverRevision, CancellationToken ct)
+    private async Task<SyncCycleResult> DownloadAsync(GameKey game, string folder, long serverRevision, BucketScope scope, CancellationToken ct)
     {
-        var revision = await _api.GetRevisionAsync(game, serverRevision, ct: ct).ConfigureAwait(false);
-        await ApplyRevisionAsync(game, folder, revision.Manifest, revision.Number, ct).ConfigureAwait(false);
+        var revision = await _api.GetRevisionAsync(game, serverRevision, scope, ct).ConfigureAwait(false);
+        await ApplyRevisionAsync(game, folder, revision.Manifest, revision.Number, scope, ct).ConfigureAwait(false);
         // Echte Übertragung abgeschlossen → meldenswert (Toast „synchronisiert").
         _state.NotifySyncActivity(game, SyncActivityKind.Downloaded);
         return Report(game, SyncAction.Download, SyncStatus.Synced,
             $"Heruntergeladen ← Revision {revision.Number}", folder, revision.Number);
     }
 
-    private async Task<SyncCycleResult> ConflictAsync(GameKey game, string folder, FileManifest local, SyncState state, CancellationToken ct)
+    private async Task<SyncCycleResult> ConflictAsync(GameKey game, string folder, FileManifest local, SyncState state, BucketScope scope, CancellationToken ct)
     {
         // Konflikt: NICHTS überschreiben. Der Sync-State bleibt unverändert – so bleibt das
         // Spiel markiert, bis der Nutzer löst.
@@ -147,7 +147,7 @@ public sealed class SyncEngine
         // Konflikt-Upload NICHT geändert, wird keine neue Konflikt-Revision angemeldet – die
         // Markierung bleibt bloß bestehen. Sonst entstünde bei jedem Rescan/Watcher-Tick ein
         // weiterer Revisions-Eintrag.
-        var lastConflictHash = _stateStore.LoadConflictHash(game);
+        var lastConflictHash = _stateStore.LoadConflictHash(game, scope);
         if (string.Equals(lastConflictHash, local.ManifestHash, StringComparison.Ordinal))
         {
             _state.SetStatus(game, SyncStatus.Conflict,
@@ -160,9 +160,9 @@ public sealed class SyncEngine
         // Neue/geänderte lokale Fassung: als Konflikt-Revision sichern (damit sie nicht
         // verloren geht) und die Konflikt-Marke auf diesen Stand setzen.
         var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: true, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
-        var response = await _api.UploadRevisionAsync(game, request, ct: ct).ConfigureAwait(false);
-        await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
-        _stateStore.SaveConflictHash(game, local.ManifestHash);
+        var response = await _api.UploadRevisionAsync(game, request, scope, ct).ConfigureAwait(false);
+        await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, scope, ct).ConfigureAwait(false);
+        _stateStore.SaveConflictHash(game, local.ManifestHash, scope);
 
         // Neu erkannter/geänderter Konflikt (eine echte Konflikt-Revision wurde angelegt) →
         // meldenswert. Der Zweig oben („Konflikt besteht weiter", unveränderte lokale Fassung)
@@ -196,7 +196,7 @@ public sealed class SyncEngine
     /// unsicher, wird <see cref="SyncSecurityException"/> geworfen und <b>nichts</b>
     /// geschrieben (Validierung komplett vor dem ersten Schreibzugriff).
     /// </summary>
-    public async Task ApplyRevisionAsync(GameKey game, string folder, FileManifest manifest, long revisionNumber, CancellationToken ct)
+    public async Task ApplyRevisionAsync(GameKey game, string folder, FileManifest manifest, long revisionNumber, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(game);
         ArgumentNullException.ThrowIfNull(manifest);
@@ -226,7 +226,7 @@ public sealed class SyncEngine
             var tmp = target + ".svtmp-" + Guid.NewGuid().ToString("N");
             try
             {
-                await using (var source = await _api.DownloadContentAsync(game, entry.Sha256, ct: ct).ConfigureAwait(false))
+                await using (var source = await _api.DownloadContentAsync(game, entry.Sha256, scope, ct).ConfigureAwait(false))
                 await using (var dest = File.Create(tmp))
                 {
                     await source.CopyToAsync(dest, ct).ConfigureAwait(false);
@@ -240,13 +240,13 @@ public sealed class SyncEngine
             }
         }
 
-        _stateStore.Save(new SyncState(game, revisionNumber, manifest));
-        _stateStore.ClearConflictHash(game); // Stand ist auf eine echte Revision nachgezogen – Konflikt-Marke hinfällig.
+        _stateStore.Save(new SyncState(game, revisionNumber, manifest), scope);
+        _stateStore.ClearConflictHash(game, scope); // Stand ist auf eine echte Revision nachgezogen – Konflikt-Marke hinfällig.
     }
 
     // --- Hochladen fehlender Inhalte -----------------------------------------------
 
-    private async Task UploadMissingContentsAsync(GameKey game, string folder, FileManifest local, IReadOnlyList<string> missingHashes, CancellationToken ct)
+    private async Task UploadMissingContentsAsync(GameKey game, string folder, FileManifest local, IReadOnlyList<string> missingHashes, BucketScope scope, CancellationToken ct)
     {
         if (missingHashes.Count == 0)
             return;
@@ -270,7 +270,7 @@ public sealed class SyncEngine
                 continue;
 
             await using var fs = File.OpenRead(source);
-            await _api.UploadContentAsync(game, hash, fs, ct: ct).ConfigureAwait(false);
+            await _api.UploadContentAsync(game, hash, fs, scope, ct).ConfigureAwait(false);
         }
     }
 

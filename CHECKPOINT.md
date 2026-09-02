@@ -1,5 +1,39 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-02)
 
+**Phase 2 (von 3) fertig — Client-Umschalter Lokal/Synchron + Vergleichsdialog (Client 1.3.0).**
+Delta-Spec `specs/savevault-change-per-device-sync.md`, Weg über `/projekt-edit`. **Gate grün,
+committet auf Branch `phase1-per-device-buckets` (kein Push).** Reine Client-Änderung (kein Server).
+- **Umschalter je Spielzeile „Über Geräte synchronisieren" (Lokal ↔ Synchron).** Neuer opt-in
+  `GameShareStore` (Gegenstück zur Ausschluss-Achse). Sync-Scope pro Spiel: `ClientAgent.ActiveScope`
+  → `SyncEngine.RunCycleAsync(scope)`; der ganze Sync-Pfad (Upload/Download/Conflict/ApplyRevision/
+  Content) ist durchgefädelt.
+- **Teilen-Flip:** `ProbeShareAsync` prüft den geteilten Head. Kein geteilter Stand → `SeedShareAsync`
+  (lokal wird Seed, rev 1). Existiert einer → **Vergleichsdialog** `ShareCompareWindow` (lokal vs.
+  geteilt: Dateien/Größe/Zeit/Herkunft) → „Geteilten übernehmen" (`JoinTakeSharedAsync`, Download,
+  privater Bucket bleibt Backup) oder „Meinen lokalen teilen" (`JoinTakeLocalAsync`, Upload als neue
+  geteilte Revision). Flip läuft atomar unter dem Spiel-Lock (kein Zyklus mit falschem Scope/Base).
+- **Getrennter lokaler State je Bucket (Review-Fix #1/#4):** `SyncStateStore` ist jetzt nach Scope
+  partitioniert (privat behält den alten Dateinamen = rückwärtskompatibel, geteilt bekommt
+  „shared|"-Präfix). Privater Backup-Basis-Stand bleibt beim Teilen erhalten; privat/geteilt
+  überschreiben sich nie gegenseitig.
+- **Befehle scope-treu:** `CommandPoller` leitet den Scope aus dem Befehls-Bucket ab (`ScopeOf`) →
+  Restore/Konfliktlösung treffen den richtigen (privaten/geteilten) Bucket.
+- **„Sync pausieren" → „Hochladen deaktivieren"** (nur Beschriftung/Anzeige; Mechanik unverändert).
+- **Weitere Review-Fixes:** Manifest-Build im Vergleichsdialog vom UI-Thread (`Task.Run`); Teilen-
+  Button ohne Binding-Zerstörung (Busy-Guard); kein Teilen bei offenem Konflikt; toter Code entfernt.
+- **Gate grün:** Build 0/0, `dotnet test` **104/0/0**, Laufzeit-Smoke **Phase 1 13/13 + Phase 2 9/9**
+  (Seed/Probe/Übernehmen/Lokal-teilen→rev 2, privat/geteilt-Trennung, veraltete Basis → 409).
+  `/code-review high`: 8 Befunde → 7 behoben, #6 als Nicht-Regress begründet (private Befehle zielen
+  stets auf den Owner = aktuelles Gerät). Kein Server-Angriffsflächen-Zuwachs → kein separater
+  `/security-review` nötig.
+- **Offen/Rest:** WPF-Interaktion (Umschalter + Dialog) ist hier headless nicht ausführbar →
+  **UI-Handtest bei Tim ausständig**. Heartbeat meldet Per-Spiel-Zustände weiter privat-scoped
+  (Dashboard-Genauigkeit für geteilte Spiele) → wird in **Phase 3** (Dashboard) mitgezogen.
+- **Phase 3 (offen):** Dashboard-Teilen (Geräte-Seed-Auswahl), Pro-Gerät-Status (Synchron/Lokal),
+  dashboard-ausgelöster Beitritts-Dialog am Client, Legacy löschen.
+
+---
+
 **Phase 1 (von 3) fertig — Geräte-eigene Buckets + Migration (Client 1.2.0 / Server 1.1.0).**
 Delta-Spec `specs/savevault-change-per-device-sync.md` (von Tim freigegeben 2026-09-02), Weg über
 `/projekt-edit` (leichte Notebook-Werkstatt). **Gate grün, committet auf Branch

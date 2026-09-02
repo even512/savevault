@@ -1,4 +1,5 @@
 using System.IO;
+using SaveVault.Core.Api;
 using SaveVault.Core.Models;
 using SaveVault.Core.Storage;
 using SaveVault.Core.Sync;
@@ -27,18 +28,23 @@ public sealed class SyncStateStore
     public SyncStateStore(AppPaths paths)
         => _paths = paths ?? throw new ArgumentNullException(nameof(paths));
 
-    /// <summary>Lädt den Sync-State eines Spiels oder den Startzustand, falls keiner existiert.</summary>
-    public SyncState Load(GameKey game)
+    /// <summary>
+    /// Lädt den Sync-State eines Spiels für den gegebenen Bucket-Scope (privat/geteilt) oder den
+    /// Startzustand, falls keiner existiert. Der State ist <b>je Bucket getrennt</b>: ein Spiel hat
+    /// einen eigenen Basis-Stand für seinen privaten Bucket und einen für den geteilten – sonst
+    /// würden sich beide dieselbe Datei teilen und gegenseitig überschreiben.
+    /// </summary>
+    public SyncState Load(GameKey game, BucketScope scope = BucketScope.Private)
     {
         ArgumentNullException.ThrowIfNull(game);
-        return JsonFileStore.Read<SyncState>(PathFor(game)) ?? SyncState.Initial(game);
+        return JsonFileStore.Read<SyncState>(PathFor(game, scope)) ?? SyncState.Initial(game);
     }
 
-    /// <summary>Speichert den Sync-State eines Spiels atomar.</summary>
-    public void Save(SyncState state)
+    /// <summary>Speichert den Sync-State eines Spiels für den gegebenen Bucket-Scope atomar.</summary>
+    public void Save(SyncState state, BucketScope scope = BucketScope.Private)
     {
         ArgumentNullException.ThrowIfNull(state);
-        JsonFileStore.Write(PathFor(state.Game), state);
+        JsonFileStore.Write(PathFor(state.Game, scope), state);
     }
 
     /// <summary>
@@ -47,17 +53,17 @@ public sealed class SyncStateStore
     /// <see cref="SyncState"/>, damit die Konflikt-Nachverfolgung den echten Basis-Stand
     /// (<see cref="SyncState.BaseRevision"/>/<see cref="SyncState.BaseManifest"/>) nie verfälscht.
     /// </summary>
-    public string? LoadConflictHash(GameKey game)
+    public string? LoadConflictHash(GameKey game, BucketScope scope = BucketScope.Private)
     {
         ArgumentNullException.ThrowIfNull(game);
-        return JsonFileStore.Read<ConflictMark>(ConflictPathFor(game))?.ManifestHash;
+        return JsonFileStore.Read<ConflictMark>(ConflictPathFor(game, scope))?.ManifestHash;
     }
 
-    /// <summary>Merkt sich den Manifest-Hash der zuletzt gemeldeten Konflikt-Fassung.</summary>
-    public void SaveConflictHash(GameKey game, string manifestHash)
+    /// <summary>Merkt sich den Manifest-Hash der zuletzt gemeldeten Konflikt-Fassung (je Bucket).</summary>
+    public void SaveConflictHash(GameKey game, string manifestHash, BucketScope scope = BucketScope.Private)
     {
         ArgumentNullException.ThrowIfNull(game);
-        JsonFileStore.Write(ConflictPathFor(game), new ConflictMark { ManifestHash = manifestHash });
+        JsonFileStore.Write(ConflictPathFor(game, scope), new ConflictMark { ManifestHash = manifestHash });
     }
 
     /// <summary>
@@ -87,13 +93,13 @@ public sealed class SyncStateStore
         }
     }
 
-    /// <summary>Löscht die Konflikt-Marke (nach Auflösung/erfolgreichem Sync).</summary>
-    public void ClearConflictHash(GameKey game)
+    /// <summary>Löscht die Konflikt-Marke (nach Auflösung/erfolgreichem Sync), je Bucket.</summary>
+    public void ClearConflictHash(GameKey game, BucketScope scope = BucketScope.Private)
     {
         ArgumentNullException.ThrowIfNull(game);
         try
         {
-            var path = ConflictPathFor(game);
+            var path = ConflictPathFor(game, scope);
             if (File.Exists(path))
                 File.Delete(path);
         }
@@ -103,9 +109,20 @@ public sealed class SyncStateStore
         }
     }
 
-    private string PathFor(GameKey game)
-        => Path.Combine(_paths.StateDirectory, PathSanitizer.HashKey(game.Value) + ".json");
+    // Der Dateiname wird je Bucket-Scope getrennt: der PRIVATE Bucket behält den alten Namen (rein
+    // aus dem gehashten Schlüssel) – so bleiben bestehende State-Dateien nach dem Update lesbar;
+    // der GETEILTE bekommt ein „shared|"-Präfix. Damit hat ein Spiel getrennte Basis-Stände für
+    // seinen privaten und seinen geteilten Bucket.
+    private static string ScopePrefix(BucketScope scope) => scope switch
+    {
+        BucketScope.Shared => "shared|",
+        BucketScope.Legacy => "legacy|",
+        _ => "",
+    };
 
-    private string ConflictPathFor(GameKey game)
-        => Path.Combine(_paths.StateDirectory, PathSanitizer.HashKey(game.Value) + ".conflict.json");
+    private string PathFor(GameKey game, BucketScope scope)
+        => Path.Combine(_paths.StateDirectory, PathSanitizer.HashKey(ScopePrefix(scope) + game.Value) + ".json");
+
+    private string ConflictPathFor(GameKey game, BucketScope scope)
+        => Path.Combine(_paths.StateDirectory, PathSanitizer.HashKey(ScopePrefix(scope) + game.Value) + ".conflict.json");
 }

@@ -2,10 +2,29 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using SaveVault.Core.Api;
+using SaveVault.Core.Hashing;
 using SaveVault.Core.Ludusavi;
 using SaveVault.Core.Models;
+using SaveVault.Core.Sync;
 
 namespace SaveVault.Client.Services;
+
+/// <summary>Kennzahlen eines Stand-Kandidaten für den Teilen-Vergleichsdialog (lokal bzw. geteilt).</summary>
+public sealed record ShareSide(int FileCount, long TotalBytes, DateTime? WhenUtc, string? DeviceLabel);
+
+/// <summary>
+/// Ergebnis der Teilen-Prüfung: existiert bereits ein geteilter Stand für dieses Spiel? Wenn ja,
+/// werden lokaler und geteilter Stand mit Kennzahlen geliefert, damit die Oberfläche den
+/// Vergleichsdialog zeigen kann; wenn nein, wird der lokale Stand ohne Rückfrage der Seed.
+/// <see cref="SharedManifest"/>/<see cref="SharedRevision"/> tragen den geteilten Head für den
+/// anschließenden „übernehmen/lokal behalten"-Schritt.
+/// </summary>
+public sealed record ShareProbe(
+    bool SharedExists,
+    long SharedRevision,
+    ShareSide Local,
+    ShareSide? Shared,
+    FileManifest? SharedManifest);
 
 /// <summary>
 /// Der Kopf des Client-Hintergrunds: bindet Konfiguration, Ordner-Registry, Erkennung,
@@ -27,6 +46,7 @@ public sealed class ClientAgent : IAsyncDisposable
     private readonly SyncStateStore _stateStore;
     private readonly SaveFolderRegistry _registry;
     private readonly GameExclusionStore _exclusions;
+    private readonly GameShareStore _shares;
     private readonly CoverCache _covers;
     private readonly GameDiscovery _discovery;
     private readonly PairingService _pairing;
@@ -64,6 +84,7 @@ public sealed class ClientAgent : IAsyncDisposable
         _stateStore = new SyncStateStore(_paths);
         _registry = new SaveFolderRegistry(_paths);
         _exclusions = new GameExclusionStore(_paths);
+        _shares = new GameShareStore(_paths);
         _discovery = new GameDiscovery(ludusavi ?? new LudusaviClient());
         _pairing = new PairingService(_configStore);
         _debounce = debounce ?? TimeSpan.FromSeconds(2);
@@ -128,15 +149,17 @@ public sealed class ClientAgent : IAsyncDisposable
         _commandPoller = new CommandPoller(_api, _configStore, _registry, _engine, State, _serializer);
         _heartbeat = new HeartbeatReporter(_api, _configStore, _registry, _stateStore, State);
 
-        // Erkennung (best effort) und Ordner in der Status-Fläche vormerken.
+        // Erkennung (best effort), dann je Spiel den Ordner sowie den persistierten Ausschluss-/
+        // Teilen-Zustand in die Status-Fläche nachziehen (überlebt so den Neustart) – in EINEM Durchlauf.
         await RefreshDiscoveryAsync(token).ConfigureAwait(false);
         foreach (var entry in _registry.GetAll())
-            State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game).BaseRevision);
-
-        // Persistierten Ausschluss-Zustand in die Anzeige nachziehen (überlebt so den Neustart).
-        foreach (var entry in _registry.GetAll())
+        {
+            State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game, ActiveScope(entry.Game)).BaseRevision);
             if (_exclusions.IsExcluded(entry.Game))
                 State.SetExcluded(entry.Game, true);
+            if (_shares.IsShared(entry.Game))
+                State.SetShared(entry.Game, true);
+        }
 
         StartWatchers(token);
 
@@ -198,7 +221,7 @@ public sealed class ClientAgent : IAsyncDisposable
         if (entry is null)
             return;
 
-        State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game).BaseRevision);
+        State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game, ActiveScope(entry.Game)).BaseRevision);
 
         CancellationToken token;
         lock (_lifecycleLock)
@@ -256,6 +279,137 @@ public sealed class ClientAgent : IAsyncDisposable
         _ = SyncGameSafeAsync(entry.Game, entry.FolderPath, token);
     }
 
+    // --- Teilen (Lokal ↔ Synchron), Phase 2 ----------------------------------------
+
+    /// <summary>Ob ein Spiel aktuell „Synchron" (geteilt) ist. Default = „Lokal" (privater Bucket).</summary>
+    public bool IsShared(GameKey game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        return _shares.IsShared(game);
+    }
+
+    /// <summary>Der aktive Bucket-Scope eines Spiels: geteilt, wenn „Synchron", sonst privat.</summary>
+    private BucketScope ActiveScope(GameKey game)
+        => _shares.IsShared(game) ? BucketScope.Shared : BucketScope.Private;
+
+    /// <summary>
+    /// Prüft, ob für ein Spiel schon ein geteilter Stand existiert, und liefert die Kennzahlen von
+    /// lokalem und (falls vorhanden) geteiltem Stand für den Vergleichsdialog. Null, wenn der Agent
+    /// nicht verbunden ist oder kein lokaler Ordner zugeordnet ist.
+    /// </summary>
+    public async Task<ShareProbe?> ProbeShareAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var api = _api;
+        var entry = _registry.TryGet(game);
+        if (api is null || entry is null)
+            return null;
+
+        // Das lokale Manifest hasht alle Save-Dateien – das gehört NICHT auf den UI-Thread (der
+        // Aufrufer awaitet hier aus dem Klick-Handler). Auf einen Threadpool-Thread auslagern.
+        var folder = entry.FolderPath;
+        var local = await Task.Run(() => new ManifestBuilder().Build(folder, null, ct), ct).ConfigureAwait(false);
+        var localSide = new ShareSide(local.FileCount, local.TotalBytes, null, CurrentDeviceName);
+
+        var head = await api.GetHeadAsync(game, BucketScope.Shared, ct).ConfigureAwait(false);
+        if (head.CurrentRevision <= 0)
+            return new ShareProbe(false, 0, localSide, null, null);
+
+        var rev = await api.GetRevisionAsync(game, head.CurrentRevision, BucketScope.Shared, ct).ConfigureAwait(false);
+        var sharedSide = new ShareSide(rev.Manifest.FileCount, rev.Manifest.TotalBytes, rev.TimestampUtc, rev.DeviceId);
+        return new ShareProbe(true, rev.Number, localSide, sharedSide, rev.Manifest);
+    }
+
+    /// <summary>
+    /// Schaltet ein Spiel auf „Synchron", ohne dass ein geteilter Stand existiert: der lokale Stand
+    /// wird als erste geteilte Revision hochgeladen (Seed). Nur nach <see cref="ProbeShareAsync"/>
+    /// mit <c>SharedExists == false</c> aufrufen.
+    /// </summary>
+    public Task SeedShareAsync(GameKey game, CancellationToken ct = default)
+        => ShareAndSyncAsync(game, SyncState.Initial(game), ct);
+
+    /// <summary>
+    /// Beitritt „meinen lokalen Stand hochladen &amp; teilen": setzt die Basis auf den geteilten Head
+    /// (mit dessen Manifest), sodass der nächste Zyklus den LOKALEN Stand als neue geteilte Revision
+    /// hochlädt (Server-Head == Basis → Upload, kein Konflikt), und macht das Spiel „Synchron".
+    /// </summary>
+    public Task JoinTakeLocalAsync(GameKey game, long sharedRevision, FileManifest sharedManifest, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sharedManifest);
+        return ShareAndSyncAsync(game, new SyncState(game, sharedRevision, sharedManifest), ct);
+    }
+
+    /// <summary>
+    /// Beitritt „geteilten Stand übernehmen": lädt den geteilten Head in den Save-Ordner (der bisherige
+    /// lokale Stand bleibt als privater Bucket = Backup erhalten) und macht das Spiel „Synchron".
+    /// </summary>
+    public async Task JoinTakeSharedAsync(GameKey game, long sharedRevision, FileManifest sharedManifest, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(sharedManifest);
+
+        var entry = _registry.TryGet(game);
+        var engine = _engine;
+        if (entry is null || engine is null)
+        {
+            // Nicht verbunden: Zustand persistieren, der eigentliche Download folgt beim nächsten Lauf.
+            _shares.Add(game);
+            State.SetShared(game, true);
+            return;
+        }
+
+        var token = LinkedToken(ct);
+        // Mark + Download atomar unter dem Spiel-Lock (kein paralleler Zyklus mit falschem Scope/Base).
+        await _serializer.RunExclusiveAsync(game, async c =>
+        {
+            _shares.Add(game);
+            State.SetShared(game, true);
+            await engine.ApplyRevisionAsync(game, entry.FolderPath, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
+        }, token).ConfigureAwait(false);
+
+        State.SetStatus(game, SyncStatus.Synced,
+            action: $"Geteilten Stand übernommen ← Revision {sharedRevision}", folder: entry.FolderPath, baseRevision: sharedRevision);
+    }
+
+    /// <summary>
+    /// Gemeinsamer Kern für Seed und „lokalen behalten": markiert das Spiel als geteilt, setzt seinen
+    /// lokalen Basis-Stand und stößt einen Sync-Zyklus (Scope „Synchron") an – alles atomar unter dem
+    /// Spiel-Lock, sodass kein Hintergrund-Zyklus mit falschem Scope/Base dazwischenfunkt.
+    /// </summary>
+    private async Task ShareAndSyncAsync(GameKey game, SyncState newBase, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var entry = _registry.TryGet(game);
+        if (entry is null)
+        {
+            _shares.Add(game);
+            State.SetShared(game, true);
+            _stateStore.Save(newBase, BucketScope.Shared);
+            return;
+        }
+
+        var token = LinkedToken(ct);
+        await _serializer.RunExclusiveAsync(game, async c =>
+        {
+            _shares.Add(game);
+            State.SetShared(game, true);
+            // Der neue Basis-Stand gehört zum GETEILTEN Bucket (der private bleibt als Backup unberührt).
+            _stateStore.Save(newBase, BucketScope.Shared);
+            var engine = _engine;
+            if (engine is not null && IsRunning)
+                await engine.RunCycleAsync(game, entry.FolderPath, BucketScope.Shared, c).ConfigureAwait(false);
+        }, token).ConfigureAwait(false);
+    }
+
+    /// <summary>Verknüpft das übergebene Token mit dem Lebenszyklus-Token (falls der Dienst läuft).</summary>
+    private CancellationToken LinkedToken(CancellationToken ct)
+    {
+        lock (_lifecycleLock)
+            return _running && _cts is not null
+                ? CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token).Token
+                : ct;
+    }
+
     /// <summary>Erkennt Spiele neu über ludusavi und übernimmt sie in die Registry.</summary>
     public async Task<DiscoveryResult> RefreshDiscoveryAsync(CancellationToken ct = default)
     {
@@ -277,7 +431,7 @@ public sealed class ClientAgent : IAsyncDisposable
         {
             _registry.SetDiscovered(result.Games.Select(g => (g.Game, g.SaveFolder)));
             foreach (var g in result.Games)
-                State.EnsureGame(g.Game, g.SaveFolder, _stateStore.Load(g.Game).BaseRevision);
+                State.EnsureGame(g.Game, g.SaveFolder, _stateStore.Load(g.Game, ActiveScope(g.Game)).BaseRevision);
         }
 
         // Übersprungene Spiele dauerhaft sichtbar machen (mit Hinweis „manuell zuordnen").
@@ -464,7 +618,9 @@ public sealed class ClientAgent : IAsyncDisposable
 
         try
         {
-            await _serializer.RunExclusiveAsync(game, c => engine.RunCycleAsync(game, folder, c), ct).ConfigureAwait(false);
+            // Gegen welchen Bucket synchronisiert wird, entscheidet der Teilen-Zustand des Spiels:
+            // „Synchron" → geteilter Bucket, sonst der private Bucket dieses Geräts.
+            await _serializer.RunExclusiveAsync(game, c => engine.RunCycleAsync(game, folder, ActiveScope(game), c), ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

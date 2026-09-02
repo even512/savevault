@@ -479,6 +479,9 @@
                                 <Button Content="Ordner öffnen" Click="OnOpenFolderClick"
                                         Style="{StaticResource ChipButton}" Margin="0,0,6,6"
                                         Visibility="{Binding OpenFolderVisibility}" IsEnabled="{Binding CanOpenFolder}" />
+                                <Button Content="{Binding ShareLabel}" Click="OnToggleShareClick" Tag="{Binding}"
+                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                        Visibility="{Binding ShareVisibility}" IsEnabled="{Binding CanShare}" />
                                 <Button Content="{Binding PauseLabel}" Click="OnTogglePauseClick" Tag="{Binding}"
                                         Style="{StaticResource ChipButton}" Margin="0,0,6,6" />
                                 <Button Content="Lösen" Click="OnResolveConflictClick" Tag="{Binding}"

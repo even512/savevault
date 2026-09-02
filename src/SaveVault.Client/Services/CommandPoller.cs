@@ -117,6 +117,10 @@ public sealed class CommandPoller
         // eigenes Spiel per Default-Scope „privat" gegen genau diesen Bucket – deshalb hier auf den
         // Originalschlüssel zurückführen und mit ihm arbeiten.
         var game = BucketKey.Original(command.Game);
+        // Der Scope muss der des Befehls-Buckets sein (privat/geteilt), nicht der Default – sonst
+        // würde ein Befehl zu einem geteilten Bucket gegen den privaten Bucket angewandt (falscher
+        // Stand). Er steckt im effektiven Bucket-Schlüssel, den der Befehl trägt.
+        var scope = BucketKey.ScopeOf(command.Game.Value);
 
         var entry = _registry.TryGet(game);
         if (entry is null)
@@ -132,11 +136,11 @@ public sealed class CommandPoller
             {
                 if (command.TargetRevision is not long target)
                     return false;
-                var revision = await _api.GetRevisionAsync(game, target, ct: ct).ConfigureAwait(false);
+                var revision = await _api.GetRevisionAsync(game, target, scope, ct).ConfigureAwait(false);
                 // Exklusiv pro Spiel (B1): kein gleichzeitiger Sync-Zyklus, der einen halb
                 // geschriebenen Restore-Ordner als „Änderung" hochladen könnte.
                 await _serializer.RunExclusiveAsync(game,
-                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, c), ct)
+                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, scope, c), ct)
                     .ConfigureAwait(false);
                 _state.SetStatus(game, SyncStatus.Synced,
                     action: $"Wiederhergestellt ← Revision {revision.Number}", folder: entry.FolderPath, baseRevision: revision.Number);
@@ -146,13 +150,13 @@ public sealed class CommandPoller
             case CommandType.ApplyResolution:
             {
                 // Gewinner = aktueller Head des Spiels nach der serverseitigen Lösung.
-                var head = await _api.GetHeadAsync(game, ct: ct).ConfigureAwait(false);
+                var head = await _api.GetHeadAsync(game, scope, ct).ConfigureAwait(false);
                 if (head.CurrentRevision <= 0)
                     return false;
-                var revision = await _api.GetRevisionAsync(game, head.CurrentRevision, ct: ct).ConfigureAwait(false);
+                var revision = await _api.GetRevisionAsync(game, head.CurrentRevision, scope, ct).ConfigureAwait(false);
                 // Exklusiv pro Spiel (B1), gleiches Gate wie der Sync-Zyklus.
                 await _serializer.RunExclusiveAsync(game,
-                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, c), ct)
+                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, scope, c), ct)
                     .ConfigureAwait(false);
                 _state.SetStatus(game, SyncStatus.Synced,
                     action: $"Konflikt gelöst ← Revision {revision.Number}", folder: entry.FolderPath, baseRevision: revision.Number);

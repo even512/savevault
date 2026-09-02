@@ -78,12 +78,37 @@ public sealed class GameRow : INotifyPropertyChanged
     /// <summary>Ob dieses Spiel dauerhaft vom Sync ausgeschlossen ist („Sync pausieren").</summary>
     public bool IsExcluded { get => _isExcluded; private set => Set(ref _isExcluded, value); }
 
-    private string _pauseLabel = "Sync pausieren";
+    private string _pauseLabel = "Hochladen deaktivieren";
     /// <summary>
-    /// Beschriftung der Pause-Aktion: „Wieder einschließen", wenn ausgeschlossen, sonst
-    /// „Sync pausieren".
+    /// Beschriftung der Upload-Aktion: „Hochladen wieder aktivieren", wenn deaktiviert, sonst
+    /// „Hochladen deaktivieren".
     /// </summary>
     public string PauseLabel { get => _pauseLabel; private set => Set(ref _pauseLabel, value); }
+
+    private bool _isShared;
+    /// <summary>Ob dieses Spiel „Synchron" (geräteübergreifend geteilt) ist, sonst „Lokal".</summary>
+    public bool IsShared
+    {
+        get => _isShared;
+        private set
+        {
+            if (Set(ref _isShared, value))
+            {
+                OnChanged(nameof(ShareLabel));
+                OnChanged(nameof(CanShare));
+            }
+        }
+    }
+
+    /// <summary>Beschriftung der Teilen-Aktion: Zustand „Synchron" bzw. Umschalt-Angebot.</summary>
+    public string ShareLabel => IsShared ? "Geteilt (synchron)" : "Über Geräte synchronisieren";
+
+    /// <summary>Ob der Teilen-Umschalter aktiv ist (nur solange „Lokal"; Rückschalten ist v1 nicht vorgesehen).</summary>
+    public bool CanShare => !IsShared;
+
+    private Visibility _shareVisibility = Visibility.Collapsed;
+    /// <summary>Sichtbarkeit des Teilen-Umschalters (nur bei echt verwalteten, nicht deaktivierten Spielen).</summary>
+    public Visibility ShareVisibility { get => _shareVisibility; private set => Set(ref _shareVisibility, value); }
 
     private Visibility _errorVisibility = Visibility.Collapsed;
     /// <summary>Sichtbarkeit des Fehler-Banners (nur bei Sync-Fehler).</summary>
@@ -196,17 +221,18 @@ public sealed class GameRow : INotifyPropertyChanged
         IsSkipped = view.IsSkipped;
         LastActionUtc = view.LastActionUtc;
         IsExcluded = view.IsExcluded;
-        PauseLabel = view.IsExcluded ? "Wieder einschließen" : "Sync pausieren";
+        IsShared = view.IsShared;
+        PauseLabel = view.IsExcluded ? "Hochladen wieder aktivieren" : "Hochladen deaktivieren";
 
         if (view.IsExcluded)
         {
-            // Ausgeschlossen ist ein eigener, orthogonaler Anzeige-Zustand: klar sichtbar,
+            // „Hochladen deaktiviert" ist ein eigener, orthogonaler Anzeige-Zustand: klar sichtbar,
             // aber KEIN „braucht Aufmerksamkeit". Ordner-Aktionen bleiben nutzbar, damit der
-            // Nutzer den gesicherten Ordner weiterhin öffnen kann; ein Konflikt-Löse-Pfad
-            // entfällt, weil ausgeschlossene Spiele nicht synchronisiert werden.
-            StatusLabel = "Ausgeschlossen";
+            // Nutzer den lokalen Ordner weiterhin öffnen kann; Teilen/Konflikt-Pfade entfallen,
+            // weil ein nicht hochgeladenes Spiel weder gesichert noch geteilt wird.
+            StatusLabel = "Hochladen deaktiviert";
             StatusBrush = StatusVisuals.Excluded;
-            LastActionText = "Vom Sync ausgeschlossen";
+            LastActionText = "Nur lokal – nicht hochgeladen";
 
             FolderPathRaw = string.IsNullOrWhiteSpace(view.FolderPath) ? null : view.FolderPath;
             FolderText = FolderPathRaw ?? "Kein Ordner zugeordnet";
@@ -214,6 +240,7 @@ public sealed class GameRow : INotifyPropertyChanged
             CanOpenFolder = FolderPathRaw is not null && SafeDirectoryExists(FolderPathRaw);
             ConflictVisibility = Visibility.Collapsed;
             AssignFolderVisibility = Visibility.Collapsed;
+            ShareVisibility = Visibility.Collapsed;
             ErrorVisibility = Visibility.Collapsed;
             ErrorMessage = "";
 
@@ -234,6 +261,7 @@ public sealed class GameRow : INotifyPropertyChanged
             ConflictVisibility = Visibility.Collapsed;
             AssignFolderVisibility = Visibility.Visible;
             OpenFolderVisibility = Visibility.Collapsed;
+            ShareVisibility = Visibility.Collapsed;
             FolderPathRaw = null;
             CanOpenFolder = false;
             ErrorVisibility = Visibility.Collapsed;
@@ -259,6 +287,9 @@ public sealed class GameRow : INotifyPropertyChanged
 
         ConflictVisibility = view.Status == SyncStatus.Conflict ? Visibility.Visible : Visibility.Collapsed;
         AssignFolderVisibility = Visibility.Collapsed;
+        // Teilen-Umschalter nur bei echt verwalteten Spielen und NICHT bei offenem Konflikt anbieten
+        // (sonst würde man einen ungelösten/mehrdeutigen Stand teilen). Erst lösen, dann teilen.
+        ShareVisibility = view.Status == SyncStatus.Conflict ? Visibility.Collapsed : Visibility.Visible;
 
         // „Ordner öffnen" nur, wenn ein Ordner zugeordnet ist; aktiviert nur, wenn er auch existiert.
         FolderPathRaw = string.IsNullOrWhiteSpace(view.FolderPath) ? null : view.FolderPath;

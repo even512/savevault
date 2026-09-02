@@ -73,6 +73,13 @@ public sealed class GameStatusView
     /// </summary>
     public bool IsExcluded { get; internal set; }
 
+    /// <summary>
+    /// Ob dieses Spiel geräteübergreifend <b>geteilt</b> („Synchron") ist. Default <c>false</c> =
+    /// „Lokal" (privater Bucket dieses Geräts). Orthogonaler Anzeige-Zustand wie
+    /// <see cref="IsExcluded"/>; steuert nur, gegen welchen Bucket synchronisiert wird.
+    /// </summary>
+    public bool IsShared { get; internal set; }
+
     internal GameStatusView Clone() => new(Game)
     {
         Status = Status,
@@ -83,6 +90,7 @@ public sealed class GameStatusView
         IsSkipped = IsSkipped,
         SkipReason = SkipReason,
         IsExcluded = IsExcluded,
+        IsShared = IsShared,
     };
 }
 
@@ -249,6 +257,22 @@ public sealed class AgentState
         {
             var view = GetOrCreate(game);
             view.IsExcluded = excluded;
+        }
+        RaiseChanged();
+    }
+
+    /// <summary>
+    /// Markiert ein Spiel als geteilt („Synchron") bzw. lokal. Setzt allein das orthogonale
+    /// <see cref="GameStatusView.IsShared"/>-Flag und lässt den echten
+    /// <see cref="GameStatusView.Status"/> unangetastet.
+    /// </summary>
+    public void SetShared(GameKey game, bool shared)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        lock (_lock)
+        {
+            var view = GetOrCreate(game);
+            view.IsShared = shared;
         }
         RaiseChanged();
     }
