@@ -89,6 +89,17 @@ public sealed class ClientAgent : IAsyncDisposable
         var config = _configStore.Load();
         State.SetConfigured(config.IsConfigured);
 
+        // Einmalige Migration auf geräte-eigene Buckets (siehe specs/savevault-change-per-device-sync.md):
+        // den lokalen Basis-Stand einmalig verwerfen, damit jedes Spiel als Revision 1 in den privaten
+        // Bucket neu eingesät wird (Per-Gerät-Backup), statt gegen den alten globalen Verlauf zu laufen.
+        // Nur einmal – danach persistiert das Flag in der Config.
+        if (!config.PerDeviceBucketsMigrated)
+        {
+            _stateStore.ResetAllState();
+            config.PerDeviceBucketsMigrated = true;
+            _configStore.Save(config);
+        }
+
         if (!config.IsConfigured)
             return; // „nicht eingerichtet" – auf Pairing warten.
 
@@ -336,7 +347,7 @@ public sealed class ClientAgent : IAsyncDisposable
             return Array.Empty<RevisionInfo>();
         try
         {
-            var response = await api.GetRevisionsAsync(game, ct).ConfigureAwait(false);
+            var response = await api.GetRevisionsAsync(game, ct: ct).ConfigureAwait(false);
             return response.Revisions;
         }
         catch (OperationCanceledException)

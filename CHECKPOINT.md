@@ -1,3 +1,56 @@
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-02)
+
+**Phase 1 (von 3) fertig — Geräte-eigene Buckets + Migration (Client 1.2.0 / Server 1.1.0).**
+Delta-Spec `specs/savevault-change-per-device-sync.md` (von Tim freigegeben 2026-09-02), Weg über
+`/projekt-edit` (leichte Notebook-Werkstatt). **Gate grün, committet auf Branch
+`phase1-per-device-buckets` (kein Push).**
+Ziel: weg von „ein globaler Bucket pro Spielname" (Ursache des Konflikt-Sturms beim Koppeln
+eines zweiten Geräts) hin zu **pro Gerät ein eigener privater Bucket**; geräteübergreifendes
+Teilen kommt opt-in in Phase 2/3.
+- **Kern-Idee (kleiner Blast-Radius):** Der ganze `VaultStore` bleibt nach `GameKey.Value`
+  verschlüsselt. Die Scope-/Owner-Trennung steckt allein in einem **abgeleiteten Value-Präfix**
+  (`dev|{owner}|…` privat, `shared|…` geteilt, unverändert = Legacy) — neues Core-Primitiv
+  `BucketKey` (`Resolve`/`Original`/`ScopeOf`/Wire). `|` kann die Schlüssel-Normalisierung nie
+  erzeugen → keine Fehlklassifikation. `GameRecord` braucht KEIN neues Feld (Scope aus Präfix
+  ableitbar).
+- **API-Scope:** spielbezogene Routen bekommen optionales `?scope=` (Core `ApiRoutes` +
+  `ISaveVaultApi`/`SaveVaultApiClient`, Default `private`). Der Server löst den effektiven
+  Bucket an der Endpunkt-Grenze auf (`ResolveGameKey`): **Owner eines privaten Buckets IMMER
+  aus dem authentifizierten Gerät** (nie aus dem Query → Owner-Isolation). Default ohne Scope:
+  Gerät→privat, Master/Dashboard→legacy (roher Schlüssel → Dashboard bleibt unverändert
+  lauffähig, keine app.js-Änderung in Phase 1).
+- **Befehle:** `CommandPoller` führt den (effektiven) Bucket-Schlüssel per `BucketKey.Original`
+  auf den lokalen Originalschlüssel zurück (Registry/State/Ordner) und synct per Default-Scope
+  gegen den eigenen privaten Bucket. Restore/Resolution damit korrekt.
+- **Heartbeat:** Geräte-Zustände werden serverseitig auf den privaten Bucket abgebildet
+  (Anzeigename + Status hängen am selben Bucket wie die Uploads dieses Geräts).
+- **Migration:** Server-Index `Version` 1→2 (einmalig, idempotent): alte globale Buckets werden
+  eingefroren (Legacy, keine Blobs bewegt) und **alle offenen Konflikte als gelöst markiert** →
+  der Konflikt-Sturm verstummt sofort; Historie/Blobs bleiben lesbar. Client: einmaliger
+  `SyncState`-Reset (`ResetAllState` + Config-Flag `PerDeviceBucketsMigrated`) → jedes Spiel wird
+  als Revision 1 in den privaten Bucket **neu eingesät** (Backup), statt gegen den alten Verlauf
+  zu laufen.
+- **Review-Härtung (aus `/code-review high`):** (a) **Legacy-Scope ist master-only** — ein
+  Geräte-Token, das `?scope=legacy` schickt, bekommt 403 (kein Gerät kann den eingefrorenen
+  globalen Bucket neu beschreiben). (b) **`/api/games` ist master-only** (die Liste enthält jetzt
+  effektive Bucket-Schlüssel mit fremden Geräte-IDs → nur Dashboard; der Client nutzt die Route
+  nicht). (c) `CommandPoller`-Fehlerstatus unter dem kanonischen Schlüssel. (d) `BucketKey.Original`
+  trennt am **letzten** `|` (robust gegen Owner-IDs mit `|`).
+- **Gate grün (real verifiziert):** `dotnet build` **0/0**, `dotnet test` **104/0/0** (+16
+  `BucketKey`-Fälle). **Laufzeit-Smoke 13/13** gegen den echten Server: Migration (Alt-Index
+  v1+offener Konflikt → v2+resolved), Zwei-Geräte-Trennung (A lädt hoch → B head=0; B-Upload
+  basedOn0 → 200 statt 409 = kein Konflikt-Sturm), 2 getrennte `dev|…`-Buckets im Index, Härtung
+  (Gerät→/games 403, Gerät→legacy 403, Master→/games 200). `/security-review`: clean (Owner-Isolation
+  server-seitig aus dem Token; Pfade gehasht; Scope enum-validiert). Umgebung: .NET 9 SDK (9.0.317)
+  per winget nachinstalliert (Notebook hatte nur SDK 8).
+- **Bewusst zurückgestellt (nicht Phase-1-Flow):** Restore einer **Legacy**-Revision auf ein Gerät
+  (Befund #2) läuft heute ins Leere/Fehler — kein Phase-1-Ziel; sauberes Scope-Threading der
+  Befehle kommt mit dem Dashboard-Umbau in Phase 3. Master + `?scope=private` → 400 (Befund #5) ist
+  latent (kein Master-C#-Aufrufer; Dashboard ist JS). **Phase 2 (Client-Umschalter Lokal/Synchron +
+  Vergleichsdialog) und Phase 3 (Dashboard-Teilen + Pro-Gerät-Status + Legacy löschen) stehen aus.**
+
+---
+
 # SaveVault — Fortschritt (fortgeschrieben 2026-08-28)
 
 **Client v1.0.5 — Autostart + eigenes exe-Icon.** Delta-Spec

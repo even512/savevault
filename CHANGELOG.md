@@ -3,6 +3,19 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.2.0 — 2026-09-02
+
+- **Jedes Gerät sichert in seinen eigenen Bereich.** Bisher teilten sich alle PCs
+  denselben Verlauf pro Spiel — koppelte man einen zweiten PC mit abweichenden
+  Ständen, gab es sofort viele Konflikte. Ab jetzt hat **jedes Gerät pro Spiel
+  seinen eigenen privaten Bucket** auf dem Server (Backup + Historie). Ein frisch
+  gekoppeltes Gerät löst damit keinen Konflikt-Sturm mehr aus. Geräteübergreifendes
+  Teilen kommt als **opt-in** in einem der nächsten Releases.
+- **Einmalige Umstellung beim ersten Start.** Der lokale Basis-Stand wird einmalig
+  zurückgesetzt, sodass jedes Spiel als erste Revision in den privaten Bucket neu
+  gesichert wird. Der alte gemeinsame Verlauf bleibt auf dem Server als Archiv
+  erhalten (nur lesbar, wird nicht mehr automatisch synchronisiert).
+
 ## v1.0.5 — 2026-08-28
 
 - **Autostart mit Windows.** Neue Einstellung „Automatisch mit Windows starten"

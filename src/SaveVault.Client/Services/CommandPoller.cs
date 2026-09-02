@@ -84,8 +84,10 @@ public sealed class CommandPoller
             catch (Exception ex)
             {
                 // Ein defekter Befehl darf die Warteschlange nicht blockieren – Fehler vermerken,
-                // Befehl offen lassen (kein Ack), weiter mit dem nächsten.
-                _state.SetStatus(command.Game, SyncStatus.Error, action: "Befehl fehlgeschlagen: " + ex.Message);
+                // Befehl offen lassen (kein Ack), weiter mit dem nächsten. Der Status muss unter dem
+                // KANONISCHEN Spiel-Schlüssel landen (wie in HandleAsync), nicht unter dem effektiven
+                // Bucket-Schlüssel des Befehls – sonst sähe die Oberfläche den Fehler nie.
+                _state.SetStatus(BucketKey.Original(command.Game), SyncStatus.Error, action: "Befehl fehlgeschlagen: " + ex.Message);
                 continue;
             }
 
@@ -110,11 +112,17 @@ public sealed class CommandPoller
 
     private async Task<bool> HandleAsync(Command command, CancellationToken ct)
     {
-        var entry = _registry.TryGet(command.Game);
+        // Server-Befehle tragen den EFFEKTIVEN Bucket-Schlüssel (privat: dev|owner|…). Lokal wird
+        // aber nach dem Originalschlüssel gebucht (Registry/Sync-State), und der Client synct sein
+        // eigenes Spiel per Default-Scope „privat" gegen genau diesen Bucket – deshalb hier auf den
+        // Originalschlüssel zurückführen und mit ihm arbeiten.
+        var game = BucketKey.Original(command.Game);
+
+        var entry = _registry.TryGet(game);
         if (entry is null)
         {
             // Kein lokaler Ordner → nicht anwendbar, Befehl offen lassen (kein Ack).
-            _state.SetStatus(command.Game, SyncStatus.Error, action: "Befehl ignoriert: kein lokaler Ordner zugeordnet.");
+            _state.SetStatus(game, SyncStatus.Error, action: "Befehl ignoriert: kein lokaler Ordner zugeordnet.");
             return false;
         }
 
@@ -124,13 +132,13 @@ public sealed class CommandPoller
             {
                 if (command.TargetRevision is not long target)
                     return false;
-                var revision = await _api.GetRevisionAsync(command.Game, target, ct).ConfigureAwait(false);
+                var revision = await _api.GetRevisionAsync(game, target, ct: ct).ConfigureAwait(false);
                 // Exklusiv pro Spiel (B1): kein gleichzeitiger Sync-Zyklus, der einen halb
                 // geschriebenen Restore-Ordner als „Änderung" hochladen könnte.
-                await _serializer.RunExclusiveAsync(command.Game,
-                    c => _engine.ApplyRevisionAsync(command.Game, entry.FolderPath, revision.Manifest, revision.Number, c), ct)
+                await _serializer.RunExclusiveAsync(game,
+                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, c), ct)
                     .ConfigureAwait(false);
-                _state.SetStatus(command.Game, SyncStatus.Synced,
+                _state.SetStatus(game, SyncStatus.Synced,
                     action: $"Wiederhergestellt ← Revision {revision.Number}", folder: entry.FolderPath, baseRevision: revision.Number);
                 return true;
             }
@@ -138,15 +146,15 @@ public sealed class CommandPoller
             case CommandType.ApplyResolution:
             {
                 // Gewinner = aktueller Head des Spiels nach der serverseitigen Lösung.
-                var head = await _api.GetHeadAsync(command.Game, ct).ConfigureAwait(false);
+                var head = await _api.GetHeadAsync(game, ct: ct).ConfigureAwait(false);
                 if (head.CurrentRevision <= 0)
                     return false;
-                var revision = await _api.GetRevisionAsync(command.Game, head.CurrentRevision, ct).ConfigureAwait(false);
+                var revision = await _api.GetRevisionAsync(game, head.CurrentRevision, ct: ct).ConfigureAwait(false);
                 // Exklusiv pro Spiel (B1), gleiches Gate wie der Sync-Zyklus.
-                await _serializer.RunExclusiveAsync(command.Game,
-                    c => _engine.ApplyRevisionAsync(command.Game, entry.FolderPath, revision.Manifest, revision.Number, c), ct)
+                await _serializer.RunExclusiveAsync(game,
+                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, c), ct)
                     .ConfigureAwait(false);
-                _state.SetStatus(command.Game, SyncStatus.Synced,
+                _state.SetStatus(game, SyncStatus.Synced,
                     action: $"Konflikt gelöst ← Revision {revision.Number}", folder: entry.FolderPath, baseRevision: revision.Number);
                 return true;
             }

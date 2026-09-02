@@ -67,17 +67,23 @@ public static class SaveVaultEndpoints
         });
 
         // --- Spiele & Revisionen ----------------------------------------------------
-        api.MapGet("/games", async (VaultStore store, CancellationToken ct)
-            => Results.Json(await store.GetGamesAsync(ct)));
+        // Master-only: die Liste enthält seit dem Per-Gerät-Umbau die effektiven Bucket-Schlüssel
+        // (privat: dev|{ownerDeviceId}|…) und damit fremde Geräte-IDs/Bibliotheken – das gehört nur
+        // ins Dashboard, nicht zu einem beliebigen Geräte-Token. Der Client nutzt diese Route nicht.
+        api.MapGet("/games", async (HttpContext ctx, VaultStore store, CancellationToken ct) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+            return Results.Json(await store.GetGamesAsync(ct));
+        });
 
-        api.MapGet("/games/{gameKey}/head", async (string gameKey, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.GetHeadAsync(KeyFrom(gameKey), ct)));
+        api.MapGet("/games/{gameKey}/head", async (string gameKey, string? scope, HttpContext ctx, VaultStore store, CancellationToken ct)
+            => Results.Json(await store.GetHeadAsync(ResolveGameKey(ctx, gameKey, scope), ct)));
 
-        api.MapGet("/games/{gameKey}/revisions", async (string gameKey, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.GetRevisionsAsync(KeyFrom(gameKey), ct)));
+        api.MapGet("/games/{gameKey}/revisions", async (string gameKey, string? scope, HttpContext ctx, VaultStore store, CancellationToken ct)
+            => Results.Json(await store.GetRevisionsAsync(ResolveGameKey(ctx, gameKey, scope), ct)));
 
         api.MapPost("/games/{gameKey}/revisions",
-            async (string gameKey, UploadRevisionRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, string? scope, UploadRevisionRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
             {
                 // Attributions-Spoofing verhindern: ein Gerät darf nur unter der EIGENEN Geräte-ID
                 // (oder das Master-Token) eine Revision anmelden – analog zum Heartbeat.
@@ -85,22 +91,22 @@ public static class SaveVaultEndpoints
                     return ApiResults.Error(400, "Unvollständige Revisionsanmeldung.");
                 if (!Principal(ctx).CanActAsDevice(req.Device.Id))
                     return ApiResults.Error(403, "Token gehört zu einem anderen Gerät.");
-                return Results.Json(await store.RegisterRevisionAsync(KeyFrom(gameKey), req, ct));
+                return Results.Json(await store.RegisterRevisionAsync(ResolveGameKey(ctx, gameKey, scope), req, ct));
             });
 
         api.MapGet("/games/{gameKey}/revisions/{number:long}",
-            async (string gameKey, long number, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.GetRevisionAsync(KeyFrom(gameKey), number, ct)));
+            async (string gameKey, long number, string? scope, HttpContext ctx, VaultStore store, CancellationToken ct)
+            => Results.Json(await store.GetRevisionAsync(ResolveGameKey(ctx, gameKey, scope), number, ct)));
 
         // Export einer Revision als ZIP (Originalstruktur der Savegames + SaveVault-Info.txt mit
         // dem Standard-Save-Pfad). Master-only (Dashboard). Der 404-Fall (unbekannte Revision) wird
         // von GetRevisionAsync geworfen, BEVOR in den Body gestreamt wird → saubere Fehlerantwort.
         api.MapGet("/games/{gameKey}/revisions/{number:long}/export",
-            async (string gameKey, long number, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, long number, string? scope, HttpContext ctx, VaultStore store, CancellationToken ct) =>
             {
                 if (!Principal(ctx).IsMaster) return AdminOnly();
 
-                var key = KeyFrom(gameKey);
+                var key = ResolveGameKey(ctx, gameKey, scope);
                 var rev = await store.GetRevisionAsync(key, number, ct);
                 var deviceName = await store.GetDeviceNameAsync(rev.DeviceId, ct) ?? rev.DeviceId;
 
@@ -121,24 +127,25 @@ public static class SaveVaultEndpoints
 
         // --- Inhalte (inhaltsadressiert) --------------------------------------------
         api.MapPut("/games/{gameKey}/content/{hash}",
-            async (string gameKey, string hash, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, string hash, string? scope, HttpContext ctx, VaultStore store, CancellationToken ct) =>
             {
                 // Große Savegames: die Standard-Body-Grenze nur für diesen Upload-Endpunkt aufheben.
                 var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
                 if (sizeFeature is { IsReadOnly: false })
                     sizeFeature.MaxRequestBodySize = null;
 
-                await store.StoreContentAsync(KeyFrom(gameKey), hash, ctx.Request.Body, ct);
+                var key = ResolveGameKey(ctx, gameKey, scope);
+                await store.StoreContentAsync(key, hash, ctx.Request.Body, ct);
                 // Head erst nach VOLLSTÄNDIGEM Content vorrücken: nach jedem gespeicherten Blob prüfen,
                 // ob eine angemeldete Pending-Revision nun komplett ist, und sie dann finalisieren.
-                await store.TryFinalizePendingAsync(KeyFrom(gameKey), ct);
+                await store.TryFinalizePendingAsync(key, ct);
                 return Results.Ok();
             });
 
         api.MapGet("/games/{gameKey}/content/{hash}",
-            (string gameKey, string hash, VaultStore store) =>
+            (string gameKey, string hash, string? scope, HttpContext ctx, VaultStore store) =>
             {
-                var stream = store.OpenContent(KeyFrom(gameKey), hash);
+                var stream = store.OpenContent(ResolveGameKey(ctx, gameKey, scope), hash);
                 return stream is null
                     ? ApiResults.Error(404, "Inhalt nicht gefunden.")
                     : Results.Stream(stream, "application/octet-stream");
@@ -146,8 +153,8 @@ public static class SaveVaultEndpoints
 
         // --- Restore ----------------------------------------------------------------
         api.MapPost("/games/{gameKey}/restore",
-            async (string gameKey, RestoreRequest req, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.RestoreAsync(KeyFrom(gameKey), req, ct)));
+            async (string gameKey, string? scope, RestoreRequest req, HttpContext ctx, VaultStore store, CancellationToken ct)
+            => Results.Json(await store.RestoreAsync(ResolveGameKey(ctx, gameKey, scope), req, ct)));
 
         // --- Konflikte --------------------------------------------------------------
         api.MapGet("/conflicts", async (VaultStore store, CancellationToken ct)
@@ -280,5 +287,37 @@ public static class SaveVaultEndpoints
         if (string.IsNullOrWhiteSpace(routeValue))
             throw new VaultException(400, "Leerer Spielschlüssel.");
         return new GameKey(routeValue, routeValue);
+    }
+
+    /// <summary>
+    /// Löst den effektiven Bucket-Schlüssel aus Routenschlüssel + <c>?scope=</c> + Prinzipal auf.
+    /// Der Owner eines privaten Buckets wird IMMER aus dem authentifizierten Gerät abgeleitet, nie
+    /// aus dem Query – so kann ein Gerät nur seinen EIGENEN privaten Bucket ansprechen (Isolation).
+    /// Default ohne Scope: Gerät → privat, Master/Dashboard → legacy (roher Schlüssel, wie bisher).
+    /// </summary>
+    private static GameKey ResolveGameKey(HttpContext ctx, string routeValue, string? scope)
+    {
+        var principal = Principal(ctx);
+        var fallback = principal.IsMaster ? BucketScope.Legacy : BucketScope.Private;
+
+        BucketScope resolved;
+        try { resolved = BucketKey.FromWire(scope, fallback); }
+        catch (ArgumentException) { throw new VaultException(400, "Unbekannter Bucket-Scope."); }
+
+        // Legacy-Buckets (alter globaler Verlauf) sind eingefroren: nur das Dashboard (Master) darf
+        // sie noch lesen/exportieren. Ein Geräte-Token, das ausdrücklich ?scope=legacy schickt, wird
+        // abgewiesen – sonst könnte ein Gerät den alten globalen Bucket wieder beschreiben und den
+        // Konflikt-Sturm neu auslösen, den die Migration gerade beseitigt.
+        if (resolved == BucketScope.Legacy && !principal.IsMaster)
+            throw new VaultException(403, "Legacy-Buckets sind nur über das Dashboard zugänglich.");
+
+        var raw = KeyFrom(routeValue);
+        if (resolved != BucketScope.Private)
+            return BucketKey.Resolve(raw, resolved, null);
+
+        // Privat: Owner = authentifiziertes Gerät (nie Client-gewählt).
+        if (string.IsNullOrWhiteSpace(principal.DeviceId))
+            throw new VaultException(400, "Privater Bucket erfordert einen Gerätekontext.");
+        return BucketKey.Resolve(raw, BucketScope.Private, principal.DeviceId);
     }
 }

@@ -19,13 +19,23 @@ public static class ApiRoutes
     public const string Pair = Base + "/pair";
     public const string Heartbeat = Base + "/heartbeat";
 
-    // Spiele & Revisionen
+    // Spiele & Revisionen. Der optionale <c>scope</c> wählt den Bucket (privat je Gerät /
+    // geteilt / legacy); der Client sendet ihn explizit mit, der Server leitet den Owner eines
+    // privaten Buckets aus dem authentifizierten Gerät ab (nie aus dem Query). Siehe BucketKey.
     public const string Games = Base + "/games";
-    public static string Head(string gameKeyEncoded) => $"{Base}/games/{gameKeyEncoded}/head";
-    public static string Revisions(string gameKeyEncoded) => $"{Base}/games/{gameKeyEncoded}/revisions";
-    public static string Revision(string gameKeyEncoded, long number) => $"{Base}/games/{gameKeyEncoded}/revisions/{number}";
-    public static string Content(string gameKeyEncoded, string hashEncoded) => $"{Base}/games/{gameKeyEncoded}/content/{hashEncoded}";
-    public static string Restore(string gameKeyEncoded) => $"{Base}/games/{gameKeyEncoded}/restore";
+    public static string Head(string gameKeyEncoded, BucketScope scope = BucketScope.Private)
+        => $"{Base}/games/{gameKeyEncoded}/head{ScopeQuery(scope)}";
+    public static string Revisions(string gameKeyEncoded, BucketScope scope = BucketScope.Private)
+        => $"{Base}/games/{gameKeyEncoded}/revisions{ScopeQuery(scope)}";
+    public static string Revision(string gameKeyEncoded, long number, BucketScope scope = BucketScope.Private)
+        => $"{Base}/games/{gameKeyEncoded}/revisions/{number}{ScopeQuery(scope)}";
+    public static string Content(string gameKeyEncoded, string hashEncoded, BucketScope scope = BucketScope.Private)
+        => $"{Base}/games/{gameKeyEncoded}/content/{hashEncoded}{ScopeQuery(scope)}";
+    public static string Restore(string gameKeyEncoded, BucketScope scope = BucketScope.Private)
+        => $"{Base}/games/{gameKeyEncoded}/restore{ScopeQuery(scope)}";
+
+    /// <summary><c>?scope=</c>-Suffix für die spielbezogenen Routen.</summary>
+    private static string ScopeQuery(BucketScope scope) => $"?scope={BucketKey.ToWire(scope)}";
 
     /// <summary>Export einer Revision als ZIP (master-only, Dashboard).</summary>
     public static string Export(string gameKeyEncoded, long number) => $"{Base}/games/{gameKeyEncoded}/revisions/{number}/export";

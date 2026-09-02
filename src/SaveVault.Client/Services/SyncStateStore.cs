@@ -60,6 +60,33 @@ public sealed class SyncStateStore
         JsonFileStore.Write(ConflictPathFor(game), new ConflictMark { ManifestHash = manifestHash });
     }
 
+    /// <summary>
+    /// Löscht ALLE persistierten Sync-States (und Konflikt-Marken). Einmalige Migration auf
+    /// geräte-eigene Buckets: der lokale Basis-Stand wird verworfen, damit der aktuelle lokale
+    /// Save beim nächsten Zyklus als Revision 1 in den PRIVATEN Bucket neu eingesät wird (Backup),
+    /// statt gegen den alten globalen Verlauf zu laufen. Tolerant – einzelne Löschfehler werden
+    /// geschluckt (im schlimmsten Fall reseedet ein einzelnes Spiel erst beim nächsten Anlauf).
+    /// </summary>
+    public void ResetAllState()
+    {
+        try
+        {
+            var dir = _paths.StateDirectory;
+            if (!Directory.Exists(dir))
+                return;
+            foreach (var file in Directory.EnumerateFiles(dir, "*.json"))
+            {
+                try { File.Delete(file); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            // Nicht kritisch – die Migration wird beim nächsten Start erneut versucht, solange das
+            // Flag in der Config nicht gesetzt werden konnte.
+        }
+    }
+
     /// <summary>Löscht die Konflikt-Marke (nach Auflösung/erfolgreichem Sync).</summary>
     public void ClearConflictHash(GameKey game)
     {

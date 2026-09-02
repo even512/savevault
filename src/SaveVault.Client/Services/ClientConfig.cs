@@ -27,6 +27,14 @@ public sealed class ClientConfig
     public int SyncIntervalSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Ob die einmalige Migration auf geräte-eigene Buckets bereits gelaufen ist. Fehlt das Feld
+    /// in einer alten <c>config.json</c>, wird es als <c>false</c> gelesen – die Migration läuft
+    /// dann beim nächsten Start einmalig (verwirft den lokalen Basis-Stand, sodass jedes Spiel als
+    /// Revision 1 in den privaten Bucket neu eingesät wird) und setzt das Flag auf <c>true</c>.
+    /// </summary>
+    public bool PerDeviceBucketsMigrated { get; set; }
+
+    /// <summary>
     /// Ob der Client automatisch mit dem Windows-Login starten soll (Default <c>true</c>).
     /// Fehlt das Feld in einer alten <c>config.json</c>, wird es als <c>true</c> gelesen –
     /// also „Autostart an", konsistent mit der Standardentscheidung. Der tatsächliche

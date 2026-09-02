@@ -42,11 +42,11 @@ public sealed class SaveVaultApiClient : ISaveVaultApi
     public Task<GamesResponse> GetGamesAsync(CancellationToken ct = default)
         => GetJsonAsync<GamesResponse>(ApiRoutes.Games, ct);
 
-    public Task<RevisionHead> GetHeadAsync(GameKey game, CancellationToken ct = default)
-        => GetJsonAsync<RevisionHead>(ApiRoutes.Head(Key(game)), ct);
+    public Task<RevisionHead> GetHeadAsync(GameKey game, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
+        => GetJsonAsync<RevisionHead>(ApiRoutes.Head(Key(game), scope), ct);
 
-    public Task<RevisionListResponse> GetRevisionsAsync(GameKey game, CancellationToken ct = default)
-        => GetJsonAsync<RevisionListResponse>(ApiRoutes.Revisions(Key(game)), ct);
+    public Task<RevisionListResponse> GetRevisionsAsync(GameKey game, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
+        => GetJsonAsync<RevisionListResponse>(ApiRoutes.Revisions(Key(game), scope), ct);
 
     public async Task<byte[]?> GetCoverAsync(GameKey game, CancellationToken ct = default)
     {
@@ -61,25 +61,25 @@ public sealed class SaveVaultApiClient : ISaveVaultApi
         return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
     }
 
-    public Task<RevisionDownload> GetRevisionAsync(GameKey game, long revision, CancellationToken ct = default)
-        => GetJsonAsync<RevisionDownload>(ApiRoutes.Revision(Key(game), revision), ct);
+    public Task<RevisionDownload> GetRevisionAsync(GameKey game, long revision, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
+        => GetJsonAsync<RevisionDownload>(ApiRoutes.Revision(Key(game), revision, scope), ct);
 
-    public Task<UploadRevisionResponse> UploadRevisionAsync(GameKey game, UploadRevisionRequest request, CancellationToken ct = default)
-        => PostJsonAsync<UploadRevisionRequest, UploadRevisionResponse>(ApiRoutes.Revisions(Key(game)), request, ct);
+    public Task<UploadRevisionResponse> UploadRevisionAsync(GameKey game, UploadRevisionRequest request, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
+        => PostJsonAsync<UploadRevisionRequest, UploadRevisionResponse>(ApiRoutes.Revisions(Key(game), scope), request, ct);
 
-    public async Task UploadContentAsync(GameKey game, string sha256, Stream content, CancellationToken ct = default)
+    public async Task UploadContentAsync(GameKey game, string sha256, Stream content, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(content);
-        var url = ApiRoutes.Content(Key(game), Uri.EscapeDataString(sha256));
+        var url = ApiRoutes.Content(Key(game), Uri.EscapeDataString(sha256), scope);
         using var req = new HttpRequestMessage(HttpMethod.Put, url) { Content = new StreamContent(content) };
         req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         await EnsureSuccessAsync(resp, url).ConfigureAwait(false);
     }
 
-    public async Task<Stream> DownloadContentAsync(GameKey game, string sha256, CancellationToken ct = default)
+    public async Task<Stream> DownloadContentAsync(GameKey game, string sha256, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
     {
-        var url = ApiRoutes.Content(Key(game), Uri.EscapeDataString(sha256));
+        var url = ApiRoutes.Content(Key(game), Uri.EscapeDataString(sha256), scope);
         var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         await EnsureSuccessAsync(resp, url).ConfigureAwait(false);
         // Bewusst kein using: der zurückgegebene Stream hält die Antwort am Leben,
@@ -95,7 +95,7 @@ public sealed class SaveVaultApiClient : ISaveVaultApi
             ApiRoutes.ResolveConflict(Uri.EscapeDataString(conflictId)), request, ct);
 
     public Task<RestoreResponse> RestoreAsync(GameKey game, RestoreRequest request, CancellationToken ct = default)
-        => PostJsonAsync<RestoreRequest, RestoreResponse>(ApiRoutes.Restore(Key(game)), request, ct);
+        => PostJsonAsync<RestoreRequest, RestoreResponse>(ApiRoutes.Restore(Key(game), BucketScope.Private), request, ct);
 
     public Task<CommandListResponse> GetCommandsAsync(string deviceId, CancellationToken ct = default)
         => GetJsonAsync<CommandListResponse>(ApiRoutes.Commands(Uri.EscapeDataString(deviceId)), ct);

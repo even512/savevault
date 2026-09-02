@@ -19,11 +19,11 @@ public interface ISaveVaultApi
     /// <summary>Alle bekannten Spiele mit aktueller Revision und Status.</summary>
     Task<GamesResponse> GetGamesAsync(CancellationToken ct = default);
 
-    /// <summary>Delta-Abfrage: aktuelle Server-Revision eines Spiels.</summary>
-    Task<RevisionHead> GetHeadAsync(GameKey game, CancellationToken ct = default);
+    /// <summary>Delta-Abfrage: aktuelle Server-Revision eines Spiels (im gewählten Bucket).</summary>
+    Task<RevisionHead> GetHeadAsync(GameKey game, BucketScope scope = BucketScope.Private, CancellationToken ct = default);
 
-    /// <summary>Versionsverlauf eines Spiels.</summary>
-    Task<RevisionListResponse> GetRevisionsAsync(GameKey game, CancellationToken ct = default);
+    /// <summary>Versionsverlauf eines Spiels (im gewählten Bucket).</summary>
+    Task<RevisionListResponse> GetRevisionsAsync(GameKey game, BucketScope scope = BucketScope.Private, CancellationToken ct = default);
 
     /// <summary>
     /// Box-Art/Cover eines Spiels als JPEG-Bytes. Liefert <c>null</c>, wenn der Server kein
@@ -31,17 +31,17 @@ public interface ISaveVaultApi
     /// </summary>
     Task<byte[]?> GetCoverAsync(GameKey game, CancellationToken ct = default);
 
-    /// <summary>Eine konkrete Revision (Manifest) zum Herunterladen holen.</summary>
-    Task<RevisionDownload> GetRevisionAsync(GameKey game, long revision, CancellationToken ct = default);
+    /// <summary>Eine konkrete Revision (Manifest) zum Herunterladen holen (im gewählten Bucket).</summary>
+    Task<RevisionDownload> GetRevisionAsync(GameKey game, long revision, BucketScope scope = BucketScope.Private, CancellationToken ct = default);
 
-    /// <summary>Neue Revision anmelden; Antwort nennt die fehlenden Datei-Hashes.</summary>
-    Task<UploadRevisionResponse> UploadRevisionAsync(GameKey game, UploadRevisionRequest request, CancellationToken ct = default);
+    /// <summary>Neue Revision anmelden; Antwort nennt die fehlenden Datei-Hashes (im gewählten Bucket).</summary>
+    Task<UploadRevisionResponse> UploadRevisionAsync(GameKey game, UploadRevisionRequest request, BucketScope scope = BucketScope.Private, CancellationToken ct = default);
 
-    /// <summary>Einen Datei-Inhalt (inhaltsadressiert nach SHA-256) hochladen.</summary>
-    Task UploadContentAsync(GameKey game, string sha256, Stream content, CancellationToken ct = default);
+    /// <summary>Einen Datei-Inhalt (inhaltsadressiert nach SHA-256) hochladen (in den gewählten Bucket).</summary>
+    Task UploadContentAsync(GameKey game, string sha256, Stream content, BucketScope scope = BucketScope.Private, CancellationToken ct = default);
 
-    /// <summary>Einen Datei-Inhalt (nach SHA-256) herunterladen. Aufrufer schließt den Stream.</summary>
-    Task<Stream> DownloadContentAsync(GameKey game, string sha256, CancellationToken ct = default);
+    /// <summary>Einen Datei-Inhalt (nach SHA-256) herunterladen (aus dem gewählten Bucket). Aufrufer schließt den Stream.</summary>
+    Task<Stream> DownloadContentAsync(GameKey game, string sha256, BucketScope scope = BucketScope.Private, CancellationToken ct = default);
 
     /// <summary>Alle offenen Konflikte.</summary>
     Task<ConflictListResponse> GetConflictsAsync(CancellationToken ct = default);

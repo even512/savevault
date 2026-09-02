@@ -80,7 +80,7 @@ public sealed class SyncEngine
         {
             var state = _stateStore.Load(game);
             var local = _manifestBuilder.Build(folder, state.BaseManifest, ct);
-            var head = await _api.GetHeadAsync(game, ct).ConfigureAwait(false);
+            var head = await _api.GetHeadAsync(game, ct: ct).ConfigureAwait(false);
             _state.MarkServerReachable(_nowUtc());
 
             var decision = SyncDecider.Decide(local, state, head.CurrentRevision);
@@ -117,7 +117,7 @@ public sealed class SyncEngine
     private async Task<SyncCycleResult> UploadAsync(GameKey game, string folder, FileManifest local, SyncState state, CancellationToken ct)
     {
         var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
-        var response = await _api.UploadRevisionAsync(game, request, ct).ConfigureAwait(false);
+        var response = await _api.UploadRevisionAsync(game, request, ct: ct).ConfigureAwait(false);
         await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
 
         _stateStore.Save(state with { BaseRevision = response.Revision, BaseManifest = local });
@@ -130,7 +130,7 @@ public sealed class SyncEngine
 
     private async Task<SyncCycleResult> DownloadAsync(GameKey game, string folder, long serverRevision, CancellationToken ct)
     {
-        var revision = await _api.GetRevisionAsync(game, serverRevision, ct).ConfigureAwait(false);
+        var revision = await _api.GetRevisionAsync(game, serverRevision, ct: ct).ConfigureAwait(false);
         await ApplyRevisionAsync(game, folder, revision.Manifest, revision.Number, ct).ConfigureAwait(false);
         // Echte Übertragung abgeschlossen → meldenswert (Toast „synchronisiert").
         _state.NotifySyncActivity(game, SyncActivityKind.Downloaded);
@@ -160,7 +160,7 @@ public sealed class SyncEngine
         // Neue/geänderte lokale Fassung: als Konflikt-Revision sichern (damit sie nicht
         // verloren geht) und die Konflikt-Marke auf diesen Stand setzen.
         var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: true, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
-        var response = await _api.UploadRevisionAsync(game, request, ct).ConfigureAwait(false);
+        var response = await _api.UploadRevisionAsync(game, request, ct: ct).ConfigureAwait(false);
         await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, ct).ConfigureAwait(false);
         _stateStore.SaveConflictHash(game, local.ManifestHash);
 
@@ -226,7 +226,7 @@ public sealed class SyncEngine
             var tmp = target + ".svtmp-" + Guid.NewGuid().ToString("N");
             try
             {
-                await using (var source = await _api.DownloadContentAsync(game, entry.Sha256, ct).ConfigureAwait(false))
+                await using (var source = await _api.DownloadContentAsync(game, entry.Sha256, ct: ct).ConfigureAwait(false))
                 await using (var dest = File.Create(tmp))
                 {
                     await source.CopyToAsync(dest, ct).ConfigureAwait(false);
@@ -270,7 +270,7 @@ public sealed class SyncEngine
                 continue;
 
             await using var fs = File.OpenRead(source);
-            await _api.UploadContentAsync(game, hash, fs, ct).ConfigureAwait(false);
+            await _api.UploadContentAsync(game, hash, fs, ct: ct).ConfigureAwait(false);
         }
     }
 

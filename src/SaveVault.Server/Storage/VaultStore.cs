@@ -60,6 +60,8 @@ public sealed class VaultStore
 
         _index = AtomicJson.ReadOrDefault(_indexPath, _json, () => new ServerIndex());
 
+        MigrateIfNeeded();
+
         // Beim ersten Start einen Pairing-Code bereitstellen (fürs Dashboard sichtbar).
         if (string.IsNullOrWhiteSpace(_index.PairingCode))
         {
@@ -67,6 +69,33 @@ public sealed class VaultStore
             _index.PairingCodeUpdatedUtc = DateTime.UtcNow;
             Save();
         }
+    }
+
+    /// <summary>Aktuelle Schema-Version des Index (siehe <see cref="MigrateIfNeeded"/>).</summary>
+    private const int CurrentIndexVersion = 2;
+
+    /// <summary>
+    /// Einmalige, idempotente Migration beim Start. Version 1→2 (Umstieg auf geräte-eigene Buckets,
+    /// siehe <c>specs/savevault-change-per-device-sync.md</c>): die alten globalen Buckets werden
+    /// eingefroren – kein Gerät synct mehr automatisch gegen sie (die Clients adressieren ab jetzt
+    /// nur noch ihren privaten Bucket-Schlüssel). Damit der bisherige Konflikt-Sturm (Folge des
+    /// gemeinsamen globalen Verlaufs) sofort verstummt, werden alle noch offenen Konflikte als gelöst
+    /// markiert. Nichts wird gelöscht: die Konflikt-Revisionen und alle Blobs bleiben als lesbare
+    /// Legacy-Historie erhalten.
+    /// </summary>
+    private void MigrateIfNeeded()
+    {
+        if (_index.Version >= CurrentIndexVersion)
+            return;
+
+        for (var i = 0; i < _index.Conflicts.Count; i++)
+        {
+            if (!_index.Conflicts[i].Resolved)
+                _index.Conflicts[i] = _index.Conflicts[i] with { Resolved = true };
+        }
+
+        _index.Version = CurrentIndexVersion;
+        Save();
     }
 
     public string DataRoot => _paths.DataRoot;
@@ -361,11 +390,14 @@ public sealed class VaultStore
             foreach (var gs in req.GameStates ?? Array.Empty<DeviceGameState>())
             {
                 if (gs?.Game is null) continue;
-                // Der Heartbeat trägt den reichen GameKey (echter Anzeigename + Store/StoreId aus
-                // dem Ludusavi-Fund); den echten DisplayName am Spiel-Bucket nachziehen, ohne den
-                // gehashten Bucket-Schlüssel (Value/Pfad) zu verändern.
-                ApplyGameKeyMetadata(gs.Game);
-                SetDeviceGameState(device.Id, gs.Game.Value, gs.BaseRevision, gs.Status);
+                // Der Heartbeat trägt den kanonischen GameKey (echter Anzeigename + Store/StoreId).
+                // Serverseitig gehört der Zustand zum PRIVATEN Bucket dieses Geräts (Per-Gerät-Backup):
+                // auf den effektiven Bucket-Schlüssel abbilden, damit Anzeigename und Status am selben
+                // Bucket hängen wie die von diesem Gerät hochgeladenen Revisionen. Der Owner kommt aus
+                // dem (bereits token-geprüften) Gerät, nie aus Client-Eingaben.
+                var bucketKey = BucketKey.Resolve(gs.Game, BucketScope.Private, device.Id);
+                ApplyGameKeyMetadata(bucketKey);
+                SetDeviceGameState(device.Id, bucketKey.Value, gs.BaseRevision, gs.Status);
             }
 
             var pending = _index.Commands.Count(c => c.TargetDeviceId == device.Id);
