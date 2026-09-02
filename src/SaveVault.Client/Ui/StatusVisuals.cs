@@ -10,13 +10,13 @@ namespace SaveVault.Client.Ui;
 /// </summary>
 public static class StatusVisuals
 {
-    // Statusfarben (aus Spec/Mockup, oklch → Hex konvertiert).
-    public static readonly SolidColorBrush Synced   = Freeze("#56C271");
-    public static readonly SolidColorBrush Syncing  = Freeze("#5BC2B8");
+    // Statusfarben (aus dem Redesign-Canvas, oklch → Hex konvertiert).
+    public static readonly SolidColorBrush Synced   = Freeze("#55C975");
+    public static readonly SolidColorBrush Syncing  = Freeze("#5CA7A7");
     public static readonly SolidColorBrush Conflict = Freeze("#E8944A");
-    public static readonly SolidColorBrush Pending  = Freeze("#E3C349");
-    public static readonly SolidColorBrush Offline  = Freeze("#7A7C88");
-    public static readonly SolidColorBrush Error    = Freeze("#E5615E");
+    public static readonly SolidColorBrush Pending  = Freeze("#E3C23B");
+    public static readonly SolidColorBrush Offline  = Freeze("#787986");
+    public static readonly SolidColorBrush Error    = Freeze("#F94144");
 
     /// <summary>Für übersprungene Spiele, die eine manuelle Ordner-Zuordnung brauchen (Amber).</summary>
     public static readonly SolidColorBrush Attention = Freeze("#D8A657");

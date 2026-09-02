@@ -6,13 +6,16 @@
          Teal-Akzent, abgerundete Karten. Hell/Dunkel: die App ist
          bewusst durchgehend dunkel gehalten (Design-Geist des Web).
          ============================================================ -->
-    <Color x:Key="WindowBgColor">#1A1B22</Color>
-    <Color x:Key="CardColor">#24262F</Color>
-    <Color x:Key="HoverColor">#2C2E38</Color>
-    <Color x:Key="BorderColor">#34363F</Color>
-    <Color x:Key="TextColor">#E9EAF0</Color>
-    <Color x:Key="MutedColor">#9A9CA8</Color>
-    <Color x:Key="AccentColor">#5BC2B8</Color>
+    <Color x:Key="WindowBgColor">#0E0F15</Color>
+    <Color x:Key="CardColor">#14151D</Color>
+    <Color x:Key="HoverColor">#22232E</Color>
+    <Color x:Key="BorderColor">#2C2D38</Color>
+    <Color x:Key="TextColor">#EAEBEF</Color>
+    <Color x:Key="MutedColor">#7D7F8C</Color>
+    <Color x:Key="AccentColor">#5CA7A7</Color>
+    <Color x:Key="ControlColor">#1D1E29</Color>
+    <Color x:Key="TitleBarColor">#0A0B11</Color>
+    <Color x:Key="SidebarColor">#0B0C12</Color>
 
     <SolidColorBrush x:Key="WindowBgBrush" Color="{StaticResource WindowBgColor}" />
     <SolidColorBrush x:Key="CardBrush" Color="{StaticResource CardColor}" />
@@ -21,15 +24,21 @@
     <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
     <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}" />
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
-    <SolidColorBrush x:Key="AccentTextBrush" Color="#0E1B19" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#74B9B8" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#000F0F" />
+    <SolidColorBrush x:Key="ControlBrush" Color="{StaticResource ControlColor}" />
+    <SolidColorBrush x:Key="TitleBarBrush" Color="{StaticResource TitleBarColor}" />
+    <SolidColorBrush x:Key="SidebarBrush" Color="{StaticResource SidebarColor}" />
+    <!-- Ausgeschaltete Spur der Toggle-Switches (Rahmenfarbe, Design „off"). -->
+    <SolidColorBrush x:Key="ToggleOffBrush" Color="{StaticResource BorderColor}" />
 
-    <!-- Statusfarben -->
-    <SolidColorBrush x:Key="SyncedBrush" Color="#56C271" />
-    <SolidColorBrush x:Key="SyncingBrush" Color="#5BC2B8" />
+    <!-- Statusfarben (Canvas: synced grün, teal, konflikt amber, pending gelb, offline grau, fehler rot) -->
+    <SolidColorBrush x:Key="SyncedBrush" Color="#55C975" />
+    <SolidColorBrush x:Key="SyncingBrush" Color="#5CA7A7" />
     <SolidColorBrush x:Key="ConflictBrush" Color="#E8944A" />
-    <SolidColorBrush x:Key="PendingBrush" Color="#E3C349" />
-    <SolidColorBrush x:Key="OfflineBrush" Color="#7A7C88" />
-    <SolidColorBrush x:Key="ErrorBrush" Color="#E5615E" />
+    <SolidColorBrush x:Key="PendingBrush" Color="#E3C23B" />
+    <SolidColorBrush x:Key="OfflineBrush" Color="#787986" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#F94144" />
 
     <!-- Basis: Textfarbe/Schrift -->
     <Style TargetType="{x:Type TextBlock}">
@@ -174,7 +183,7 @@
     <!-- Dunkle, durchsuchbare ComboBox (editierbar, Teal-Fokus) -->
     <Style x:Key="DarkComboBox" TargetType="{x:Type ComboBox}">
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="Background" Value="#1D1E26" />
+        <Setter Property="Background" Value="{StaticResource ControlBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="FontSize" Value="13" />
@@ -248,7 +257,7 @@
     <Style x:Key="DarkTextBox" TargetType="{x:Type TextBox}">
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
-        <Setter Property="Background" Value="#1D1E26" />
+        <Setter Property="Background" Value="{StaticResource ControlBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="FontSize" Value="13" />
@@ -271,6 +280,173 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- ============================================================
+         Toggle-Switch (ersetzt Checkboxen im Redesign). Als CheckBox
+         umgesetzt, damit IsChecked + Checked/Unchecked wie gewohnt
+         nutzbar bleiben. Spur teal an / grau aus; weißer Knopf gleitet.
+         ============================================================ -->
+    <Style x:Key="ToggleSwitch" TargetType="{x:Type CheckBox}">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type CheckBox}">
+                    <Border x:Name="Track" Width="38" Height="22" CornerRadius="11"
+                            Background="{StaticResource ToggleOffBrush}">
+                        <Ellipse x:Name="Knob" Width="16" Height="16" Fill="White"
+                                 HorizontalAlignment="Left" VerticalAlignment="Center"
+                                 Margin="3,0,0,0" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                            <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Kleinere Variante für die Unter-Optionen (Benachrichtigungen) -->
+    <Style x:Key="ToggleSwitchSmall" TargetType="{x:Type CheckBox}" BasedOn="{StaticResource ToggleSwitch}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type CheckBox}">
+                    <Border x:Name="Track" Width="34" Height="19" CornerRadius="10"
+                            Background="{StaticResource ToggleOffBrush}">
+                        <Ellipse x:Name="Knob" Width="13" Height="13" Fill="White"
+                                 HorizontalAlignment="Left" VerticalAlignment="Center"
+                                 Margin="3,0,0,0" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                            <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Titelleisten-Knopf (Minimieren/Schließen), 44 px, dezenter Hover -->
+    <Style x:Key="CaptionButton" TargetType="{x:Type Button}">
+        <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Width" Value="44" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Schließen-Knopf: roter Hover (Design) -->
+    <Style x:Key="CloseCaptionButton" TargetType="{x:Type Button}" BasedOn="{StaticResource CaptionButton}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ErrorBrush}" />
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Navigations-Knopf der linken Leiste (48x48, aktiv über Background gesetzt) -->
+    <Style x:Key="NavButton" TargetType="{x:Type Button}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Width" Value="48" />
+        <Setter Property="Height" Value="48" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="12">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsMouseOver" Value="True" />
+                                <Condition Property="Background" Value="Transparent" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dezente, dunkle Scrollbar (nur vertikal getemplatet; horizontal bleibt neutral) -->
+    <Style x:Key="DarkScrollThumb" TargetType="{x:Type Thumb}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Thumb}">
+                    <Border Background="#31323D" CornerRadius="4" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="{x:Type ScrollBar}">
+        <Setter Property="Background" Value="Transparent" />
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Vertical">
+                <Setter Property="Width" Value="9" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ScrollBar}">
+                            <Grid Background="Transparent">
+                                <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource DarkScrollThumb}" Width="8" />
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False" />
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False" />
+                                    </Track.DecreaseRepeatButton>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
 </ResourceDictionary>

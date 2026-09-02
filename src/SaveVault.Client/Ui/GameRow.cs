@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using SaveVault.Client.Services;
@@ -18,6 +19,7 @@ public sealed class GameRow : INotifyPropertyChanged
     {
         Game = game;
         DisplayName = game.DisplayName;
+        _coverFallbackBrush = BuildFallbackBrush(game.Value);
     }
 
     /// <summary>Kanonische Spielidentität (zum Wiedererkennen/Andocken von Aktionen).</summary>
@@ -83,6 +85,103 @@ public sealed class GameRow : INotifyPropertyChanged
     /// </summary>
     public string PauseLabel { get => _pauseLabel; private set => Set(ref _pauseLabel, value); }
 
+    private Visibility _errorVisibility = Visibility.Collapsed;
+    /// <summary>Sichtbarkeit des Fehler-Banners (nur bei Sync-Fehler).</summary>
+    public Visibility ErrorVisibility { get => _errorVisibility; private set => Set(ref _errorVisibility, value); }
+
+    private string _errorMessage = "";
+    /// <summary>Text des Fehler-Banners (nur bei Sync-Fehler).</summary>
+    public string ErrorMessage { get => _errorMessage; private set => Set(ref _errorMessage, value); }
+
+    // --- Cover (lazy) -----------------------------------------------------------------
+
+    private readonly Brush _coverFallbackBrush;
+    /// <summary>
+    /// Deterministischer Farbverlauf als Cover-Ersatz (aus dem Spiel-Schlüssel abgeleitet, stabil).
+    /// Wird angezeigt, solange kein echtes Cover geladen ist oder der Server keins liefert.
+    /// </summary>
+    public Brush CoverFallbackBrush => _coverFallbackBrush;
+
+    private ImageSource? _cover;
+    /// <summary>Das echte Box-Art-Bild (lazy geladen) oder <c>null</c> (dann greift der Fallback).</summary>
+    public ImageSource? Cover { get => _cover; private set => Set(ref _cover, value); }
+
+    private bool _hasCover;
+    /// <summary>Ob ein echtes Cover geladen wurde (steuert Bild ↔ Farbverlauf).</summary>
+    public bool HasCover
+    {
+        get => _hasCover;
+        private set
+        {
+            if (Set(ref _hasCover, value))
+            {
+                OnChanged(nameof(CoverImageVisibility));
+                OnChanged(nameof(CoverFallbackVisibility));
+            }
+        }
+    }
+
+    /// <summary>Sichtbarkeit des echten Cover-Bildes.</summary>
+    public Visibility CoverImageVisibility => HasCover ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Sichtbarkeit des Farbverlauf-Fallbacks.</summary>
+    public Visibility CoverFallbackVisibility => HasCover ? Visibility.Collapsed : Visibility.Visible;
+
+    private bool _coverRequested;
+
+    /// <summary>
+    /// Fordert das echte Cover <b>einmalig und lazy</b> an (ein Spiel je Aufruf) und füllt bei
+    /// Erfolg <see cref="Cover"/>/<see cref="HasCover"/>. Liefert der Server (noch) keins, bleibt
+    /// der Farbverlauf-Fallback und ein späterer Aufruf darf es erneut versuchen. Muss vom
+    /// UI-Thread aufgerufen werden (die Fortsetzung setzt die Properties dort). Wirft nie.
+    /// </summary>
+    public async Task EnsureCoverAsync(CoverCache covers, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(covers);
+        if (HasCover || _coverRequested)
+            return;
+        _coverRequested = true;
+        try
+        {
+            var image = await covers.GetCoverAsync(Game, ct);
+            if (image is not null)
+            {
+                Cover = image;
+                HasCover = true;
+            }
+            else
+            {
+                // Kein Cover (noch nicht verbunden / kein Bild): späteren Versuch erlauben.
+                _coverRequested = false;
+            }
+        }
+        catch
+        {
+            _coverRequested = false; // Fallback bleibt sichtbar; nie ein Absturz.
+        }
+    }
+
+    // --- Größe (best effort) ----------------------------------------------------------
+
+    private string _sizeText = "";
+    /// <summary>Belegter Speicher des Spiels (z. B. „142 MB"); leer, wenn unbekannt.</summary>
+    public string SizeText
+    {
+        get => _sizeText;
+        private set
+        {
+            if (Set(ref _sizeText, value))
+                OnChanged(nameof(SizeVisibility));
+        }
+    }
+
+    /// <summary>Sichtbarkeit der Größenzeile (nur wenn eine Größe bekannt ist).</summary>
+    public Visibility SizeVisibility => string.IsNullOrEmpty(SizeText) ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>Setzt die best-effort-Größe aus einem bekannten Byte-Wert (0/negativ = ausblenden).</summary>
+    public void SetSize(long bytes)
+        => SizeText = bytes > 0 ? ByteSize.Format(bytes) : "";
+
     /// <summary>Aktueller Status (für Aktionslogik, z. B. Konflikt erkennen).</summary>
     public SyncStatus Status { get; private set; }
 
@@ -115,6 +214,8 @@ public sealed class GameRow : INotifyPropertyChanged
             CanOpenFolder = FolderPathRaw is not null && SafeDirectoryExists(FolderPathRaw);
             ConflictVisibility = Visibility.Collapsed;
             AssignFolderVisibility = Visibility.Collapsed;
+            ErrorVisibility = Visibility.Collapsed;
+            ErrorMessage = "";
 
             NeedsAttention = false;
             AttentionReason = "";
@@ -135,6 +236,8 @@ public sealed class GameRow : INotifyPropertyChanged
             OpenFolderVisibility = Visibility.Collapsed;
             FolderPathRaw = null;
             CanOpenFolder = false;
+            ErrorVisibility = Visibility.Collapsed;
+            ErrorMessage = "";
 
             NeedsAttention = true;
             AttentionReason = string.IsNullOrWhiteSpace(view.SkipReason)
@@ -168,15 +271,21 @@ public sealed class GameRow : INotifyPropertyChanged
                 NeedsAttention = true;
                 AttentionReason = "Konflikt – bitte lösen";
                 AttentionBrush = StatusVisuals.Conflict;
+                ErrorVisibility = Visibility.Collapsed;
+                ErrorMessage = "";
                 break;
             case SyncStatus.Error:
                 NeedsAttention = true;
                 AttentionReason = action ?? "Fehler beim Synchronisieren";
                 AttentionBrush = StatusVisuals.Error;
+                ErrorVisibility = Visibility.Visible;
+                ErrorMessage = action ?? "Sync fehlgeschlagen.";
                 break;
             default:
                 NeedsAttention = false;
                 AttentionReason = "";
+                ErrorVisibility = Visibility.Collapsed;
+                ErrorMessage = "";
                 break;
         }
     }
@@ -189,11 +298,69 @@ public sealed class GameRow : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private void Set<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+    private bool Set<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
     {
         if (Equals(field, value))
-            return;
+            return false;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        return true;
+    }
+
+    private void OnChanged(string name)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    /// <summary>
+    /// Baut einen stabilen, dezenten Farbverlauf als Cover-Ersatz. Die Grundfarbe wird
+    /// deterministisch aus dem Spiel-Schlüssel abgeleitet (gleiches Spiel → gleiche Farbe),
+    /// diagonal (≈150°) zu einem dunklen Kartenton (#14151D), passend zum Design-Canvas.
+    /// </summary>
+    private static Brush BuildFallbackBrush(string key)
+    {
+        // Deterministischer Farbton aus einem stabilen String-Hash (nicht String.GetHashCode,
+        // das je Prozesslauf variiert), damit dasselbe Spiel immer dieselbe Farbe erhält.
+        var hash = 2166136261u;
+        foreach (var ch in key)
+        {
+            hash ^= ch;
+            hash *= 16777619u;
+        }
+        var hue = hash % 360u;
+
+        var top = FromHsl(hue, 0.45, 0.42);
+        var bottom = (Color)ColorConverter.ConvertFromString("#14151D");
+
+        var brush = new LinearGradientBrush(top, bottom, new Point(0, 0), new Point(1, 1));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Color FromHsl(double h, double s, double l)
+    {
+        h /= 360.0;
+        double r, g, b;
+        if (s == 0)
+        {
+            r = g = b = l;
+        }
+        else
+        {
+            var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            var p = 2 * l - q;
+            r = HueToRgb(p, q, h + 1.0 / 3.0);
+            g = HueToRgb(p, q, h);
+            b = HueToRgb(p, q, h - 1.0 / 3.0);
+        }
+        return Color.FromRgb((byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255));
+    }
+
+    private static double HueToRgb(double p, double q, double t)
+    {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1.0 / 6.0) return p + (q - p) * 6 * t;
+        if (t < 1.0 / 2.0) return q;
+        if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6;
+        return p;
     }
 }

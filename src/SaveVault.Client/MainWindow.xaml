@@ -5,17 +5,18 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:SaveVault.Client"
         mc:Ignorable="d"
-        Title="SaveVault" Height="720" Width="480"
-        MinWidth="440" MinHeight="560"
+        Title="SaveVault"
+        Width="860" Height="510"
+        WindowStyle="None" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource WindowBgBrush}"
         TextOptions.TextFormattingMode="Ideal"
-        UseLayoutRounding="True">
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
 
     <Window.Resources>
-        <!-- Zeilen-Button für den Aufmerksamkeits-Bereich (linksbündig, Karte, Hover) -->
-        <Style x:Key="ListRowButton" TargetType="{x:Type Button}">
-            <Setter Property="Background" Value="#1D1E26" />
+        <!-- Klickbare Listenzeile (Aufmerksamkeit / Spielauswahl): transparent, Hover, links -->
+        <Style x:Key="RowItemButton" TargetType="{x:Type Button}">
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -24,8 +25,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Button}">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                                CornerRadius="9" Padding="11,9">
+                                CornerRadius="8" Padding="6,8">
                             <ContentPresenter HorizontalAlignment="Stretch" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -37,218 +37,750 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Kleiner Detail-Aktionsknopf (Karte + Rand, Hover) -->
+        <Style x:Key="ChipButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Padding" Value="11,7" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.45" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Grid Margin="20,18,20,18">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="32" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Kopf -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,14">
-            <TextBlock Text="SaveVault" FontSize="20" FontWeight="Bold" />
-            <TextBlock x:Name="SubtitleText" Text="Spielstände-Synchronisation"
-                       Foreground="{StaticResource MutedBrush}" FontSize="12.5" Margin="0,2,0,0" />
-        </StackPanel>
-
-        <!-- Verbindungszustand -->
-        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,12">
-            <StackPanel Orientation="Horizontal">
-                <Ellipse x:Name="ConnDot" Width="10" Height="10" Fill="{StaticResource OfflineBrush}"
-                         VerticalAlignment="Center" Margin="0,0,10,0" />
-                <StackPanel>
-                    <TextBlock x:Name="ConnText" Text="Nicht eingerichtet" FontWeight="SemiBold" FontSize="13" />
-                    <TextBlock x:Name="ConnSubText" Text="" Foreground="{StaticResource MutedBrush}"
-                               FontSize="11.5" Margin="0,2,0,0" TextWrapping="Wrap" />
+        <!-- ===================== Titelleiste ===================== -->
+        <Border Grid.Row="0" Background="{StaticResource TitleBarBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="OnTitleBarMouseDown">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <Border Width="16" Height="16" CornerRadius="4" Background="{StaticResource AccentBrush}" />
+                    <TextBlock Text="SaveVault" FontSize="12.5" Foreground="#ACADB8"
+                               VerticalAlignment="Center" Margin="8,0,0,0" />
                 </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <!-- Gesamt-Status / Übersicht -->
-        <Border Grid.Row="2" x:Name="OverallCard" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,12"
-                Visibility="Collapsed">
-            <StackPanel>
-                <Grid>
-                    <TextBlock Text="Übersicht" FontWeight="SemiBold" FontSize="13" />
-                    <TextBlock x:Name="TotalGamesText" HorizontalAlignment="Right"
-                               Foreground="{StaticResource MutedBrush}" FontSize="12" />
-                </Grid>
-                <WrapPanel x:Name="CountersPanel" Margin="0,10,0,0" />
-                <TextBlock x:Name="LastSyncText" Foreground="{StaticResource MutedBrush}"
-                           FontSize="11.5" Margin="0,8,0,0" />
-            </StackPanel>
-        </Border>
-
-        <!-- Braucht Aufmerksamkeit -->
-        <Border Grid.Row="3" x:Name="AttentionCard" Style="{StaticResource Card}" Padding="14,12" Margin="0,0,0,12"
-                Visibility="Collapsed">
-            <StackPanel>
-                <TextBlock Text="Braucht Aufmerksamkeit" FontWeight="SemiBold" FontSize="13" />
-                <ItemsControl x:Name="AttentionList" Margin="0,9,0,-6">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Button Style="{StaticResource ListRowButton}" Margin="0,0,0,6"
-                                    Click="OnAttentionClick" Tag="{Binding}">
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="9" Height="9" Fill="{Binding AttentionBrush}"
-                                             VerticalAlignment="Center" Margin="0,0,10,0" />
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding AttentionReason}" Foreground="{StaticResource MutedBrush}"
-                                                   FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-        </Border>
-
-        <!-- Such-Dropdown -->
-        <ComboBox Grid.Row="4" x:Name="GameCombo" Style="{StaticResource DarkComboBox}"
-                  IsEditable="True" IsTextSearchEnabled="True" StaysOpenOnEdit="True"
-                  TextSearch.TextPath="DisplayName"
-                  Margin="0,0,0,12" Visibility="Collapsed"
-                  SelectionChanged="OnGameSelectionChanged">
-            <ComboBox.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
-                </DataTemplate>
-            </ComboBox.ItemTemplate>
-        </ComboBox>
-
-        <!-- Detail-Panel / Leerzustand -->
-        <Grid Grid.Row="5">
-            <ScrollViewer x:Name="DetailScroll" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0"
-                          Visibility="Collapsed">
-                <StackPanel>
-
-                    <!-- Kopf des Spiels -->
-                    <Border Style="{StaticResource Card}" Padding="16,14">
-                        <StackPanel>
-                            <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" FontSize="16"
-                                       TextWrapping="Wrap" />
-
-                            <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
-                                <Ellipse Width="10" Height="10" Fill="{Binding StatusBrush}"
-                                         VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}"
-                                           FontWeight="SemiBold" FontSize="13" />
-                            </StackPanel>
-
-                            <TextBlock Text="{Binding LastActionText}" Foreground="{StaticResource MutedBrush}"
-                                       FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
-
-                            <TextBlock Text="Gesicherter Ordner" Foreground="{StaticResource MutedBrush}"
-                                       FontSize="11.5" Margin="0,14,0,4" />
-                            <TextBlock Text="{Binding FolderText}" FontSize="12.5" TextWrapping="Wrap" />
-
-                            <WrapPanel Margin="0,12,0,0">
-                                <Button Content="Ordner öffnen" Style="{StaticResource SecondaryButton}"
-                                        Padding="14,7" Margin="0,0,8,8"
-                                        Visibility="{Binding OpenFolderVisibility}"
-                                        IsEnabled="{Binding CanOpenFolder}"
-                                        Click="OnOpenFolderClick" />
-                                <Button Content="Lösen" Style="{StaticResource BaseButton}"
-                                        Background="{StaticResource ConflictBrush}" Foreground="#221206"
-                                        BorderThickness="0" Padding="14,7" Margin="0,0,8,8"
-                                        Visibility="{Binding ConflictVisibility}"
-                                        Click="OnResolveConflictClick" Tag="{Binding}" />
-                                <Button Content="Ordner zuordnen" Style="{StaticResource SecondaryButton}"
-                                        Padding="14,7" Margin="0,0,8,8"
-                                        Visibility="{Binding AssignFolderVisibility}"
-                                        Click="OnAssignFolderClick" Tag="{Binding}" />
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Versionshistorie -->
-                    <Border Style="{StaticResource Card}" Padding="16,14" Margin="0,12,0,0">
-                        <StackPanel>
-                            <Grid>
-                                <TextBlock Text="Versionshistorie" FontWeight="SemiBold" FontSize="13" />
-                                <TextBlock x:Name="HistoryHintText" HorizontalAlignment="Right"
-                                           Foreground="{StaticResource MutedBrush}" FontSize="11" Text="" />
-                            </Grid>
-                            <TextBlock x:Name="HistoryEmptyText" Text="Noch keine Versionen vorhanden."
-                                       Foreground="{StaticResource MutedBrush}" FontSize="12"
-                                       Margin="0,9,0,0" Visibility="Collapsed" />
-                            <ItemsControl x:Name="HistoryList" Margin="0,9,0,-6">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="#1D1E26" BorderBrush="{StaticResource BorderBrush}"
-                                                BorderThickness="1" CornerRadius="9" Padding="11,9" Margin="0,0,0,6">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12.5"
-                                                                   VerticalAlignment="Center" />
-                                                        <Border Visibility="{Binding ConflictVisibility}"
-                                                                Background="{StaticResource ConflictBrush}" CornerRadius="5"
-                                                                Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
-                                                            <TextBlock Text="Konflikt" Foreground="#221206"
-                                                                       FontSize="10" FontWeight="SemiBold" />
-                                                        </Border>
-                                                    </StackPanel>
-                                                    <TextBlock Text="{Binding MetaText}" Foreground="{StaticResource MutedBrush}"
-                                                               FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding OriginText}" Foreground="{StaticResource MutedBrush}"
-                                                               FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                                </StackPanel>
-                                                <Button Grid.Column="1" Content="Wiederherstellen" VerticalAlignment="Center"
-                                                        Style="{StaticResource SecondaryButton}" Padding="11,6" FontSize="11.5"
-                                                        Click="OnRestoreClick" Tag="{Binding}" />
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
-
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButton}"
+                            Click="OnMinimizeClick" ToolTip="Minimieren">
+                        <Rectangle Width="11" Height="1.4" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    </Button>
+                    <Button x:Name="CloseButton" Style="{StaticResource CloseCaptionButton}"
+                            Click="OnCloseButtonClick" ToolTip="In den Infobereich schließen">
+                        <Path Width="11" Height="11" Stretch="Uniform"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.4" Data="M0,0 L11,11 M11,0 L0,11" />
+                    </Button>
                 </StackPanel>
-            </ScrollViewer>
+            </Grid>
+        </Border>
 
-            <!-- Leerzustand / nicht eingerichtet -->
-            <Border x:Name="EmptyPanel" Style="{StaticResource Card}" VerticalAlignment="Center"
-                    Visibility="Collapsed" Padding="22">
-                <StackPanel>
-                    <TextBlock x:Name="EmptyTitle" Text="Noch nicht eingerichtet"
-                               FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" />
-                    <TextBlock x:Name="EmptyText"
-                               Text="Verbinde diesen Client mit deinem SaveVault-Server, um Spielstände zu synchronisieren."
-                               Foreground="{StaticResource MutedBrush}" FontSize="12.5"
-                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,16" />
-                    <Button x:Name="SetupButton" Content="Einrichten" Style="{StaticResource PrimaryButton}"
-                            HorizontalAlignment="Center" Padding="22,9" Click="OnSettingsClick" />
+        <!-- ===================== Körper (Nav + Inhalt) ===================== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="74" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Linke Navigationsleiste -->
+            <Border Grid.Column="0" Background="{StaticResource SidebarBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center" Margin="0,18,0,0">
+                    <Button x:Name="NavOverviewButton" Style="{StaticResource NavButton}"
+                            Click="OnNavOverview" Margin="0,0,0,6">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Viewbox Width="18" Height="18" HorizontalAlignment="Center">
+                                <Path x:Name="OverviewIcon" Data="F1 M0,0 H7 V7 H0 Z M11,0 H18 V7 H11 Z M0,11 H7 V18 H0 Z M11,11 H18 V18 H11 Z" />
+                            </Viewbox>
+                            <TextBlock x:Name="OverviewLabel" Text="Übersicht" FontSize="9.5" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="NavSettingsButton" Style="{StaticResource NavButton}"
+                            Click="OnNavSettings">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Viewbox Width="18" Height="18" HorizontalAlignment="Center">
+                                <Path x:Name="SettingsIcon" Data="F0 M21,12 L17.544,14.298 L18.363,18.363 L14.298,17.544 L12,21 L9.702,17.544 L5.637,18.363 L6.456,14.298 L3,12 L6.456,9.702 L5.637,5.637 L9.702,6.456 L12,3 L14.298,6.456 L18.363,5.637 L17.544,9.702 Z M15,12 A3,3 0 1 0 9,12 A3,3 0 1 0 15,12 Z" />
+                            </Viewbox>
+                            <TextBlock x:Name="SettingsLabel" Text="Optionen" FontSize="9.5" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Border>
+
+            <!-- Inhaltsbereich -->
+            <Grid Grid.Column="1" Margin="26,16,26,14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Kopfzeile: Titel + Gerät + Glocke -->
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="PageTitleText" Text="Übersicht" FontSize="19" FontWeight="Bold" />
+                        <TextBlock x:Name="DeviceNameText" Text="Dieses Gerät: —"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <Grid Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="BellButton" Width="38" Height="38" Cursor="Hand"
+                                Click="OnBellClick" ToolTip="Benötigt Aufmerksamkeit"
+                                Background="{StaticResource ControlBrush}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="{x:Type Button}">
+                                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                                            CornerRadius="10">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Viewbox Width="17" Height="17">
+                                <Path x:Name="BellIcon" Fill="{StaticResource MutedBrush}"
+                                      Data="F1 M12,3 C9,3 7.2,5 7.2,9 C7.2,13.5 5.5,15.5 5.5,15.5 L18.5,15.5 C18.5,15.5 16.8,13.5 16.8,9 C16.8,5 14.8,3 12,3 Z M10,17 C10.4,18.4 13.6,18.4 14,17 Z" />
+                            </Viewbox>
+                        </Button>
+                        <Border x:Name="BellBadge" Background="{StaticResource ErrorBrush}" CornerRadius="8"
+                                MinWidth="16" Height="16" Padding="3,0" VerticalAlignment="Top" HorizontalAlignment="Right"
+                                Margin="0,-6,-6,0" Visibility="Collapsed">
+                            <TextBlock x:Name="BellBadgeText" Text="0" Foreground="White" FontSize="10" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+
+                        <!-- Glocken-Popover -->
+                        <Popup x:Name="AttentionPopup" PlacementTarget="{Binding ElementName=BellButton}"
+                               Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+                               HorizontalOffset="-282" VerticalOffset="8">
+                            <Border Width="320" Background="#191A22" BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="12" Padding="10">
+                                <StackPanel>
+                                    <TextBlock Text="BENÖTIGT AUFMERKSAMKEIT" FontSize="11" FontWeight="Bold"
+                                               Foreground="{StaticResource MutedBrush}" Margin="4,4,0,8" />
+                                    <ItemsControl x:Name="AttentionItems" MaxHeight="280">
+                                        <ItemsControl.Template>
+                                            <ControlTemplate TargetType="{x:Type ItemsControl}">
+                                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                    <ItemsPresenter />
+                                                </ScrollViewer>
+                                            </ControlTemplate>
+                                        </ItemsControl.Template>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Style="{StaticResource RowItemButton}" Click="OnAttentionItemClick" Tag="{Binding}">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Grid Width="22" Height="29" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                            <Border CornerRadius="4" Background="{Binding CoverFallbackBrush}"
+                                                                    Visibility="{Binding CoverFallbackVisibility}" />
+                                                            <Border CornerRadius="4" ClipToBounds="True"
+                                                                    Visibility="{Binding CoverImageVisibility}">
+                                                                <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                                            </Border>
+                                                        </Grid>
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" MaxWidth="250" />
+                                                            <TextBlock Text="{Binding AttentionReason}" FontSize="11.5" FontWeight="SemiBold"
+                                                                       Foreground="{Binding AttentionBrush}" TextTrimming="CharacterEllipsis"
+                                                                       MaxWidth="250" Margin="0,1,0,0" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock x:Name="AttentionEmptyText" Text="Alles in Ordnung — keine offenen Punkte."
+                                               Foreground="{StaticResource MutedBrush}" FontSize="12.5"
+                                               HorizontalAlignment="Center" Margin="0,16" Visibility="Collapsed" />
+                                    <Button x:Name="AttentionMoreButton" Click="OnShowAllAttention" Cursor="Hand"
+                                            Margin="0,6,0,0" Visibility="Collapsed">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="{x:Type Button}">
+                                                <Border x:Name="Bd" CornerRadius="8" Padding="8" Background="Transparent"
+                                                        BorderBrush="#595CA7A7" BorderThickness="1">
+                                                    <TextBlock x:Name="MoreText" Text="Alle anzeigen" FontSize="11.5" FontWeight="Bold"
+                                                               Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#1F5CA7A7" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </Grid>
+
+                <!-- ===================== ÜBERSICHT ===================== -->
+                <Grid x:Name="OverviewRoot" Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Offline-Banner -->
+                    <Border x:Name="OfflineBanner" Grid.Row="0" Background="#1FF94144"
+                            BorderBrush="#66F94144" BorderThickness="1" CornerRadius="9"
+                            Padding="8,8" Margin="0,0,0,8" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <Viewbox Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <Path Stroke="#FF8179" StrokeThickness="2" StrokeLineJoin="Round"
+                                      Data="M12,4 L21.5,20 L2.5,20 Z M12,10 L12,15 M12,17.5 L12,17.7" />
+                            </Viewbox>
+                            <TextBlock Text="Keine Verbindung — Änderungen werden lokal gepuffert."
+                                       Foreground="#FFBEB6" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Kompakte Status-Zeile -->
+                    <Border Grid.Row="1" BorderBrush="#24262F" BorderThickness="0,0,0,1"
+                            Padding="2,6,2,10" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="ConnDot" Width="7" Height="7" Fill="{StaticResource OfflineBrush}"
+                                         VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBlock x:Name="ConnText" Text="Nicht eingerichtet" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource OfflineBrush}" VerticalAlignment="Center" />
+                                <TextBlock Text="·" Foreground="#464750" Margin="10,0" VerticalAlignment="Center" />
+                                <TextBlock x:Name="ConnSub" Text="" Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="300" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <TextBlock x:Name="TotalGamesText" Text="0 Spiele" Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12" VerticalAlignment="Center" />
+                                <TextBlock x:Name="SyncedCountText" Text="0 synchronisiert" Foreground="{StaticResource SyncedBrush}"
+                                           FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0" />
+                                <TextBlock x:Name="LastSyncText" Text="Letzter Sync: —" Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12" VerticalAlignment="Center" Margin="14,0,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Spiel-Detail (zweispaltig) -->
+                    <Grid x:Name="DetailArea" Grid.Row="2" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Linke Spalte: Spiel wechseln + Cover + Kurzinfo -->
+                        <StackPanel Grid.Column="0">
+                            <Button x:Name="SwitchGameButton" Click="OnToggleDropdown" Cursor="Hand"
+                                    Background="{StaticResource ControlBrush}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="{x:Type Button}">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="8" Padding="6,6">
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <TextBlock Text="Spiel wechseln" FontSize="11.5" FontWeight="Bold"
+                                                           Foreground="#CCCDD4" VerticalAlignment="Center" />
+                                                <Viewbox Width="15" Height="15" Margin="7,0,0,0">
+                                                    <Path Stroke="{StaticResource AccentBrush}" StrokeThickness="2"
+                                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                          StrokeLineJoin="Round" Data="M6,9 L12,15 L18,9"
+                                                          RenderTransformOrigin="0.5,0.5">
+                                                        <Path.RenderTransform>
+                                                            <RotateTransform x:Name="DropdownChevronRotate" Angle="0" />
+                                                        </Path.RenderTransform>
+                                                    </Path>
+                                                </Viewbox>
+                                            </StackPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#805CA7A7" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+
+                            <!-- Such-Dropdown -->
+                            <Popup x:Name="GameDropdownPopup" PlacementTarget="{Binding ElementName=SwitchGameButton}"
+                                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True" VerticalOffset="6"
+                                   Opened="OnDropdownOpened" Closed="OnDropdownClosed">
+                                <Border Width="280" Background="#191A22" BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="12" Padding="10">
+                                    <StackPanel>
+                                        <Border Background="{StaticResource WindowBgBrush}" BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1" CornerRadius="9" Padding="8,6" Margin="0,0,0,8">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Viewbox Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,8,0">
+                                                    <Canvas Width="24" Height="24">
+                                                        <Ellipse Canvas.Left="4" Canvas.Top="4" Width="14" Height="14"
+                                                                 Stroke="{StaticResource MutedBrush}" StrokeThickness="2" />
+                                                        <Line X1="16.5" Y1="16.5" X2="21" Y2="21"
+                                                              Stroke="{StaticResource MutedBrush}" StrokeThickness="2" StrokeStartLineCap="Round" />
+                                                    </Canvas>
+                                                </Viewbox>
+                                                <TextBox x:Name="SearchBox" Width="210" BorderThickness="0" Background="Transparent"
+                                                         Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource AccentBrush}"
+                                                         FontSize="13" VerticalContentAlignment="Center"
+                                                         TextChanged="OnSearchChanged" />
+                                            </StackPanel>
+                                        </Border>
+                                        <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Auto">
+                                            <StackPanel>
+                                                <ItemsControl x:Name="GameList">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Button Style="{StaticResource RowItemButton}" Click="OnGameOptionClick" Tag="{Binding}">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <Grid Width="22" Height="29" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                                        <Border CornerRadius="4" Background="{Binding CoverFallbackBrush}"
+                                                                                Visibility="{Binding CoverFallbackVisibility}" />
+                                                                        <Border CornerRadius="4" ClipToBounds="True"
+                                                                                Visibility="{Binding CoverImageVisibility}">
+                                                                            <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                                                        </Border>
+                                                                    </Grid>
+                                                                    <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
+                                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="185" />
+                                                                    <Ellipse Width="7" Height="7" Fill="{Binding StatusBrush}"
+                                                                             VerticalAlignment="Center" Margin="8,0,0,0" />
+                                                                </StackPanel>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock x:Name="NoGamesText" Text="Keine Spiele gefunden."
+                                                           Foreground="{StaticResource MutedBrush}" FontSize="12.5"
+                                                           HorizontalAlignment="Center" Margin="0,18" Visibility="Collapsed" />
+                                            </StackPanel>
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+
+                            <!-- Cover + Kurzinfo -->
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0" DataContext="{Binding}">
+                                <Grid Width="78" Height="104" VerticalAlignment="Top">
+                                    <Border CornerRadius="8" Background="{Binding CoverFallbackBrush}"
+                                            Visibility="{Binding CoverFallbackVisibility}" />
+                                    <Border CornerRadius="8" ClipToBounds="True" Visibility="{Binding CoverImageVisibility}">
+                                        <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                    </Border>
+                                </Grid>
+                                <StackPanel Margin="12,0,0,0" Width="128">
+                                    <TextBlock Text="{Binding DisplayName}" FontSize="15" FontWeight="Bold"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding SizeText}" Visibility="{Binding SizeVisibility}"
+                                               Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,3,0,0" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <Ellipse Width="6" Height="6" Fill="{Binding StatusBrush}"
+                                                 VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}"
+                                                   FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding LastActionText}" Foreground="{StaticResource MutedBrush}"
+                                               FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding LastActionText}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Trennlinie -->
+                        <Border Grid.Column="1" Width="1" Background="#24262F" Margin="18,0" />
+
+                        <!-- Rechte Spalte: Fehler + Pfad + Aktionen + Historie -->
+                        <Grid Grid.Column="2" DataContext="{Binding}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Fehler-Banner -->
+                            <Border Grid.Row="0" Background="#1FF94144" BorderBrush="#66F94144" BorderThickness="1"
+                                    CornerRadius="9" Padding="8,8" Margin="0,0,0,8"
+                                    Visibility="{Binding ErrorVisibility}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding ErrorMessage}" Foreground="#FFAEA6"
+                                               FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" />
+                                    <Button Grid.Column="1" Content="Erneut" Click="OnRetryClick" Tag="{Binding}"
+                                            Foreground="White" Background="{StaticResource ErrorBrush}" BorderThickness="0"
+                                            FontSize="11.5" FontWeight="Bold" Padding="10,5" Cursor="Hand"
+                                            VerticalAlignment="Center">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="{x:Type Button}">
+                                                <Border Background="{TemplateBinding Background}" CornerRadius="6"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </Grid>
+                            </Border>
+
+                            <!-- Ordnerpfad (monospace) -->
+                            <TextBlock Grid.Row="1" Text="{Binding FolderText}" Foreground="#ACADB4"
+                                       FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                            <!-- Aktionen -->
+                            <WrapPanel Grid.Row="2" Margin="0,0,0,10">
+                                <Button Content="Jetzt sichern" Click="OnGameSyncNowClick" Tag="{Binding}"
+                                        Style="{StaticResource PrimaryButton}" FontSize="11.5" Padding="11,7"
+                                        Margin="0,0,6,6" />
+                                <Button Content="Ordner öffnen" Click="OnOpenFolderClick"
+                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                        Visibility="{Binding OpenFolderVisibility}" IsEnabled="{Binding CanOpenFolder}" />
+                                <Button Content="{Binding PauseLabel}" Click="OnTogglePauseClick" Tag="{Binding}"
+                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6" />
+                                <Button Content="Lösen" Click="OnResolveConflictClick" Tag="{Binding}"
+                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                        Visibility="{Binding ConflictVisibility}" />
+                                <Button Content="Ordner zuordnen" Click="OnAssignFolderClick" Tag="{Binding}"
+                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                        Visibility="{Binding AssignFolderVisibility}" />
+                            </WrapPanel>
+
+                            <!-- Historie-Kopf -->
+                            <Border Grid.Row="3" BorderBrush="#24262F" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,0,0,2">
+                                <Grid>
+                                    <TextBlock Text="VERSIONSHISTORIE" FontSize="11.5" FontWeight="Bold"
+                                               Foreground="{StaticResource MutedBrush}" />
+                                    <TextBlock x:Name="HistoryHintText" Text="" HorizontalAlignment="Right"
+                                               Foreground="{StaticResource MutedBrush}" FontSize="11" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Historie-Liste -->
+                            <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock x:Name="HistoryEmptyText" Text="Noch keine Versionen vorhanden."
+                                               Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,9,0,0"
+                                               Visibility="Collapsed" />
+                                    <ItemsControl x:Name="HistoryList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="#202129" BorderThickness="0,0,0,1" Padding="2,7">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center" />
+                                                                <Border Visibility="{Binding ConflictVisibility}"
+                                                                        Background="{StaticResource ConflictBrush}" CornerRadius="5"
+                                                                        Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                                    <TextBlock Text="Konflikt" Foreground="#221206" FontSize="10" FontWeight="SemiBold" />
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding MetaText}" Foreground="#6F717D"
+                                                                       FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                                            <TextBlock Text="{Binding OriginText}" Foreground="#6F717D"
+                                                                       FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                        <Button Grid.Column="1" Content="Wiederherstellen" VerticalAlignment="Center"
+                                                                Style="{StaticResource ChipButton}" Padding="10,5" FontSize="11.5"
+                                                                Click="OnRestoreClick" Tag="{Binding}" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Grid>
+
+                    <!-- Leerzustand (nicht eingerichtet / keine Spiele) -->
+                    <Border x:Name="EmptyPanel" Grid.Row="2" Style="{StaticResource Card}"
+                            VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420"
+                            Padding="26,22" Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock x:Name="EmptyTitle" Text="Noch nicht eingerichtet" FontWeight="SemiBold"
+                                       FontSize="15" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="EmptyText"
+                                       Text="Verbinde diesen Client mit deinem SaveVault-Server, um Spielstände zu synchronisieren."
+                                       Foreground="{StaticResource MutedBrush}" FontSize="12.5" TextWrapping="Wrap"
+                                       TextAlignment="Center" Margin="0,8,0,16" />
+                            <Button x:Name="SetupButton" Content="Einrichten" Style="{StaticResource PrimaryButton}"
+                                    HorizontalAlignment="Center" Padding="22,9" Click="OnSetupClick" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- ===================== OPTIONEN ===================== -->
+                <ScrollViewer x:Name="SettingsRoot" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              Visibility="Collapsed" Padding="0,0,4,0">
+                    <Grid MaxWidth="780" HorizontalAlignment="Left">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Verbindung & Kopplung -->
+                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}" CornerRadius="12"
+                                Padding="16,14" Margin="0,0,6,12">
+                            <StackPanel>
+                                <TextBlock Text="Verbindung &amp; Kopplung" FontSize="13.5" FontWeight="SemiBold" />
+                                <TextBlock Text="Server dieses Netzwerks, mit dem synchronisiert wird"
+                                           Foreground="{StaticResource MutedBrush}" FontSize="11.5" Margin="0,2,0,12" />
+                                <TextBlock Text="Server-URL" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,6" />
+                                <TextBox x:Name="ServerUrlBox" Style="{StaticResource DarkTextBox}" FontFamily="Consolas" />
+                                <TextBlock Text="z. B. http://192.168.1.10:8420" Foreground="#61626F" FontSize="11" Margin="2,5,0,0" />
+                                <TextBlock Text="Pairing-Code" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,12,0,6" />
+                                <TextBox x:Name="PairingCodeBox" Style="{StaticResource DarkTextBox}" />
+                                <Button x:Name="PairButton" Content="Koppeln" Style="{StaticResource PrimaryButton}"
+                                        HorizontalAlignment="Left" Padding="18,9" Margin="0,12,0,0" Click="OnPairClick" />
+                                <TextBlock x:Name="PairResultText" Text="" FontSize="12" Margin="0,10,0,0"
+                                           TextWrapping="Wrap" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Gerät & Sync -->
+                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource Card}" CornerRadius="12"
+                                Padding="16,14" Margin="6,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Gerät &amp; Sync" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,10" />
+                                <TextBlock Text="Gerätename" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,6" />
+                                <TextBox x:Name="DeviceNameBox" Style="{StaticResource DarkTextBox}" />
+                                <TextBlock Text="Sync-Intervall (Sekunden, min. 5)" Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12" Margin="0,12,0,6" />
+                                <TextBox x:Name="IntervalBox" Style="{StaticResource DarkTextBox}" />
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                        <TextBlock Text="Automatisch mit Windows starten" Foreground="#CCCDD4" FontSize="13" />
+                                        <TextBlock Text="Der Client startet still im Infobereich."
+                                                   Foreground="#6F717D" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <CheckBox x:Name="AutostartToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Benachrichtigungen -->
+                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource Card}" CornerRadius="12"
+                                Padding="16,14" Margin="0,0,6,0">
+                            <StackPanel>
+                                <TextBlock Text="Benachrichtigungen" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,12" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                        <TextBlock Text="Benachrichtigungen anzeigen" Foreground="#CCCDD4" FontSize="13" />
+                                        <TextBlock Text="Kurze Hinweise, wenn ein Spiel gesichert oder synchronisiert wird."
+                                                   Foreground="#6F717D" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <CheckBox x:Name="NotifyEnabledToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
+                                              Checked="OnMasterToggled" Unchecked="OnMasterToggled" />
+                                </Grid>
+
+                                <StackPanel x:Name="NotifySubPanel" Margin="14,12,0,0">
+                                    <Grid Margin="0,0,0,10">
+                                        <TextBlock Text="bei Sicherung/Synchronisierung" Foreground="#9C9EA8" FontSize="12.5"
+                                                   VerticalAlignment="Center" />
+                                        <CheckBox x:Name="NotifyTransfersToggle" HorizontalAlignment="Right"
+                                                  Style="{StaticResource ToggleSwitchSmall}" />
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <TextBlock Text="bei Konflikt" Foreground="#9C9EA8" FontSize="12.5" VerticalAlignment="Center" />
+                                        <CheckBox x:Name="NotifyConflictsToggle" HorizontalAlignment="Right"
+                                                  Style="{StaticResource ToggleSwitchSmall}" />
+                                    </Grid>
+                                    <Grid>
+                                        <TextBlock Text="mit Ton" Foreground="#9C9EA8" FontSize="12.5" VerticalAlignment="Center" />
+                                        <CheckBox x:Name="NotifySoundToggle" HorizontalAlignment="Right"
+                                                  Style="{StaticResource ToggleSwitchSmall}" />
+                                    </Grid>
+                                </StackPanel>
+
+                                <Border BorderBrush="#24262F" BorderThickness="0,1,0,0" Margin="0,12,0,0" Padding="0,10,0,0">
+                                    <TextBlock Text="IM SPIEL" FontSize="11.5" FontWeight="Bold" Foreground="{StaticResource MutedBrush}" />
+                                </Border>
+
+                                <Grid Margin="0,12,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                        <TextBlock Text="Im Spiel als Wasserzeichen statt Toast" Foreground="#CCCDD4" FontSize="13" />
+                                        <TextBlock Text="Läuft ein Vollbild-/Randlos-Spiel, erscheint kurz das Logo in einer Ecke statt eines Toasts."
+                                                   Foreground="#6F717D" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <CheckBox x:Name="WatermarkToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" />
+                                </Grid>
+
+                                <StackPanel x:Name="CornerPanel" Margin="0,12,0,0">
+                                    <TextBlock Text="Ecke" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,6" />
+                                    <ComboBox x:Name="CornerCombo" Style="{StaticResource DarkComboBox}"
+                                              IsEditable="True" IsReadOnly="True" HorizontalAlignment="Left" Width="220" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="SaveResultText" Grid.Row="1" Grid.Column="1" Text="" FontSize="12"
+                                   VerticalAlignment="Bottom" TextWrapping="Wrap" Margin="6,0,0,4" Visibility="Collapsed" />
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
         </Grid>
 
-        <!-- Aktionen -->
-        <StackPanel Grid.Row="6" Margin="0,14,0,0">
-            <Button Content="Jetzt synchronisieren" Style="{StaticResource PrimaryButton}"
-                    HorizontalAlignment="Stretch" Click="OnSyncNowClick" Margin="0,0,0,8" />
-            <UniformGrid Columns="3">
-                <Button Content="Spiele neu erkennen" Style="{StaticResource SecondaryButton}"
-                        Margin="0,0,4,0" Click="OnRediscoverClick" />
-                <Button Content="Ordner hinzufügen" Style="{StaticResource SecondaryButton}"
-                        Margin="4,0,4,0" Click="OnAddFolderClick" />
-                <Button Content="Einstellungen" Style="{StaticResource SecondaryButton}"
-                        Margin="4,0,0,0" Click="OnSettingsClick" />
-            </UniformGrid>
-        </StackPanel>
+        <!-- ===================== Fußleiste ===================== -->
+        <Border Grid.Row="2" Background="{StaticResource SidebarBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+            <Grid Margin="32,12">
+                <!-- Übersicht-Aktionen -->
+                <StackPanel x:Name="OverviewFooter" Orientation="Horizontal">
+                    <Button x:Name="SyncAllButton" Content="Jetzt synchronisieren" Style="{StaticResource PrimaryButton}"
+                            Padding="24,11" Click="OnSyncNowClick" />
+                    <Button Content="Spiele neu erkennen" Style="{StaticResource SecondaryButton}"
+                            Padding="16,11" Margin="10,0,0,0" Click="OnRediscoverClick" />
+                    <Button Content="Ordner hinzufügen" Style="{StaticResource SecondaryButton}"
+                            Padding="16,11" Margin="10,0,0,0" Click="OnAddFolderClick" />
+                </StackPanel>
+                <!-- Optionen-Aktion -->
+                <Button x:Name="SaveButton" Content="Speichern" Style="{StaticResource PrimaryButton}"
+                        HorizontalAlignment="Stretch" Padding="12" Click="OnSaveClick" Visibility="Collapsed" />
+            </Grid>
+        </Border>
+
+        <!-- ===================== Overlays (über allem) ===================== -->
+
+        <!-- „Alle anzeigen"-Modal -->
+        <Border x:Name="AttentionAllOverlay" Grid.RowSpan="3" Background="#99060708"
+                Visibility="Collapsed" MouseLeftButtonDown="OnCloseAttentionAllBackdrop">
+            <Border Width="420" MaxHeight="400" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="#14151D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="16" Padding="22" MouseLeftButtonDown="OnSwallowClick">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Benötigt Aufmerksamkeit" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock x:Name="AttentionAllCountText" Grid.Row="1" Text="0 Spiele"
+                               Foreground="{StaticResource MutedBrush}" FontSize="12.5" Margin="0,2,0,14" />
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="AttentionAllList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource RowItemButton}" Click="OnAttentionItemClick" Tag="{Binding}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Grid Width="24" Height="31" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                <Border CornerRadius="4" Background="{Binding CoverFallbackBrush}"
+                                                        Visibility="{Binding CoverFallbackVisibility}" />
+                                                <Border CornerRadius="4" ClipToBounds="True"
+                                                        Visibility="{Binding CoverImageVisibility}">
+                                                    <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                                </Border>
+                                            </Grid>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="330" />
+                                                <TextBlock Text="{Binding AttentionReason}" FontSize="11.5" FontWeight="SemiBold"
+                                                           Foreground="{Binding AttentionBrush}" TextTrimming="CharacterEllipsis"
+                                                           MaxWidth="330" Margin="0,1,0,0" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Button Grid.Row="3" Content="Schließen" Click="OnCloseAttentionAll" HorizontalAlignment="Right"
+                            Style="{StaticResource SecondaryButton}" Padding="16,9" Margin="0,14,0,0" />
+                </Grid>
+            </Border>
+        </Border>
+
+        <!-- Wiederherstellen-Bestätigung (In-Fenster-Overlay) -->
+        <Border x:Name="RestoreOverlay" Grid.RowSpan="3" Background="#99060708"
+                Visibility="Collapsed" MouseLeftButtonDown="OnCloseRestoreBackdrop">
+            <Border Width="420" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="#14151D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="16" Padding="24" MouseLeftButtonDown="OnSwallowClick">
+                <StackPanel>
+                    <TextBlock Text="Version wiederherstellen?" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock x:Name="RestoreSubText" Text="" Foreground="{StaticResource MutedBrush}"
+                               FontSize="12.5" Margin="0,0,0,18" TextWrapping="Wrap" />
+                    <Border Background="{StaticResource ControlBrush}" CornerRadius="10" Padding="14,12" Margin="0,0,0,20">
+                        <TextBlock Foreground="#ACADB4" FontSize="12.5" TextWrapping="Wrap">
+                            <Run Text="Der aktuelle lokale Spielstand wird nicht überschrieben, sondern zuvor automatisch in einen " />
+                            <Run Text=".bak" FontFamily="Consolas" />
+                            <Run Text="-Ordner verschoben und bleibt so wiederherstellbar." />
+                        </TextBlock>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Abbrechen" Click="OnCloseRestore" Style="{StaticResource SecondaryButton}"
+                                Padding="16,9" Margin="0,0,10,0" />
+                        <Button x:Name="RestoreConfirmButton" Content="Wiederherstellen" Click="OnConfirmRestore"
+                                Style="{StaticResource PrimaryButton}" Padding="18,9" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </Window>

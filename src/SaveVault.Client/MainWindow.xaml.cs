@@ -4,8 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Shapes;
 using SaveVault.Client.Services;
 using SaveVault.Client.Ui;
 using SaveVault.Core.Models;
@@ -13,36 +13,56 @@ using SaveVault.Core.Models;
 namespace SaveVault.Client;
 
 /// <summary>
-/// Das Status-Fenster des Tray-Clients. Zeigt Verbindungszustand, einen Gesamt-Status, einen
-/// Aufmerksamkeits-Bereich, ein durchsuchbares Spiel-Dropdown und ein Detail-Panel (inkl.
-/// Versionshistorie und Wiederherstellen) aus der beobachtbaren <see cref="AgentState"/> und
-/// ruft die Aktionen des <see cref="ClientAgent"/> auf. Alle Zustandsänderungen kommen aus
-/// Hintergrund-Threads und werden über den <see cref="System.Windows.Threading.Dispatcher"/>
-/// in den UI-Thread gebracht. Die Spiel-Liste wird additiv abgeglichen, damit die
-/// Dropdown-Auswahl bei Live-Updates erhalten bleibt. Schließen versteckt das Fenster.
+/// Das feste 860×510-Querformat-Fenster des Tray-Clients (eigene Titelleiste, linke Navigation,
+/// zwei Ansichten „Übersicht" und „Optionen"). Zeigt Verbindungszustand, Aufmerksamkeits-Glocke,
+/// ein zweispaltiges Spiel-Detail mit Cover, Versionshistorie samt In-Fenster-Wiederherstellen und
+/// die verschmolzenen Einstellungen. Liest ausschließlich die beobachtbare <see cref="AgentState"/>
+/// und ruft Aktionen des <see cref="ClientAgent"/> auf; Zustandsänderungen aus Hintergrund-Threads
+/// werden über den <see cref="System.Windows.Threading.Dispatcher"/> in den UI-Thread gebracht.
+/// Schließen versteckt das Fenster in den Infobereich (die App läuft weiter).
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly ClientAgent _agent;
+    private readonly ClientConfigStore _configStore = new(new AppPaths());
 
-    // Additiv abgeglichene Spiel-Liste (Quelle für Dropdown + Aufmerksamkeit).
+    // Additiv abgeglichene Spiel-Liste (Quelle für Auswahl-Dropdown + Aufmerksamkeit).
     private readonly ObservableCollection<GameRow> _games = new();
     private readonly Dictionary<string, GameRow> _rows = new(StringComparer.Ordinal);
-    private readonly ObservableCollection<GameRow> _attention = new();
+    private readonly ObservableCollection<GameRow> _gameOptions = new();   // gefiltert (Dropdown)
+    private readonly ObservableCollection<GameRow> _attention = new();     // bis 5 (Popover)
+    private readonly ObservableCollection<GameRow> _attentionAll = new();  // alle (Modal)
     private readonly ObservableCollection<RevisionRow> _revisions = new();
 
     private GameRow? _selectedRow;
     private string? _selectedKey;
-    private DateTime? _historyLoadedAction;   // LastActionUtc, zu dem die Historie geladen wurde
+    private DateTime? _historyLoadedAction;
+    private RevisionRow? _restoreTarget;
+    private bool _isOverview = true;
+
+    // Ecken-Auswahl (Index ↔ Enum) mit deutschen Labels – wie im bisherigen Einstellungs-Dialog.
+    private static readonly (WatermarkCorner Corner, string Label)[] Corners =
+    {
+        (WatermarkCorner.BottomRight, "Unten rechts"),
+        (WatermarkCorner.TopRight, "Oben rechts"),
+        (WatermarkCorner.TopLeft, "Oben links"),
+        (WatermarkCorner.BottomLeft, "Unten links"),
+    };
 
     public MainWindow(ClientAgent agent)
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         InitializeComponent();
 
-        GameCombo.ItemsSource = _games;
-        AttentionList.ItemsSource = _attention;
+        GameList.ItemsSource = _gameOptions;
+        AttentionItems.ItemsSource = _attention;
+        AttentionAllList.ItemsSource = _attentionAll;
         HistoryList.ItemsSource = _revisions;
+
+        foreach (var (_, label) in Corners)
+            CornerCombo.Items.Add(label);
+
+        SetView(overview: true);
 
         _agent.State.Changed += OnAgentStateChanged;
         Refresh();
@@ -51,10 +71,7 @@ public partial class MainWindow : Window
     // --- Zustands-Anbindung --------------------------------------------------------
 
     private void OnAgentStateChanged(object? sender, EventArgs e)
-    {
-        // Event kommt aus Hintergrund-Threads → in den UI-Thread marshallen.
-        Dispatcher.BeginInvoke(new Action(Refresh));
-    }
+        => Dispatcher.BeginInvoke(new Action(Refresh));
 
     private void Refresh()
     {
@@ -62,26 +79,23 @@ public partial class MainWindow : Window
 
         UpdateConnection(state);
         ReconcileGames(state.SnapshotGames());
-        UpdateOverview();
+        UpdateOverview(state);
         UpdateAttention();
 
         var needEmpty = !state.IsConfigured || _games.Count == 0;
-
-        OverallCard.Visibility = needEmpty ? Visibility.Collapsed : Visibility.Visible;
-        GameCombo.Visibility = needEmpty ? Visibility.Collapsed : Visibility.Visible;
         EmptyPanel.Visibility = needEmpty ? Visibility.Visible : Visibility.Collapsed;
+        DetailArea.Visibility = needEmpty ? Visibility.Collapsed : Visibility.Visible;
 
         if (needEmpty)
         {
-            DetailScroll.Visibility = Visibility.Collapsed;
             _selectedRow = null;
             _selectedKey = null;
+            DetailArea.DataContext = null;
 
             if (!state.IsConfigured)
             {
                 EmptyTitle.Text = "Noch nicht eingerichtet";
                 EmptyText.Text = "Verbinde diesen Client mit deinem SaveVault-Server, um Spielstände zu synchronisieren.";
-                SetupButton.Content = "Einrichten";
                 SetupButton.Visibility = Visibility.Visible;
             }
             else
@@ -99,36 +113,41 @@ public partial class MainWindow : Window
 
     private void UpdateConnection(AgentState state)
     {
+        Brush dot;
+        string label, sub;
+
         if (!state.IsConfigured)
         {
-            ConnDot.Fill = StatusVisuals.Offline;
-            ConnText.Text = "Nicht eingerichtet";
-            ConnSubText.Text = "Kein Server verbunden. Öffne die Einstellungen zum Koppeln.";
-            SubtitleText.Text = "Spielstände-Synchronisation";
-            return;
+            dot = StatusVisuals.Offline;
+            label = "Nicht eingerichtet";
+            sub = "Kein Server verbunden. Öffne die Optionen zum Koppeln.";
         }
-
-        if (state.ServerReachable)
+        else if (state.ServerReachable)
         {
-            ConnDot.Fill = StatusVisuals.Synced;
-            ConnText.Text = "Verbunden";
+            dot = StatusVisuals.Synced;
+            label = "Verbunden";
             var seen = state.LastServerContactUtc is null
                 ? ""
                 : $" · zuletzt {RelativeTime.Format(state.LastServerContactUtc)}";
-            ConnSubText.Text = "Server erreichbar" + seen;
+            sub = "Server erreichbar" + seen;
         }
         else
         {
-            ConnDot.Fill = StatusVisuals.Error;
-            ConnText.Text = "Server nicht erreichbar";
-            ConnSubText.Text = string.IsNullOrWhiteSpace(state.LastError)
+            dot = StatusVisuals.Error;
+            label = "Server nicht erreichbar";
+            sub = string.IsNullOrWhiteSpace(state.LastError)
                 ? "Verbindung zum Server unterbrochen."
                 : state.LastError!;
         }
 
+        ConnDot.Fill = dot;
+        ConnText.Text = label;
+        ConnText.Foreground = dot;
+        ConnSub.Text = sub;
+
         var name = _agent.CurrentDeviceName;
-        SubtitleText.Text = string.IsNullOrWhiteSpace(name)
-            ? "Spielstände-Synchronisation"
+        DeviceNameText.Text = string.IsNullOrWhiteSpace(name)
+            ? "Dieses Gerät: —"
             : $"Dieses Gerät: {name}";
     }
 
@@ -153,7 +172,6 @@ public partial class MainWindow : Window
             }
         }
 
-        // Verschwundene Einträge entfernen.
         var gone = _rows.Keys.Where(k => !seen.Contains(k)).ToList();
         foreach (var key in gone)
         {
@@ -163,109 +181,65 @@ public partial class MainWindow : Window
         }
     }
 
-    // --- Gesamt-Status -------------------------------------------------------------
-
-    private void UpdateOverview()
+    private void UpdateOverview(AgentState state)
     {
-        TotalGamesText.Text = _games.Count == 1 ? "1 Spiel" : $"{_games.Count} Spiele";
+        var total = _games.Count;
+        TotalGamesText.Text = total == 1 ? "1 Spiel" : $"{total} Spiele";
 
-        var byStatus = new Dictionary<SyncStatus, int>();
-        var skipped = 0;
+        var synced = 0;
         DateTime? latest = null;
-
         foreach (var row in _games)
         {
-            if (row.IsSkipped)
-            {
-                skipped++;
-            }
-            else
-            {
-                byStatus.TryGetValue(row.Status, out var n);
-                byStatus[row.Status] = n + 1;
-            }
-
+            if (!row.IsExcluded && row.Status == SyncStatus.Synced)
+                synced++;
             if (row.LastActionUtc is { } t && (latest is null || t > latest))
                 latest = t;
         }
+        SyncedCountText.Text = $"{synced} synchronisiert";
 
-        CountersPanel.Children.Clear();
-        // Feste, sinnvolle Reihenfolge der Zustände.
-        AddCounter(byStatus, SyncStatus.Synced, "synchronisiert");
-        AddCounter(byStatus, SyncStatus.Syncing, "wird synchronisiert");
-        AddCounter(byStatus, SyncStatus.Conflict, "Konflikt");
-        AddCounter(byStatus, SyncStatus.Pending, "ausstehend");
-        AddCounter(byStatus, SyncStatus.Error, "Fehler");
-        AddCounter(byStatus, SyncStatus.Offline, "offline");
-        if (skipped > 0)
-            AddCounterChip(StatusVisuals.Attention, skipped, "übersprungen");
+        var offline = state.IsConfigured && !state.ServerReachable;
+        OfflineBanner.Visibility = offline ? Visibility.Visible : Visibility.Collapsed;
 
-        if (CountersPanel.Children.Count == 0)
-            AddCounterChip(StatusVisuals.Offline, 0, "keine Zustände");
+        LastSyncText.Text = offline
+            ? "Letzter Sync: —"
+            : (latest is null ? "Letzter Sync: —" : $"Letzter Sync: {RelativeTime.Format(latest)}");
 
-        LastSyncText.Text = latest is null
-            ? "Zuletzt synchronisiert: —"
-            : $"Zuletzt synchronisiert: {RelativeTime.Format(latest)}";
+        // „Jetzt synchronisieren" bei Offline sperren (Regression: war global immer aktiv, hier
+        // bewusst gesperrt, sobald der Server nicht erreichbar ist – wie im Design).
+        SyncAllButton.IsEnabled = !offline;
     }
-
-    private void AddCounter(Dictionary<SyncStatus, int> byStatus, SyncStatus status, string label)
-    {
-        if (byStatus.TryGetValue(status, out var n) && n > 0)
-            AddCounterChip(StatusVisuals.BrushFor(status), n, label);
-    }
-
-    private void AddCounterChip(Brush brush, int count, string label)
-    {
-        var panel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 14, 6),
-        };
-        panel.Children.Add(new Ellipse
-        {
-            Width = 9,
-            Height = 9,
-            Fill = brush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 6, 0),
-        });
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"{count} {label}",
-            FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        CountersPanel.Children.Add(panel);
-    }
-
-    // --- Aufmerksamkeits-Bereich ---------------------------------------------------
 
     private void UpdateAttention()
     {
-        _attention.Clear();
+        _attentionAll.Clear();
         foreach (var row in _games)
-        {
             if (row.NeedsAttention)
-                _attention.Add(row);
-        }
-        AttentionCard.Visibility = _attention.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
+                _attentionAll.Add(row);
 
-    private void OnAttentionClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: GameRow row })
-            SelectGame(row);
+        _attention.Clear();
+        foreach (var row in _attentionAll.Take(5))
+            _attention.Add(row);
+
+        var count = _attentionAll.Count;
+        BellBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BellBadgeText.Text = count > 99 ? "99+" : count.ToString();
+        BellIcon.Fill = count > 0 ? StatusVisuals.Error : (Brush)FindResource("MutedBrush");
+
+        AttentionEmptyText.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        AttentionMoreButton.Visibility = count > 5 ? Visibility.Visible : Visibility.Collapsed;
+        if (AttentionMoreButton.Template.FindName("MoreText", AttentionMoreButton) is TextBlock more)
+            more.Text = $"Alle {count} anzeigen";
+
+        AttentionAllCountText.Text = count == 1 ? "1 Spiel" : $"{count} Spiele";
     }
 
     // --- Auswahl & Detail ----------------------------------------------------------
 
     private void EnsureSelection()
     {
-        // Auswahl noch gültig? (Objekt kann durch Reconcile entfernt worden sein.)
         if (_selectedKey is not null && _rows.ContainsKey(_selectedKey))
             return;
 
-        // Sinnvoller Default: erstes Spiel mit Aufmerksamkeit, sonst das erste Spiel.
         var target = _attention.FirstOrDefault() ?? _games.FirstOrDefault();
         if (target is not null)
             SelectGame(target);
@@ -273,30 +247,14 @@ public partial class MainWindow : Window
 
     private void SelectGame(GameRow row)
     {
-        // Auswahl im Dropdown setzen (löst OnGameSelectionChanged aus, das das Detail zeigt).
-        if (!ReferenceEquals(GameCombo.SelectedItem, row))
-        {
-            GameCombo.SelectedItem = row;
-        }
-        else
-        {
-            ShowDetail(row);
-        }
-    }
-
-    private void OnGameSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (GameCombo.SelectedItem is GameRow row)
-            ShowDetail(row);
-    }
-
-    private void ShowDetail(GameRow row)
-    {
         _selectedRow = row;
         _selectedKey = row.Game.Value;
 
-        DetailScroll.DataContext = row;
-        DetailScroll.Visibility = Visibility.Visible;
+        DetailArea.DataContext = row;
+        DetailArea.Visibility = Visibility.Visible;
+
+        // Cover lazy anfordern (UI-Thread → Fortsetzung setzt die Property hier).
+        _ = row.EnsureCoverAsync(_agent.Covers);
 
         _ = LoadHistoryAsync(row);
     }
@@ -305,12 +263,8 @@ public partial class MainWindow : Window
     {
         if (_selectedRow is null)
             return;
-
-        // Detail sichtbar halten; Kernfelder aktualisieren sich per Datenbindung selbst.
-        DetailScroll.Visibility = Visibility.Visible;
-
-        // Historie nur neu laden, wenn seit dem letzten Laden eine neue Aktion passiert ist
-        // (z. B. Upload/Download hat eine neue Revision erzeugt).
+        DetailArea.Visibility = Visibility.Visible;
+        _ = _selectedRow.EnsureCoverAsync(_agent.Covers);
         if (_selectedRow.LastActionUtc != _historyLoadedAction)
             _ = LoadHistoryAsync(_selectedRow);
     }
@@ -331,7 +285,6 @@ public partial class MainWindow : Window
             revisions = Array.Empty<Core.Api.RevisionInfo>();
         }
 
-        // Zwischenzeitlicher Auswahlwechsel: Ergebnis verwerfen.
         if (_selectedKey != key)
             return;
 
@@ -340,11 +293,167 @@ public partial class MainWindow : Window
         foreach (var info in revisions.OrderByDescending(r => r.Number))
             _revisions.Add(new RevisionRow(row.Game, info, deviceId));
 
+        // Best-effort-Größe aus der jüngsten Revision (fehlt sie, bleibt die Zeile ausgeblendet).
+        var newest = revisions.OrderByDescending(r => r.Number).FirstOrDefault();
+        row.SetSize(newest?.TotalBytes ?? 0);
+
         HistoryHintText.Text = "";
         HistoryEmptyText.Visibility = _revisions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    // --- Aktionen ------------------------------------------------------------------
+    // --- Titelleiste / Fenster -----------------------------------------------------
+
+    private void OnTitleBarMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+            return;
+        try { DragMove(); }
+        catch { /* DragMove kann in Randfällen werfen – bewusst ignorieren. */ }
+    }
+
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void OnCloseButtonClick(object sender, RoutedEventArgs e)
+        => Close(); // OnClosing bricht ab und versteckt in den Tray.
+
+    // --- Navigation ----------------------------------------------------------------
+
+    private void OnNavOverview(object sender, RoutedEventArgs e) => SetView(overview: true);
+    private void OnNavSettings(object sender, RoutedEventArgs e) => SetView(overview: false);
+    private void OnSetupClick(object sender, RoutedEventArgs e) => SetView(overview: false);
+
+    private void SetView(bool overview)
+    {
+        _isOverview = overview;
+
+        OverviewRoot.Visibility = overview ? Visibility.Visible : Visibility.Collapsed;
+        SettingsRoot.Visibility = overview ? Visibility.Collapsed : Visibility.Visible;
+        OverviewFooter.Visibility = overview ? Visibility.Visible : Visibility.Collapsed;
+        SaveButton.Visibility = overview ? Visibility.Collapsed : Visibility.Visible;
+        PageTitleText.Text = overview ? "Übersicht" : "Einstellungen";
+
+        var accent = (Brush)FindResource("AccentBrush");
+        var control = (Brush)FindResource("ControlBrush");
+        var muted = (Brush)FindResource("MutedBrush");
+
+        NavOverviewButton.Background = overview ? control : Brushes.Transparent;
+        NavSettingsButton.Background = overview ? Brushes.Transparent : control;
+        OverviewIcon.Fill = overview ? accent : muted;
+        SettingsIcon.Fill = overview ? muted : accent;
+        OverviewLabel.Foreground = overview ? accent : muted;
+        SettingsLabel.Foreground = overview ? muted : accent;
+
+        if (!overview)
+            LoadSettingsFields();
+    }
+
+    // --- Glocke / Aufmerksamkeit ---------------------------------------------------
+
+    private void OnBellClick(object sender, RoutedEventArgs e)
+    {
+        AttentionPopup.IsOpen = !AttentionPopup.IsOpen;
+        if (AttentionPopup.IsOpen)
+            foreach (var row in _attention)
+                _ = row.EnsureCoverAsync(_agent.Covers);
+    }
+
+    private void OnAttentionItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: GameRow row })
+        {
+            AttentionPopup.IsOpen = false;
+            AttentionAllOverlay.Visibility = Visibility.Collapsed;
+            if (!_isOverview)
+                SetView(overview: true);
+            SelectGame(row);
+        }
+    }
+
+    private void OnShowAllAttention(object sender, RoutedEventArgs e)
+    {
+        AttentionPopup.IsOpen = false;
+        AttentionAllOverlay.Visibility = Visibility.Visible;
+        // Echte Cover der Modal-Einträge lazy anfordern (wie das Popover).
+        foreach (var row in _attentionAll)
+            _ = row.EnsureCoverAsync(_agent.Covers);
+    }
+
+    private void OnCloseAttentionAll(object sender, RoutedEventArgs e)
+        => AttentionAllOverlay.Visibility = Visibility.Collapsed;
+
+    private void OnCloseAttentionAllBackdrop(object sender, MouseButtonEventArgs e)
+        => AttentionAllOverlay.Visibility = Visibility.Collapsed;
+
+    private void OnSwallowClick(object sender, MouseButtonEventArgs e)
+        => e.Handled = true; // Klick auf die Karte schließt das Modal nicht.
+
+    // --- Spiel-Dropdown ------------------------------------------------------------
+
+    private void OnToggleDropdown(object sender, RoutedEventArgs e)
+        => GameDropdownPopup.IsOpen = !GameDropdownPopup.IsOpen;
+
+    private void OnDropdownOpened(object sender, EventArgs e)
+    {
+        SearchBox.Text = "";
+        FillGameOptions("");
+        SearchBox.Focus();
+    }
+
+    private void OnDropdownClosed(object sender, EventArgs e) { }
+
+    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+        => FillGameOptions(SearchBox.Text);
+
+    private void FillGameOptions(string term)
+    {
+        _gameOptions.Clear();
+        var t = (term ?? "").Trim();
+        foreach (var row in _games)
+        {
+            if (t.Length == 0 || row.DisplayName.Contains(t, StringComparison.OrdinalIgnoreCase))
+                _gameOptions.Add(row);
+        }
+        NoGamesText.Visibility = _gameOptions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Echte Cover der sichtbaren Dropdown-Einträge lazy anfordern (wie das Popover).
+        foreach (var row in _gameOptions)
+            _ = row.EnsureCoverAsync(_agent.Covers);
+    }
+
+    private void OnGameOptionClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: GameRow row })
+        {
+            GameDropdownPopup.IsOpen = false;
+            SelectGame(row);
+        }
+    }
+
+    // --- Detail-Aktionen -----------------------------------------------------------
+
+    private async void OnGameSyncNowClick(object sender, RoutedEventArgs e)
+    {
+        // Ein einzelnes Spiel „jetzt sichern": es gibt nur einen globalen Sync-Choke-Point,
+        // der pro Spiel serialisiert – also einen Gesamt-Sync anstoßen (deckt dieses Spiel ab).
+        await RunGuarded((Button)sender, () => _agent.SyncNowAsync());
+    }
+
+    private async void OnRetryClick(object sender, RoutedEventArgs e)
+    {
+        await RunGuarded((Button)sender, () => _agent.SyncNowAsync());
+    }
+
+    private void OnTogglePauseClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: GameRow row })
+            return;
+        if (row.IsExcluded)
+            _agent.IncludeGame(row.Game);
+        else
+            _agent.ExcludeGame(row.Game);
+        // Der Rest läuft über State.Changed → Refresh.
+    }
 
     private void OnOpenFolderClick(object sender, RoutedEventArgs e)
     {
@@ -357,8 +466,6 @@ public partial class MainWindow : Window
 
         try
         {
-            // Pfad als eigenes Ziel (UseShellExecute öffnet den Ordner im Explorer) – keine
-            // Shell-String-Konkatenation von Fremddaten.
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch (Exception ex)
@@ -373,27 +480,28 @@ public partial class MainWindow : Window
         catch { return false; }
     }
 
-    private async void OnRestoreClick(object sender, RoutedEventArgs e)
+    private async void OnResolveConflictClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: RevisionRow rev } button)
+        if (sender is not Button { Tag: GameRow row } button)
             return;
-
-        var name = _selectedRow?.DisplayName ?? rev.Game.DisplayName;
-        var dialog = new RestoreDialog(name, rev.Number, rev.LocalDate) { Owner = this };
-        if (dialog.ShowDialog() != true)
-            return; // Abbrechen ändert nichts.
 
         button.IsEnabled = false;
         try
         {
-            var ok = await _agent.RestoreAsync(rev.Game, rev.Number);
-            Info(ok
-                ? $"Wiederherstellung von »{name}« auf Version {rev.Number} angestoßen. Der lokale Stand wird beim nächsten Sync ersetzt."
-                : "Die Wiederherstellung konnte nicht angestoßen werden. Ist der Server verbunden?");
+            var conflicts = await _agent.GetConflictsAsync();
+            var conflict = conflicts.FirstOrDefault(c => c.Game.Equals(row.Game) && !c.Resolved);
+            if (conflict is null)
+            {
+                Info("Für dieses Spiel liegt aktuell kein offener Konflikt vor.");
+                return;
+            }
+
+            var dialog = new ConflictWindow(_agent, conflict) { Owner = this };
+            dialog.ShowDialog();
         }
         catch (Exception ex)
         {
-            Info("Wiederherstellung fehlgeschlagen: " + ex.Message);
+            Info("Konflikt konnte nicht geladen werden: " + ex.Message);
         }
         finally
         {
@@ -401,10 +509,92 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnSyncNowClick(object sender, RoutedEventArgs e)
+    private void OnAssignFolderClick(object sender, RoutedEventArgs e)
     {
-        await RunGuarded((Button)sender, () => _agent.SyncNowAsync());
+        if (sender is not Button { Tag: GameRow row })
+            return;
+
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = $"Save-Ordner für »{row.DisplayName}« auswählen",
+            Multiselect = false,
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        var path = dialog.FolderName;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            Info("Der gewählte Ordner ist ungültig.");
+            return;
+        }
+
+        try
+        {
+            _agent.AddManualFolder(row.Game, path);
+            Info($"Ordner für »{row.DisplayName}« zugeordnet. Das Spiel wird jetzt synchronisiert.");
+        }
+        catch (Exception ex)
+        {
+            Info("Ordner konnte nicht zugeordnet werden: " + ex.Message);
+        }
     }
+
+    // --- Wiederherstellen (In-Fenster-Overlay) -------------------------------------
+
+    private void OnRestoreClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: RevisionRow rev })
+            return;
+        _restoreTarget = rev;
+        var name = _selectedRow?.DisplayName ?? rev.Game.DisplayName;
+        RestoreSubText.Text = $"{name} · Version {rev.Number} · {rev.LocalDate}";
+        RestoreOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void OnCloseRestore(object sender, RoutedEventArgs e) => CloseRestoreOverlay();
+    private void OnCloseRestoreBackdrop(object sender, MouseButtonEventArgs e) => CloseRestoreOverlay();
+
+    private void CloseRestoreOverlay()
+    {
+        RestoreOverlay.Visibility = Visibility.Collapsed;
+        _restoreTarget = null;
+    }
+
+    private async void OnConfirmRestore(object sender, RoutedEventArgs e)
+    {
+        var rev = _restoreTarget;
+        if (rev is null)
+        {
+            CloseRestoreOverlay();
+            return;
+        }
+
+        var name = _selectedRow?.DisplayName ?? rev.Game.DisplayName;
+        RestoreConfirmButton.IsEnabled = false;
+        try
+        {
+            var ok = await _agent.RestoreAsync(rev.Game, rev.Number);
+            CloseRestoreOverlay();
+            Info(ok
+                ? $"Wiederherstellung von »{name}« auf Version {rev.Number} angestoßen. Der lokale Stand wird beim nächsten Sync ersetzt."
+                : "Die Wiederherstellung konnte nicht angestoßen werden. Ist der Server verbunden?");
+        }
+        catch (Exception ex)
+        {
+            CloseRestoreOverlay();
+            Info("Wiederherstellung fehlgeschlagen: " + ex.Message);
+        }
+        finally
+        {
+            RestoreConfirmButton.IsEnabled = true;
+        }
+    }
+
+    // --- Fußleiste (Übersicht) -----------------------------------------------------
+
+    private async void OnSyncNowClick(object sender, RoutedEventArgs e)
+        => await RunGuarded((Button)sender, () => _agent.SyncNowAsync());
 
     private async void OnRediscoverClick(object sender, RoutedEventArgs e)
     {
@@ -450,7 +640,6 @@ public partial class MainWindow : Window
             Title = "Save-Ordner auswählen",
             Multiselect = false,
         };
-
         if (dialog.ShowDialog(this) != true)
             return;
 
@@ -480,78 +669,152 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnAssignFolderClick(object sender, RoutedEventArgs e)
+    // --- Optionen (verschmolzen aus dem früheren Einstellungs-Fenster) -------------
+
+    private void LoadSettingsFields()
     {
-        if (sender is not Button { Tag: GameRow row })
-            return;
+        var config = _configStore.Load();
+        ServerUrlBox.Text = config.ServerUrl ?? "";
+        DeviceNameBox.Text = config.DeviceName ?? Environment.MachineName;
+        IntervalBox.Text = config.SyncIntervalSeconds.ToString();
+        AutostartToggle.IsChecked = config.AutostartEnabled;
+        NotifyEnabledToggle.IsChecked = config.ToastsEnabled;
+        NotifyTransfersToggle.IsChecked = config.NotifyTransfers;
+        NotifyConflictsToggle.IsChecked = config.NotifyConflicts;
+        NotifySoundToggle.IsChecked = config.NotificationSound;
+        WatermarkToggle.IsChecked = config.GameWatermarkEnabled;
 
-        var dialog = new Microsoft.Win32.OpenFolderDialog
-        {
-            Title = $"Save-Ordner für »{row.DisplayName}« auswählen",
-            Multiselect = false,
-        };
+        var cornerIndex = Array.FindIndex(Corners, c => c.Corner == config.WatermarkCorner);
+        CornerCombo.SelectedIndex = cornerIndex >= 0 ? cornerIndex : 0;
 
-        if (dialog.ShowDialog(this) != true)
-            return;
-
-        var path = dialog.FolderName;
-        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-        {
-            Info("Der gewählte Ordner ist ungültig.");
-            return;
-        }
-
-        try
-        {
-            // Ordner GENAU diesem (übersprungenen) Spiel zuordnen – nicht aus dem Ordnernamen
-            // ein neues Spiel ableiten. Danach ist das Spiel regulär verwaltet.
-            _agent.AddManualFolder(row.Game, path);
-            Info($"Ordner für »{row.DisplayName}« zugeordnet. Das Spiel wird jetzt synchronisiert.");
-        }
-        catch (Exception ex)
-        {
-            Info("Ordner konnte nicht zugeordnet werden: " + ex.Message);
-        }
+        UpdateSubOptionsEnabled();
+        PairResultText.Visibility = Visibility.Collapsed;
+        SaveResultText.Visibility = Visibility.Collapsed;
+        // Pairing-Code bleibt leer; der Token wird nie geladen/angezeigt.
     }
 
-    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    private void OnMasterToggled(object sender, RoutedEventArgs e) => UpdateSubOptionsEnabled();
+
+    private void UpdateSubOptionsEnabled()
     {
-        var window = new SettingsWindow(_agent) { Owner = this };
-        window.ShowDialog();
-        Refresh();
+        var on = NotifyEnabledToggle.IsChecked == true;
+        if (NotifyTransfersToggle is null)
+            return;
+        NotifyTransfersToggle.IsEnabled = on;
+        NotifyConflictsToggle.IsEnabled = on;
+        NotifySoundToggle.IsEnabled = on;
+        WatermarkToggle.IsEnabled = on;
+        CornerCombo.IsEnabled = on;
+        NotifySubPanel.Opacity = on ? 1.0 : 0.4;
+        CornerPanel.Opacity = on ? 1.0 : 0.4;
     }
 
-    private async void OnResolveConflictClick(object sender, RoutedEventArgs e)
+    private async void OnPairClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: GameRow row })
-            return;
+        var serverUrl = ServerUrlBox.Text.Trim();
+        var code = PairingCodeBox.Text.Trim();
+        var deviceName = DeviceNameBox.Text.Trim();
 
-        var button = (Button)sender;
-        button.IsEnabled = false;
+        if (string.IsNullOrWhiteSpace(serverUrl))
+        {
+            ShowResult(PairResultText, "Bitte eine Server-URL angeben.", ok: false);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            ShowResult(PairResultText, "Bitte den Pairing-Code angeben.", ok: false);
+            return;
+        }
+
+        PairButton.IsEnabled = false;
+        ShowResult(PairResultText, "Kopple mit dem Server…", ok: true, neutral: true);
         try
         {
-            var conflicts = await _agent.GetConflictsAsync();
-            var conflict = conflicts.FirstOrDefault(c => c.Game.Equals(row.Game) && !c.Resolved);
-            if (conflict is null)
+            var result = await _agent.PairAsync(serverUrl, code, deviceName);
+            if (result.Success)
             {
-                Info("Für dieses Spiel liegt aktuell kein offener Konflikt vor.");
-                return;
+                PairingCodeBox.Clear();
+                ShowResult(PairResultText, "Kopplung erfolgreich. Dieses Gerät ist jetzt verbunden.", ok: true);
+                LoadSettingsFields();
+                Refresh();
             }
-
-            var dialog = new ConflictWindow(_agent, conflict) { Owner = this };
-            dialog.ShowDialog();
+            else
+            {
+                ShowResult(PairResultText, result.ErrorMessage ?? "Kopplung fehlgeschlagen.", ok: false);
+            }
         }
         catch (Exception ex)
         {
-            Info("Konflikt konnte nicht geladen werden: " + ex.Message);
+            ShowResult(PairResultText, "Kopplung fehlgeschlagen: " + ex.Message, ok: false);
         }
         finally
         {
-            button.IsEnabled = true;
+            PairButton.IsEnabled = true;
         }
     }
 
-    /// <summary>Führt eine asynchrone Aktion aus, sperrt kurz den Button und meldet Fehler.</summary>
+    private async void OnSaveClick(object sender, RoutedEventArgs e)
+    {
+        var deviceName = DeviceNameBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(deviceName))
+            deviceName = Environment.MachineName;
+
+        if (!int.TryParse(IntervalBox.Text.Trim(), out var seconds))
+        {
+            ShowResult(SaveResultText, "Das Sync-Intervall muss eine Zahl (Sekunden) sein.", ok: false);
+            return;
+        }
+        if (seconds < 5)
+            seconds = 5;
+
+        SaveButton.IsEnabled = false;
+        try
+        {
+            var config = _configStore.Load();
+            config.DeviceName = deviceName;
+            config.SyncIntervalSeconds = seconds;
+            config.AutostartEnabled = AutostartToggle.IsChecked == true;
+            config.ToastsEnabled = NotifyEnabledToggle.IsChecked == true;
+            config.NotifyTransfers = NotifyTransfersToggle.IsChecked == true;
+            config.NotifyConflicts = NotifyConflictsToggle.IsChecked == true;
+            config.NotificationSound = NotifySoundToggle.IsChecked == true;
+            config.GameWatermarkEnabled = WatermarkToggle.IsChecked == true;
+            var idx = CornerCombo.SelectedIndex;
+            config.WatermarkCorner = idx >= 0 && idx < Corners.Length
+                ? Corners[idx].Corner
+                : WatermarkCorner.BottomRight;
+            _configStore.Save(config);
+            IntervalBox.Text = seconds.ToString();
+
+            AutostartService.Apply(config.AutostartEnabled);
+
+            await _agent.StopAsync();
+            await _agent.StartAsync();
+
+            ShowResult(SaveResultText, "Gespeichert.", ok: true);
+            Refresh();
+        }
+        catch (Exception ex)
+        {
+            ShowResult(SaveResultText, "Speichern fehlgeschlagen: " + ex.Message, ok: false);
+        }
+        finally
+        {
+            SaveButton.IsEnabled = true;
+        }
+    }
+
+    private static void ShowResult(TextBlock target, string message, bool ok, bool neutral = false)
+    {
+        target.Text = message;
+        target.Visibility = Visibility.Visible;
+        target.Foreground = neutral
+            ? StatusVisuals.Offline
+            : (ok ? StatusVisuals.Synced : StatusVisuals.Error);
+    }
+
+    // --- Helfer --------------------------------------------------------------------
+
     private async Task RunGuarded(Button button, Func<Task> action)
     {
         button.IsEnabled = false;
@@ -571,8 +834,6 @@ public partial class MainWindow : Window
 
     private void Info(string message)
         => System.Windows.MessageBox.Show(this, message, "SaveVault", MessageBoxButton.OK, MessageBoxImage.Information);
-
-    // --- Fensterverhalten ----------------------------------------------------------
 
     protected override void OnClosing(CancelEventArgs e)
     {
