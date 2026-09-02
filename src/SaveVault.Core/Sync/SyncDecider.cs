@@ -4,12 +4,18 @@ namespace SaveVault.Core.Sync;
 
 /// <summary>
 /// Reine Entscheidungslogik des Sync-Zyklus – ohne jede IO, damit sie klar testbar
-/// ist. Bildet die vier Fälle aus der Spec (Abschnitt „Client-Zyklus") exakt ab:
+/// ist. Bildet die Fälle aus der Spec (Abschnitt „Client-Zyklus") exakt ab:
 ///
+///   0. Server &lt; base_revision (Server hat Bucket verloren)  → Upload (Reseed)
 ///   1. lokal geändert &amp; Server == base_revision       → Upload
 ///   2. nicht geändert &amp; Server &gt; base_revision      → Download
 ///   3. lokal geändert &amp; Server &gt; base_revision      → Conflict
 ///   4. sonst                                             → NoOp
+///
+/// Fall 0 (Reseed) steht bewusst VOR den übrigen Fällen und greift unabhängig davon,
+/// ob sich lokal etwas geändert hat: Ist die Server-Revision unter die lokale
+/// base_revision gefallen, wurde der Bucket serverseitig gelöscht/zurückgesetzt; der
+/// lokale Stand muss neu eingesät (hochgeladen) werden, sonst käme das Spiel nie zurück.
 /// </summary>
 public static class SyncDecider
 {
@@ -26,6 +32,17 @@ public static class SyncDecider
 
         var localChanged = LocalChanged(localManifest, state.BaseManifest);
         var baseRevision = state.BaseRevision;
+
+        // Fall 0 (Reseed): Der Server hat den Bucket verloren/zurückgesetzt (seine Revision
+        // liegt UNTER der lokalen base_revision). Egal ob lokal geändert – der lokale Stand
+        // wird als neue Revision hochgeladen (neu eingesät), sonst käme ein gelöschtes Spiel
+        // nie zurück (früher: NoOp). Die Upload-Basis koppelt der SyncEngine an den Server-Head.
+        if (serverRevision < baseRevision)
+        {
+            return new SyncDecision(
+                SyncAction.Upload,
+                $"Server-Revision {serverRevision} < base {baseRevision}: Server hat den Bucket verloren → lokalen Stand neu einsäen.");
+        }
 
         // Fall 3: beide Seiten seit dem letzten Sync geändert → echter Konflikt.
         if (localChanged && serverRevision > baseRevision)

@@ -98,6 +98,60 @@ public class SyncDeciderTests
         Assert.False(string.IsNullOrWhiteSpace(decision.Reason));
     }
 
+    // --- Fall 0: Reseed bei Server-Verlust ----------------------------------
+
+    [Fact]
+    public void Decide_Upload_Reseed_wenn_Server_unter_base_und_lokal_unveraendert()
+    {
+        // Server-Bucket wurde gelöscht/zurückgesetzt (Head 0), lokal steht base auf 1 und
+        // der Ordner ist unverändert → früher NoOp, jetzt Reseed-Upload.
+        var shared = ManifestWith("save.dat", "aaaa");
+        var local = ManifestWith("save.dat", "aaaa"); // gleicher Hash → unverändert
+        var state = StateWith(baseRevision: 1, shared);
+
+        var decision = SyncDecider.Decide(local, state, serverRevision: 0);
+
+        Assert.Equal(SyncAction.Upload, decision.Action);
+    }
+
+    [Fact]
+    public void Decide_Upload_Reseed_wenn_Server_unter_base_und_lokal_geaendert()
+    {
+        var baseManifest = ManifestWith("save.dat", "aaaa");
+        var local = ManifestWith("save.dat", "bbbb"); // anderer Hash → geändert
+        var state = StateWith(baseRevision: 5, baseManifest);
+
+        var decision = SyncDecider.Decide(local, state, serverRevision: 2);
+
+        Assert.Equal(SyncAction.Upload, decision.Action);
+    }
+
+    [Fact]
+    public void Decide_Reseed_ist_kein_Conflict_auch_wenn_lokal_geaendert()
+    {
+        // IsConflict verlangt serverRevision > base; bei Server < base gibt es nichts zu
+        // kollidieren – die Reseed-Entscheidung bleibt Upload, IsConflict bleibt false.
+        var baseManifest = ManifestWith("save.dat", "aaaa");
+        var local = ManifestWith("save.dat", "bbbb");
+        var state = StateWith(baseRevision: 5, baseManifest);
+
+        Assert.Equal(SyncAction.Upload, SyncDecider.Decide(local, state, serverRevision: 2).Action);
+        Assert.False(SyncDecider.IsConflict(local, state, serverRevision: 2));
+    }
+
+    [Fact]
+    public void Decide_NoOp_bleibt_bei_Server_gleich_base_und_lokal_unveraendert()
+    {
+        // Regression zur Reseed-Grenze: nur Server < base ist Reseed, Server == base bleibt NoOp.
+        var shared = ManifestWith("save.dat", "aaaa");
+        var local = ManifestWith("save.dat", "aaaa");
+        var state = StateWith(baseRevision: 1, shared);
+
+        var decision = SyncDecider.Decide(local, state, serverRevision: 1);
+
+        Assert.Equal(SyncAction.NoOp, decision.Action);
+    }
+
     // --- LocalChanged -------------------------------------------------------
 
     [Fact]

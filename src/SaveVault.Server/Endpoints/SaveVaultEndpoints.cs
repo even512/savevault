@@ -243,7 +243,14 @@ public static class SaveVaultEndpoints
         // wenn keins verfügbar ist / das Feature inaktiv ist.
         api.MapGet("/games/{gameKey}/cover", async (string gameKey, CoverService covers, CancellationToken ct) =>
         {
-            var file = await covers.GetCoverFileAsync(KeyFrom(gameKey), ct);
+            // Auf den KANONISCHEN Schlüssel reduzieren, bevor das Cover aufgelöst wird: ein
+            // präfixierter Bucket (dev|{owner}|… / shared|…) teilt sich so ein Cover mit dem
+            // Original-Spiel. BucketKey.Original reduziert nur den Value – der CoverService sucht
+            // aber über den DisplayName und cacht über den Value (HashKey(game.Value)). Damit beide
+            // den kanonischen Wert treffen (und die IGDB-Suche denselben Namen wie beim Legacy-Bucket
+            // trifft), wird ein GameKey gebaut, bei dem Value UND DisplayName der kanonische Wert sind.
+            var canonical = BucketKey.Original(KeyFrom(gameKey)).Value;
+            var file = await covers.GetCoverFileAsync(new GameKey(canonical, canonical), ct);
             return file is null
                 ? ApiResults.Error(404, "Kein Cover verfügbar.")
                 : Results.File(file, "image/jpeg");

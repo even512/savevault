@@ -72,30 +72,84 @@ public sealed class VaultStore
     }
 
     /// <summary>Aktuelle Schema-Version des Index (siehe <see cref="MigrateIfNeeded"/>).</summary>
-    private const int CurrentIndexVersion = 2;
+    private const int CurrentIndexVersion = 3;
 
     /// <summary>
-    /// Einmalige, idempotente Migration beim Start. Version 1→2 (Umstieg auf geräte-eigene Buckets,
-    /// siehe <c>specs/savevault-change-per-device-sync.md</c>): die alten globalen Buckets werden
+    /// Einmalige, idempotente Migration beim Start. Jeder Schritt ist an SEINEN eigenen
+    /// Versionsbereich gekoppelt, damit ein bereits migrierter Index einen älteren Schritt nicht
+    /// erneut ausführt (z. B. läuft die v1→v2-Konfliktauflösung nie wieder auf einem v2-Index).
+    ///
+    /// <para><b>v1→2</b> (Umstieg auf geräte-eigene Buckets, siehe
+    /// <c>specs/savevault-change-per-device-sync.md</c>): die alten globalen Buckets werden
     /// eingefroren – kein Gerät synct mehr automatisch gegen sie (die Clients adressieren ab jetzt
     /// nur noch ihren privaten Bucket-Schlüssel). Damit der bisherige Konflikt-Sturm (Folge des
     /// gemeinsamen globalen Verlaufs) sofort verstummt, werden alle noch offenen Konflikte als gelöst
-    /// markiert. Nichts wird gelöscht: die Konflikt-Revisionen und alle Blobs bleiben als lesbare
-    /// Legacy-Historie erhalten.
+    /// markiert. Nichts wird gelöscht: die Konflikt-Revisionen und alle Blobs bleiben erhalten.</para>
+    ///
+    /// <para><b>v2→3</b> (kompletter Legacy-Neustart, siehe
+    /// <c>specs/savevault-change-dashboard-fix-legacy-neustart.md</c>): ALLE eingefrorenen
+    /// Legacy-Buckets (Schlüssel ohne Scope-Präfix) werden destruktiv entfernt – Bucket-Verzeichnis
+    /// samt Revisionen und inhaltsadressierten Blobs, dazu die zugehörigen <c>GameStates</c>,
+    /// <c>Conflicts</c>, <c>Commands</c> und <c>Activity</c>. Konflikt-Kopien (<c>IsFork</c>) sind
+    /// ausgenommen: sie sehen präfixlos aus, sind aber bewahrte Verlierer-Stände. Private/geteilte
+    /// Buckets bleiben unberührt. Die Löschung ist traversal-sicher (gehashter Ordnername +
+    /// <see cref="StoragePaths.IsWithinData"/>-Wache) und idempotent (ein zweiter Start findet
+    /// nichts mehr zu löschen).</para>
+    ///
+    /// Läuft synchron im Konstruktor vor der ersten Anfrage – kein <see cref="_gate"/> nötig.
     /// </summary>
     private void MigrateIfNeeded()
     {
         if (_index.Version >= CurrentIndexVersion)
             return;
 
-        for (var i = 0; i < _index.Conflicts.Count; i++)
+        // v1→2: offene Konflikte auflösen (nur für Indizes vor Version 2).
+        if (_index.Version < 2)
         {
-            if (!_index.Conflicts[i].Resolved)
-                _index.Conflicts[i] = _index.Conflicts[i] with { Resolved = true };
+            for (var i = 0; i < _index.Conflicts.Count; i++)
+            {
+                if (!_index.Conflicts[i].Resolved)
+                    _index.Conflicts[i] = _index.Conflicts[i] with { Resolved = true };
+            }
+        }
+
+        // v2→3: alle Legacy-Buckets löschen (nur für Indizes vor Version 3).
+        if (_index.Version < 3)
+        {
+            var legacy = _index.Games
+                .Where(g => !g.IsFork && BucketKey.ScopeOf(g.KeyValue) == BucketScope.Legacy)
+                .ToList();
+            foreach (var g in legacy)
+                PurgeLegacyBucket(g);
         }
 
         _index.Version = CurrentIndexVersion;
         Save();
+    }
+
+    /// <summary>
+    /// Entfernt einen Legacy-Bucket vollständig (Migration v2→3): das Bucket-Verzeichnis samt
+    /// Revisionen und Blobs traversal-sicher (gehashter Ordnername + <see cref="StoragePaths.IsWithinData"/>-Wache)
+    /// und den Index-Eintrag samt aller abhängigen Datensätze (GameStates/Conflicts/Commands/Activity).
+    /// Nur aus <see cref="MigrateIfNeeded"/> (synchron, vor der ersten Anfrage) aufrufen – kein Lock.
+    /// Spiegelt <see cref="DeleteLegacyBucketAsync"/>, aber ohne Gate/Await und ohne Scope-/Fork-Prüfung
+    /// (die Auswahl der zu löschenden Buckets trifft der Aufrufer).
+    /// </summary>
+    private void PurgeLegacyBucket(GameRecord g)
+    {
+        var bucketKey = ToGameKey(g);
+        var dir = _paths.GameDirectory(bucketKey);
+        if (_paths.IsWithinData(dir) && Directory.Exists(dir))
+        {
+            try { Directory.Delete(dir, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
+        }
+
+        _index.Games.Remove(g);
+        _index.GameStates.RemoveAll(s => s.GameKeyValue == g.KeyValue);
+        _index.Conflicts.RemoveAll(c => c.Game.Value == g.KeyValue);
+        _index.Commands.RemoveAll(cmd => cmd.Game.Value == g.KeyValue);
+        _index.Activity.RemoveAll(a => a.GameKeyValue == g.KeyValue);
     }
 
     public string DataRoot => _paths.DataRoot;

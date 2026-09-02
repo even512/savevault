@@ -29,9 +29,9 @@ public sealed class SyncSecurityException : Exception
 }
 
 /// <summary>
-/// Kern-Orchestrator des Client-Sync. Bildet je Save-Set genau die vier Fälle der
-/// verbindlichen <see cref="SyncDecider"/>-Logik auf API-Aufrufe ab (Upload / Download /
-/// Conflict / NoOp). IO gegen den Server läuft über <see cref="ISaveVaultApi"/> (injiziert,
+/// Kern-Orchestrator des Client-Sync. Bildet die Fälle der verbindlichen
+/// <see cref="SyncDecider"/>-Logik (inkl. Reseed bei Server-Verlust) auf die vier API-Aktionen
+/// Upload / Download / Conflict / NoOp ab. IO gegen den Server läuft über <see cref="ISaveVaultApi"/> (injiziert,
 /// damit testbar), das lokale Scannen über <see cref="ManifestBuilder"/>.
 ///
 /// <b>Sicherheit:</b> Alle vom Server heruntergeladenen Dateien werden ausschließlich über
@@ -86,7 +86,7 @@ public sealed class SyncEngine
             var decision = SyncDecider.Decide(local, state, head.CurrentRevision);
             return decision.Action switch
             {
-                SyncAction.Upload => await UploadAsync(game, folder, local, state, scope, ct).ConfigureAwait(false),
+                SyncAction.Upload => await UploadAsync(game, folder, local, state, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Download => await DownloadAsync(game, folder, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Conflict => await ConflictAsync(game, folder, local, state, scope, ct).ConfigureAwait(false),
                 _ => NoOp(game, folder, state.BaseRevision, decision.Reason),
@@ -114,9 +114,14 @@ public sealed class SyncEngine
 
     // --- die vier Fälle ------------------------------------------------------------
 
-    private async Task<SyncCycleResult> UploadAsync(GameKey game, string folder, FileManifest local, SyncState state, BucketScope scope, CancellationToken ct)
+    private async Task<SyncCycleResult> UploadAsync(GameKey game, string folder, FileManifest local, SyncState state, long serverHeadRevision, BucketScope scope, CancellationToken ct)
     {
-        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: state.BaseRevision, SaveRoot: folder);
+        // Upload-Basis an den tatsächlichen Server-Head koppeln (nicht an die lokale
+        // base_revision): Der Server verlangt BasedOnRevision == aktuelle Server-Revision,
+        // sonst 409. Im Normalfall (Server-Head == base) ist das bit-identisch; beim Reseed
+        // (Server-Head < base, Bucket serverseitig verloren) nimmt der Server so die neue
+        // Revision an, statt sie als „veraltete Basis" abzulehnen.
+        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: serverHeadRevision, SaveRoot: folder);
         var response = await _api.UploadRevisionAsync(game, request, scope, ct).ConfigureAwait(false);
         await UploadMissingContentsAsync(game, folder, local, response.MissingHashes, scope, ct).ConfigureAwait(false);
 

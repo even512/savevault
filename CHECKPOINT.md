@@ -1,3 +1,43 @@
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
+
+**Dashboard-Fix + kompletter Legacy-Neustart + Client-Reseed (Server 1.3.0 / Client 1.4.0).**
+Delta-Spec `.claude/projekt-werkstatt/specs/savevault-change-dashboard-fix-legacy-neustart.md`,
+Weg über `/projekt-edit`. Behebt den Dashboard-Fehler nach dem Per-Gerät-Umbau (dasselbe Spiel
+mehrfach, privat klein/ohne Cover) und macht Tims „frisch anfangen" real. **Alle Gates grün,
+committet + released als `v1.4.0`.**
+- **Dashboard — eine Kachel pro Spiel:** `app.js` gruppiert nach kanonischem Spiel
+  (`buildGameGroups`/`finalizeGroup`/`pickDisplayName`), eine Kachel je Titel (echter Name statt
+  Slug, ein Cover über den kanonischen Schlüssel, aggregierter Status/Größe). Der Spiel-Drawer
+  öffnet kanonisch und schlüsselt je Bucket einen Abschnitt auf (Lokal:<Gerät>/Geteilt/
+  Konflikt-Kopie) mit Revisionen/States/Export/Restore/Teilen — pro Bucket geladen, nur Cover
+  kanonisch. **Legacy-Button + alle `scope==="legacy"`-Zweige entfernt** (Tim-Entscheidung).
+- **Cover kanonisch (Server):** der Cover-Endpunkt reduziert den Schlüssel via
+  `BucketKey.Original` und übergibt `new GameKey(canonical, canonical)` — IGDB-Suche (über
+  DisplayName) UND Platten-Cache (`HashKey(Value)`) treffen den kanonischen Wert → ein Cover je
+  Spiel, auch für private/geteilte Buckets. Nur der Cover-Endpunkt berührt.
+- **Migration v2→v3 (destruktiv, idempotent):** `MigrateIfNeeded` versioniert getrennt
+  (`<2` alte Konflikt-Auflösung, `<3` Legacy-Purge) — kein erneutes Auslösen des v1→v2-Schritts
+  auf heutigem v2-Index. Neuer Helfer `PurgeLegacyBucket` löscht je Legacy-Bucket
+  (`!IsFork && ScopeOf==Legacy`) Verzeichnis+Blobs (traversal-sicher, `IsWithinData`-Wache) und
+  Index-Nebendaten (`Games`/`GameStates`/`Conflicts`/`Commands`/`Activity`). Forks + privat +
+  geteilt bleiben. `CurrentIndexVersion`=3.
+- **Client-Reseed:** `SyncDecider.Decide` fängt vor den vier Fällen `serverRevision < baseRevision`
+  ab → `Upload` (Server hat Bucket verloren → neu einsäen), unabhängig von localChanged.
+  `SyncEngine.UploadAsync` koppelt `BasedOnRevision = head.CurrentRevision` (kein 409 beim Reseed;
+  Normalfall bit-identisch, da dort head==base). +4 SyncDecider-Tests. Das war die Ursache, warum
+  ein gelöschtes Spiel nie zurückkam (vorher NoOp).
+- **Gates grün:** Delta-Gate (reviewer+inspekteur), Client-Kern-Gate (reviewer+inspekteur),
+  Server-Kern-Gate (reviewer+**security-auditor** auf die Löschfläche: sauber, +inspekteur),
+  Oberflächen-Gate (reviewer+inspekteur). **Laufzeit-Gate:** Build 0/0, `dotnet test` **108/0/0**
+  (inkl. 4 Reseed-Tests), **Migrations-Smoke 16/16** (v2-Index mit Legacy+Fork+privat → Legacy weg
+  inkl. Verzeichnis, Fork/privat bleiben, Version 3, idempotent), **Reseed-Smoke** (Head 0, Base 1
+  → Upload/Revision 1, kein 409), Server startet sauber, Endpunkte/Fehlerfälle korrekt.
+- **Rollout-Reihenfolge:** erst Server deployen (löscht Legacy, gruppiert), dann Client-Update auf
+  alle Geräte (Reseed greift beim nächsten Zyklus). **Alle Geräte laufen bereits auf v1.3.0.**
+- **Offen (Tims Schritt):** visuelle Abnahme der Kacheln/Cover mit echten Daten nach dem Deploy.
+
+---
+
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-02)
 
 **Phase 3 (von 3) fertig — Dashboard: Teilen etablieren + Legacy löschen + Scope-Sichtbarkeit

@@ -205,6 +205,116 @@
   }
 
   // =====================================================================
+  // Gruppierung nach kanonischem Spiel
+  // ---------------------------------------------------------------------
+  // Der Server liefert je Bucket (privat je Gerät / geteilt / Konflikt-Kopie)
+  // einen GameSummary. Für die Anzeige fassen wir alle Buckets desselben
+  // Spiels (gleicher canonicalValue) zu EINER Gruppe zusammen: ein Titel,
+  // ein Cover, ein aggregierter Status, aggregierte Kennzahlen.
+  // =====================================================================
+  function canonicalOf(summary) {
+    return String((summary && (summary.canonicalValue || (summary.game && summary.game.value))) || "");
+  }
+
+  // Statuspriorität für die Aggregation (Konflikt schlägt alles, Synchronisiert
+  // ist die „ruhige" Ausgangslage, Offline zuletzt).
+  const STATUS_ORDER = ["Conflict", "Error", "Syncing", "Pending", "Synced", "Offline"];
+  function aggregateStatus(buckets) {
+    let best = null, bestRank = Infinity;
+    for (const b of buckets) {
+      const idx = STATUS_ORDER.indexOf(b.status);
+      const rank = idx < 0 ? STATUS_ORDER.length : idx;
+      if (rank < bestRank) { bestRank = rank; best = b.status; }
+    }
+    return best || "Offline";
+  }
+
+  // Prüft, ob ein Name bloß der (klein geschriebene) Rohschlüssel ist – dann ist er
+  // KEIN echter Titel. Berücksichtigt auch prefixierte Bucket-Schlüssel (dev|x|anno-117).
+  function nameLooksRaw(name, bucketValue, canonical) {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return true;
+    for (const c of [bucketValue, canonical]) {
+      if (!c) continue;
+      const cv = String(c).toLowerCase();
+      const bare = cv.indexOf("|") >= 0 ? cv.slice(cv.lastIndexOf("|") + 1) : cv;
+      if (n === cv || n === bare) return true;
+    }
+    return false;
+  }
+  // Bewertet einen Kandidatennamen: echter Titel (kein Rohschlüssel), Großbuchstaben
+  // und Leerzeichen sprechen für einen per Heartbeat/Store angereicherten Namen.
+  function nameScore(name, bucketValue, canonical) {
+    if (!name) return 0;
+    let score = 1;
+    if (!nameLooksRaw(name, bucketValue, canonical)) score += 4;
+    if (/[A-Z]/.test(name)) score += 2;
+    if (/\s/.test(name)) score += 1;
+    return score;
+  }
+  function pickDisplayName(buckets, canonical) {
+    let best = null, bestScore = -1;
+    for (const b of buckets) {
+      const dn = b.game && b.game.displayName;
+      if (!dn) continue;
+      const sc = nameScore(dn, b.game && b.game.value, canonical);
+      if (sc > bestScore) { bestScore = sc; best = dn; }
+    }
+    if (best) return best;
+    for (const b of buckets) {
+      if (b.game && (b.game.displayName || b.game.value)) return b.game.displayName || b.game.value;
+    }
+    return canonical || "Unbekanntes Spiel";
+  }
+
+  // Vervollständigt eine Gruppe { canonical, buckets } um die aggregierten Felder.
+  function finalizeGroup(grp) {
+    const buckets = grp.buckets;
+    grp.displayName = pickDisplayName(buckets, grp.canonical);
+    grp.store = (buckets.find(b => b.game && b.game.store) || { game: {} }).game.store || "";
+    grp.totalBytes = buckets.reduce((s, b) => s + (b.totalBytes || 0), 0);
+    grp.fileCount = buckets.reduce((s, b) => s + (b.fileCount || 0), 0);
+    grp.status = aggregateStatus(buckets);
+    let last = null;
+    for (const b of buckets) {
+      const t = lastActivityForGame(b.game && b.game.value);
+      if (t && (!last || t > last)) last = t;
+    }
+    grp.lastActivity = last;
+    const devs = new Set();
+    for (const b of buckets) if (b.scope === "private" && b.ownerDeviceId) devs.add(b.ownerDeviceId);
+    grp.deviceCount = devs.size;
+    grp.hasShared = buckets.some(b => b.scope === "shared");
+    return grp;
+  }
+
+  // Alle Buckets nach kanonischem Spiel gruppieren → ein Gruppen-Objekt pro Titel.
+  function buildGameGroups() {
+    const map = new Map();
+    for (const s of state.data.games) {
+      const canonical = canonicalOf(s);
+      let grp = map.get(canonical);
+      if (!grp) { grp = { canonical: canonical, buckets: [] }; map.set(canonical, grp); }
+      grp.buckets.push(s);
+    }
+    const groups = [];
+    for (const grp of map.values()) groups.push(finalizeGroup(grp));
+    return groups;
+  }
+
+  // Meta-Zeile einer Spielkachel: spielweit (keine Bucket-Dubletten mehr).
+  function groupMetaParts(grp) {
+    const parts = [];
+    if (grp.hasShared) parts.push("Geteilt");
+    if (grp.deviceCount === 1) parts.push("1 Gerät");
+    else if (grp.deviceCount > 1) parts.push("auf " + grp.deviceCount + " Geräten");
+    if (grp.store) parts.push(grp.store);
+    parts.push(formatBytes(grp.totalBytes));
+    if (grp.lastActivity) parts.push(relTime(grp.lastActivity.toISOString()));
+    return parts;
+  }
+
+  // =====================================================================
   // API-Schicht (Bearer-Token, deutsche Fehlermeldungen)
   // =====================================================================
   function AuthError(message, status) { const e = new Error(message); e.isAuth = true; e.status = status; return e; }
@@ -539,11 +649,12 @@
   function viewDashboard() {
     const frag = document.createDocumentFragment();
     const games = state.data.games;
+    const groups = buildGameGroups();
 
     const totalBytes = games.reduce((s, g) => s + (g.totalBytes || 0), 0);
     const conflictCount = state.data.conflicts.length;
     const stats = [
-      { label: "Spiele erfasst", value: String(games.length), suffix: games.length === 1 ? "Titel" : "Titel", cls: "" },
+      { label: "Spiele erfasst", value: String(groups.length), suffix: "Titel", cls: "" },
       { label: "Verbundene Clients", value: String(state.data.devices.length), suffix: "registriert", cls: "" },
       { label: "Speicher gesamt", value: formatBytes(totalBytes), suffix: "", cls: "" },
       { label: "Aktive Konflikte", value: String(conflictCount), suffix: "offen", cls: conflictCount ? "conflict" : "synced" }
@@ -567,15 +678,15 @@
       el("div", { class: "panel__title", text: "Spiele" }),
       el("button", { class: "panel__link", type: "button", text: "Alle anzeigen →", on: { click: () => setView("games") } })
     ]));
-    if (games.length === 0) {
+    if (groups.length === 0) {
       gamesPanel.appendChild(el("div", { class: "empty", text: "Noch keine Spiele erfasst." }));
     } else {
-      const preview = games
-        .map(g => ({ g, t: lastActivityForGame(g.game && g.game.value) }))
-        .sort((a, b) => (b.t ? b.t.getTime() : 0) - (a.t ? a.t.getTime() : 0))
+      const preview = groups
+        .slice()
+        .sort((a, b) => (b.lastActivity ? b.lastActivity.getTime() : 0) - (a.lastActivity ? a.lastActivity.getTime() : 0))
         .slice(0, 6);
       const grid = el("div", { class: "game-preview-grid" });
-      for (const item of preview) grid.appendChild(gameCard(item.g, false));
+      for (const grp of preview) grid.appendChild(gameCard(grp, false));
       gamesPanel.appendChild(grid);
     }
     cols.appendChild(gamesPanel);
@@ -599,30 +710,18 @@
     return frag;
   }
 
-  // ---- GameCard ----------------------------------------------------------
-  function gameCard(summary, big) {
-    const game = summary.game || {};
-    const name = gameDisplay(game);
-    const meta = statusMeta(summary.status);
-    const lastT = lastActivityForGame(game.value);
-    const metaParts = [];
-    // Scope-Hinweis (Phase 3): geteilt / legacy / lokal je Gerät – damit sich die Bucket-Sorten
-    // in der Liste unterscheiden lassen.
-    if (summary.scope === "shared") metaParts.push("Geteilt");
-    else if (summary.scope === "legacy") metaParts.push("Legacy");
-    else if (summary.ownerDeviceId) metaParts.push("Lokal: " + deviceName(summary.ownerDeviceId));
-    if (game.store) metaParts.push(game.store);
-    metaParts.push(formatBytes(summary.totalBytes));
-    if (lastT) metaParts.push(relTime(lastT.toISOString()));
-
+  // ---- GameCard (eine Kachel pro Spiel = eine Gruppe) --------------------
+  function gameCard(grp, big) {
+    const meta = statusMeta(grp.status);
     const card = el("button", { class: "game-card" + (big ? " is-big" : ""), type: "button",
-      on: { click: () => openGameDrawer(game.value) } });
-    const coverEl = el("div", { class: "game-card__cover", style: { background: coverColor(game.value) } });
+      on: { click: () => openGameDrawer(grp.canonical) } });
+    // Cover kanonisch: ein Bild je Spiel (der Server löst intern kanonisch auf).
+    const coverEl = el("div", { class: "game-card__cover", style: { background: coverColor(grp.canonical) } });
     card.appendChild(coverEl);
-    loadCover(game.value, coverEl);
+    loadCover(grp.canonical, coverEl);
     const body = el("div", { class: "game-card__body" });
-    body.appendChild(el("div", { class: "game-card__name", text: name }));
-    body.appendChild(el("div", { class: "game-card__meta", text: metaParts.join(" · ") }));
+    body.appendChild(el("div", { class: "game-card__name", text: grp.displayName }));
+    body.appendChild(el("div", { class: "game-card__meta", text: groupMetaParts(grp).join(" · ") }));
     const dot = el("span", { class: "dot dot--" + meta.cls + (meta.pulse ? " is-pulse" : "") });
     body.appendChild(el("div", { class: "status-line status--" + meta.cls, style: { "margin-top": "6px", "font-size": "11.5px", "font-weight": "600" } },
       [dot, document.createTextNode(meta.label)]));
@@ -671,9 +770,12 @@
     frag.appendChild(pillRow);
 
     const search = state.search.trim().toLowerCase();
-    const list = state.data.games.filter(g => {
-      const matchSearch = !search || gameDisplay(g.game).toLowerCase().includes(search);
-      const matchStatus = state.gameFilter === "all" || g.status === state.gameFilter;
+    // Filter/Suche arbeiten auf SPIEL-Ebene: ein Treffer je Spiel, Statusfilter
+    // gegen den aggregierten Status, Suche gegen den Spielnamen.
+    const groups = buildGameGroups();
+    const list = groups.filter(grp => {
+      const matchSearch = !search || grp.displayName.toLowerCase().includes(search);
+      const matchStatus = state.gameFilter === "all" || grp.status === state.gameFilter;
       return matchSearch && matchStatus;
     });
 
@@ -683,7 +785,7 @@
       return frag;
     }
     const grid = el("div", { class: "card-grid-3" });
-    for (const g of list) grid.appendChild(gameCard(g, true));
+    for (const grp of list) grid.appendChild(gameCard(grp, true));
     frag.appendChild(grid);
     return frag;
   }
@@ -860,8 +962,7 @@
     stoList.appendChild(el("div", null, [retHead, retSlider]));
     const usedBytes = state.data.games.reduce((s, g) => s + (g.totalBytes || 0), 0);
     stoList.appendChild(settingsRow("Belegter Speicher", formatBytes(usedBytes)));
-    const revCount = state.data.games.reduce((s, g) => s + (g.currentRevision || 0), 0);
-    stoList.appendChild(settingsRow("Spiele erfasst", String(state.data.games.length)));
+    stoList.appendChild(settingsRow("Spiele erfasst", String(buildGameGroups().length)));
     storage.appendChild(stoList);
     storage.appendChild(el("div", { class: "note", text: "Standard: unbegrenzte Historie (jede hochgeladene Version bleibt erhalten)." }));
     grid.appendChild(storage);
@@ -955,34 +1056,37 @@
     overlayRoot.appendChild(scrim);
   }
 
-  // ---- Teilen/Legacy-Aktionen (Phase 3) ---------------------------------
+  // ---- Teilen-Aktionen / Bucket-Beschriftung ----------------------------
+  // Kurze Überschrift eines Buckets im Spiel-Drawer.
+  function bucketHeading(summary) {
+    if (summary.isFork) return "Konflikt-Kopie";
+    if (summary.scope === "shared") return "Geteilt";
+    if (summary.ownerDeviceId) return "Lokal: " + deviceName(summary.ownerDeviceId);
+    return "Lokal";
+  }
   function scopeLabel(summary) {
-    // Konflikt-Kopien tragen keinen Scope-Präfix, sind aber keine Legacy-/privaten Buckets,
-    // sondern bewahrte Verlierer-Stände einer KeepBoth-Lösung.
+    // Konflikt-Kopien tragen keinen Scope-Präfix, sind aber keine privaten/geteilten
+    // Buckets, sondern bewahrte Verlierer-Stände einer KeepBoth-Lösung.
     if (summary.isFork) return "Konflikt-Kopie · bewahrter Verlierer-Stand";
     if (summary.scope === "shared") return "Geteilt · synchron über Geräte";
-    if (summary.scope === "legacy") return "Legacy · eingefrorener Alt-Verlauf";
     return "Lokal · " + (summary.ownerDeviceId ? deviceName(summary.ownerDeviceId) : "dieses Gerät");
   }
   function sharedExistsFor(canonical) {
-    return state.data.games.some(x => x.scope === "shared" && x.canonicalValue === canonical);
+    return state.data.games.some(x => x.scope === "shared" && (x.canonicalValue || (x.game && x.game.value)) === canonical);
   }
-  function gameScopeBar(summary) {
+  function gameScopeBar(summary, canonical) {
+    canonical = canonical || summary.canonicalValue || (summary.game && summary.game.value);
     const wrap = el("div", { style: { display: "flex", "align-items": "center", gap: "10px", "flex-wrap": "wrap", margin: "2px 0 10px" } });
     wrap.appendChild(el("span", { class: "muted", style: { "font-size": "12.5px" }, text: scopeLabel(summary) }));
 
     if (summary.isFork) {
-      // Keine Teilen-/Löschen-Aktion auf Konflikt-Kopien.
-    } else if (summary.scope === "legacy") {
-      wrap.appendChild(el("button", { class: "btn btn--ghost", type: "button", text: "Legacy-Bucket löschen",
-        on: { click: () => confirmDeleteLegacy(summary) } }));
+      // Keine Teilen-Aktion auf Konflikt-Kopien.
     } else if (summary.scope === "private") {
-      const canonical = summary.canonicalValue || summary.game.value;
       if (sharedExistsFor(canonical)) {
         wrap.appendChild(el("span", { class: "muted", style: { "font-size": "12.5px" }, text: "· geteilter Stand existiert bereits" }));
       } else {
         wrap.appendChild(el("button", { class: "btn btn--accent", type: "button", text: "Über Geräte teilen",
-          on: { click: () => beginShare(canonical, summary.ownerDeviceId, summary.game.value) } }));
+          on: { click: () => beginShare(canonical, summary.ownerDeviceId, canonical) } }));
       }
     }
     return wrap;
@@ -1050,52 +1154,32 @@
       if (!handleAuthFailure(err)) toast(err.message || "Teilen fehlgeschlagen.", true);
     }
   }
-  function confirmDeleteLegacy(summary) {
-    confirmModal({
-      title: "Legacy-Bucket löschen?",
-      message: gameDisplay(summary.game),
-      lines: [
-        "Entfernt den eingefrorenen Alt-Verlauf samt aller Blobs unwiderruflich.",
-        formatBytes(summary.totalBytes) + " · " + (summary.fileCount || 0) + " Dateien · Revision " + (summary.currentRevision || 0),
-        "Private und geteilte Buckets bleiben unberührt."
-      ],
-      confirmText: "Endgültig löschen",
-      danger: true,
-      onConfirm: () => doDeleteLegacy(summary.game.value),
-      onCancel: () => openGameDrawer(summary.game.value)
-    });
-  }
-  async function doDeleteLegacy(bucketKey) {
-    try {
-      await api("/api/games/" + encodeURIComponent(bucketKey), { method: "DELETE" });
-      toast("Legacy-Bucket gelöscht.");
-      await loadAll(); buildChrome(); closeOverlay(); renderView();
-    } catch (err) {
-      if (!handleAuthFailure(err)) toast(err.message || "Löschen fehlgeschlagen.", true);
-    }
-  }
-
-  // ---- Spiel-Drawer ------------------------------------------------------
-  async function openGameDrawer(keyValue) {
-    const summary = state.data.games.find(g => g.game && g.game.value === keyValue);
-    if (!summary) return;
-    const game = summary.game;
+  // ---- Spiel-Drawer (kanonisch, mit Bucket-Aufschlüsselung) --------------
+  // Wird mit dem KANONISCHEN Spielschlüssel geöffnet und zeigt je zugehörigem
+  // Bucket (privat je Gerät / geteilt / Konflikt-Kopie) einen Abschnitt.
+  function openGameDrawer(canonical) {
+    const buckets = state.data.games.filter(g => canonicalOf(g) === canonical);
+    if (buckets.length === 0) return;
+    const grp = finalizeGroup({ canonical: canonical, buckets: buckets.slice() });
 
     const drawer = el("div", { class: "drawer" });
     openOverlay(closeOverlay, drawer);
 
-    // Kopf
+    // Kopf: Spielname + ein kanonisches Cover + aggregierte Kennzahlen.
     const head = el("div", { class: "drawer__head" });
-    const drawerCover = el("div", { class: "drawer__cover", style: { background: coverColor(keyValue) } });
-    loadCover(keyValue, drawerCover);
-    // Zeile für den Standard-Save-Pfad (wird nach dem Laden der Revisionen befüllt, falls bekannt).
-    const pathEl = el("div", { class: "drawer__sub", style: { "margin-top": "2px", opacity: "0.75", "word-break": "break-all" } });
+    const drawerCover = el("div", { class: "drawer__cover", style: { background: coverColor(canonical) } });
+    loadCover(canonical, drawerCover);
+    const metaBits = [];
+    if (grp.store) metaBits.push(grp.store);
+    metaBits.push(formatBytes(grp.totalBytes));
+    metaBits.push((grp.fileCount || 0) + " Dateien");
+    if (grp.deviceCount === 1) metaBits.push("1 Gerät");
+    else if (grp.deviceCount > 1) metaBits.push("auf " + grp.deviceCount + " Geräten");
     const idBlock = el("div", { class: "drawer__id" }, [
       drawerCover,
       el("div", null, [
-        el("div", { class: "drawer__title", text: gameDisplay(game) }),
-        el("div", { class: "drawer__sub", text: (game.store ? game.store + " · " : "") + formatBytes(summary.totalBytes) + " · " + (summary.fileCount || 0) + " Dateien" }),
-        pathEl
+        el("div", { class: "drawer__title", text: grp.displayName }),
+        el("div", { class: "drawer__sub", text: metaBits.join(" · ") })
       ])
     ]);
     const closeBtn = el("button", { class: "close-btn", type: "button", title: "Schließen", on: { click: closeOverlay } });
@@ -1104,8 +1188,26 @@
     head.appendChild(closeBtn);
     drawer.appendChild(head);
 
-    // Konflikt-Banner
-    const conflict = state.data.conflicts.find(c => c.game && c.game.value === keyValue);
+    // Je Bucket ein Abschnitt (bei nur einem Bucket genau einer – nichts leer).
+    for (const bucket of buckets) drawer.appendChild(bucketSection(bucket, canonical));
+  }
+
+  // Ein Bucket-Abschnitt: Überschrift, Scope/Teilen, ggf. Konflikt-Banner,
+  // Clients (Per-Gerät-Status) und Versionsverlauf. Die Detail-Daten werden
+  // PRO BUCKET über den Bucket-Schlüssel geladen (nur das Cover ist kanonisch).
+  function bucketSection(bucket, canonical) {
+    const bucketValue = bucket.game && bucket.game.value;
+    const section = el("div", { class: "bucket-section" });
+
+    section.appendChild(el("div", { class: "bucket-section__head", text: bucketHeading(bucket) }));
+    section.appendChild(gameScopeBar(bucket, canonical));
+
+    // Standard-Save-Pfad (aus der neuesten Revision mit bekanntem Pfad).
+    const pathEl = el("div", { class: "drawer__sub", style: { "margin-top": "2px", opacity: "0.75", "word-break": "break-all" } });
+    section.appendChild(pathEl);
+
+    // Konflikt-Banner nur, wenn genau dieser Bucket betroffen ist.
+    const conflict = state.data.conflicts.find(c => c.game && c.game.value === bucketValue);
     if (conflict) {
       const banner = el("div", { class: "conflict-banner" });
       banner.appendChild(el("div", { class: "conflict-banner__text" }, [
@@ -1113,51 +1215,46 @@
         document.createTextNode("Mehrere Clients haben abweichende Spielstände.")
       ]));
       banner.appendChild(el("button", { class: "btn btn--conflict", type: "button", text: "Lösen",
-        on: { click: () => openConflictModal(conflict) } }));
-      drawer.appendChild(banner);
+        on: { click: () => openConflictModal(conflict, canonical) } }));
+      section.appendChild(banner);
     }
 
-    // Scope + Teilen/Legacy-Aktionen (Phase 3)
-    drawer.appendChild(gameScopeBar(summary));
-
-    // Bereiche mit Ladezustand
-    const clientsSection = el("div");
-    clientsSection.appendChild(el("div", { class: "section-label", text: "Clients" }));
+    section.appendChild(el("div", { class: "section-label", text: "Clients" }));
     const clientsBody = el("div", { class: "drawer-list" });
     clientsBody.appendChild(loadingState());
-    clientsSection.appendChild(clientsBody);
-    drawer.appendChild(clientsSection);
+    section.appendChild(clientsBody);
 
-    const versionSection = el("div");
-    versionSection.appendChild(el("div", { class: "section-label", text: "Versionsverlauf" }));
+    section.appendChild(el("div", { class: "section-label", text: "Versionsverlauf" }));
     const versionBody = el("div", { class: "version-list" });
     versionBody.appendChild(loadingState());
-    versionSection.appendChild(versionBody);
-    drawer.appendChild(versionSection);
+    section.appendChild(versionBody);
 
-    // Revisionen laden
+    fillBucketSection(bucketValue, canonical, clientsBody, versionBody, pathEl);
+    return section;
+  }
+
+  async function fillBucketSection(bucketValue, canonical, clientsBody, versionBody, pathEl) {
     let revisions = [];
     try {
-      revisions = await getRevisions(keyValue);
+      revisions = await getRevisions(bucketValue);
     } catch (err) {
       clear(clientsBody); clear(versionBody);
-      if (handleAuthFailure(err)) return;
-      const msg = el("div", { class: "empty", text: err.message || "Konnte Versionen nicht laden." });
-      versionBody.appendChild(msg);
+      if (handleAuthFailure(err)) { closeOverlay(); return; }
+      clientsBody.appendChild(el("div", { class: "empty", text: "—" }));
+      versionBody.appendChild(el("div", { class: "empty", text: err.message || "Konnte Versionen nicht laden." }));
       return;
     }
 
-    // Per-Gerät-Zustand aus dem echten /api/game-states-Endpunkt (statt aus der
-    // Revisionshistorie abgeleitet). Die Revisionen liefern zusätzlich den
-    // Zeitpunkt der letzten Übertragung je Gerät für die Unterzeile.
+    // Per-Gerät-Zustand aus /api/game-states; Revisionen liefern die letzte
+    // Übertragung je Gerät für die Unterzeile.
     clear(clientsBody);
     const latestByDevice = {};
     for (const r of revisions) {
       if (!latestByDevice[r.deviceId] || r.number > latestByDevice[r.deviceId].number) latestByDevice[r.deviceId] = r;
     }
-    const gameStates = (state.data.gameStates || []).filter(s => s.game && s.game.value === keyValue);
+    const gameStates = (state.data.gameStates || []).filter(s => s.game && s.game.value === bucketValue);
     if (gameStates.length === 0) {
-      clientsBody.appendChild(el("div", { class: "empty", text: "Noch kein Client hat dieses Spiel synchronisiert." }));
+      clientsBody.appendChild(el("div", { class: "empty", text: "Noch kein Client hat diesen Stand synchronisiert." }));
     } else {
       for (const gs of gameStates) {
         const r = latestByDevice[gs.deviceId];
@@ -1171,11 +1268,9 @@
       }
     }
 
-    // Standard-Save-Pfad (aus der neuesten Revision, die einen kennt) im Kopf anzeigen.
     const withRoot = revisions.find(r => r.saveRoot);
     if (withRoot) pathEl.textContent = "Standard-Pfad: " + withRoot.saveRoot;
 
-    // Versionsverlauf
     clear(versionBody);
     if (revisions.length === 0) {
       versionBody.appendChild(el("div", { class: "empty", text: "Noch keine Versionen." }));
@@ -1193,9 +1288,9 @@
         const actions = el("div", { class: "version-row__actions" });
         actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Export",
           title: "Diese Version als ZIP herunterladen",
-          on: { click: (ev) => downloadRevisionExport(keyValue, r.number, ev.currentTarget) } }));
+          on: { click: (ev) => downloadRevisionExport(bucketValue, r.number, ev.currentTarget) } }));
         actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Wiederherstellen",
-          on: { click: () => openRestorePicker(keyValue, r.number) } }));
+          on: { click: () => openRestorePicker(bucketValue, r.number, canonical) } }));
         row.appendChild(actions);
         versionBody.appendChild(row);
       }
@@ -1210,7 +1305,10 @@
   }
 
   // ---- Restore-Ziel-Auswahl (Modal) -------------------------------------
-  function openRestorePicker(keyValue, revisionNumber) {
+  function openRestorePicker(keyValue, revisionNumber, canonical) {
+    // keyValue = Bucket-Schlüssel (für die Operation); canonical = Spiel (für die
+    // Rückkehr in den Drawer).
+    const back = () => openGameDrawer(canonical || keyValue);
     const devices = state.data.devices;
     const modal = el("div", { class: "modal modal--sm" });
     const head = el("div", { class: "modal__head" });
@@ -1218,7 +1316,7 @@
       el("div", { class: "modal__title", text: "Version wiederherstellen" }),
       el("div", { class: "modal__sub", text: "Revision #" + revisionNumber + " – auf welches Gerät?" })
     ]));
-    const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: () => openGameDrawer(keyValue) } });
+    const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: back } });
     closeBtn.appendChild(iconEl("close", "close-btn__glyph"));
     head.appendChild(closeBtn);
     modal.appendChild(head);
@@ -1240,10 +1338,10 @@
     }
     modal.appendChild(el("div", { class: "modal__foot" }, [
       el("span"),
-      el("button", { class: "btn btn--ghost", type: "button", text: "Abbrechen", on: { click: () => openGameDrawer(keyValue) } })
+      el("button", { class: "btn btn--ghost", type: "button", text: "Abbrechen", on: { click: back } })
     ]));
 
-    const scrim = el("div", { class: "modal-scrim", on: { click: e => { if (e.target === scrim) openGameDrawer(keyValue); } } }, [modal]);
+    const scrim = el("div", { class: "modal-scrim", on: { click: e => { if (e.target === scrim) back(); } } }, [modal]);
     clear(overlayRoot);
     overlayRoot.appendChild(scrim);
   }
@@ -1325,8 +1423,9 @@
   }
 
   // ---- Konflikt-Modal ----------------------------------------------------
-  async function openConflictModal(conflict) {
+  async function openConflictModal(conflict, canonical) {
     const keyValue = conflict.game && conflict.game.value;
+    const back = () => openGameDrawer(canonical || keyValue);
     let revisions = [];
     try { revisions = await getRevisions(keyValue); }
     catch (err) { if (handleAuthFailure(err)) return; toast(err.message || "Konnte Konfliktdaten nicht laden.", true); return; }
@@ -1341,7 +1440,7 @@
       el("div", { class: "modal__title", text: "Konflikt lösen" }),
       el("div", { class: "modal__sub", text: gameDisplay(conflict.game) + " · abweichende Spielstände gefunden" })
     ]));
-    const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: () => openGameDrawer(keyValue) } });
+    const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: back } });
     closeBtn.appendChild(iconEl("close", "close-btn__glyph"));
     head.appendChild(closeBtn);
     modal.appendChild(head);
@@ -1379,7 +1478,7 @@
     foot.appendChild(el("button", { class: "btn btn--ghost", type: "button", text: "Beide behalten (umbenennen)",
       on: { click: () => resolveConflict(conflict, { resolution: "KeepBoth" }) } }));
     const right = el("div", { class: "modal__foot-right" });
-    right.appendChild(el("button", { class: "btn btn--ghost", type: "button", text: "Abbrechen", on: { click: () => openGameDrawer(keyValue) } }));
+    right.appendChild(el("button", { class: "btn btn--ghost", type: "button", text: "Abbrechen", on: { click: back } }));
     const resolveBtn = el("button", { class: "btn btn--accent", type: "button", text: "Konflikt lösen",
       on: { click: () => {
         if (selected == null) return;
@@ -1391,7 +1490,7 @@
     foot.appendChild(right);
     modal.appendChild(foot);
 
-    const scrim = el("div", { class: "modal-scrim", on: { click: e => { if (e.target === scrim) openGameDrawer(keyValue); } } }, [modal]);
+    const scrim = el("div", { class: "modal-scrim", on: { click: e => { if (e.target === scrim) back(); } } }, [modal]);
     clear(overlayRoot);
     overlayRoot.appendChild(scrim);
   }
