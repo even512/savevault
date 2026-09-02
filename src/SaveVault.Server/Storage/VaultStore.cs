@@ -491,7 +491,11 @@ public sealed class VaultStore
                     g.CurrentRevision,
                     ComputeGameStatus(g),
                     g.CurrentFileCount,
-                    g.CurrentTotalBytes));
+                    g.CurrentTotalBytes,
+                    BucketKey.ToWire(BucketKey.ScopeOf(g.KeyValue)),
+                    BucketKey.OwnerOf(g.KeyValue),
+                    BucketKey.Original(ToGameKey(g)).Value,
+                    g.IsFork));
             }
             return new GamesResponse(list);
         }
@@ -913,17 +917,7 @@ public sealed class VaultStore
         }
 
         // Inhalte des Verlierer-Manifests in den neuen Bucket kopieren (inhaltsadressiert).
-        foreach (var entry in loser.Manifest.Entries)
-        {
-            var src = _paths.ContentFile(ToGameKey(g), entry.Sha256);
-            var dst = _paths.ContentFile(forkKey, entry.Sha256);
-            if (File.Exists(src) && !File.Exists(dst))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-                try { File.Copy(src, dst); }
-                catch (IOException) when (File.Exists(dst)) { /* parallel schon da */ }
-            }
-        }
+        CopyManifestBlobs(ToGameKey(g), forkKey, loser.Manifest);
 
         var forkNumber = fork.LastRevisionNumber + 1;
         var forkRev = new Revision(
@@ -1069,6 +1063,125 @@ public sealed class VaultStore
                 .OrderByDescending(a => a.TimestampUtc)
                 .Take(limit is > 0 and <= MaxActivityEntries ? limit : 100)
                 .ToList();
+        }
+        finally { _gate.Release(); }
+    }
+
+    // =============================================================================
+    // Dashboard: Teilen etablieren + Legacy löschen (master-only)
+    // =============================================================================
+
+    /// <summary>
+    /// Etabliert einen GETEILTEN Bucket für ein Spiel, indem der aktuelle Stand des gewählten Geräts
+    /// (dessen privater Bucket) als geteilte Revision 1 kopiert wird. 409, wenn schon ein geteilter
+    /// Stand existiert; 404, wenn das Quell-Gerät keinen Stand hat. Blobs werden inhaltsadressiert
+    /// kopiert (nichts am privaten Bucket verändert).
+    /// </summary>
+    public async Task<ShareSeedResponse> SeedSharedFromDeviceAsync(GameKey canonicalGame, string sourceDeviceId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDeviceId))
+            throw new VaultException(400, "Quell-Gerät fehlt.");
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var privateKey = BucketKey.Resolve(canonicalGame, BucketScope.Private, sourceDeviceId);
+            var priv = FindGame(privateKey.Value);
+            if (priv is null || priv.CurrentRevision <= 0)
+                throw new VaultException(404, "Das gewählte Gerät hat für dieses Spiel keinen Stand.");
+            if (priv.IsFork)
+                throw new VaultException(400, "Konflikt-Kopien können nicht geteilt werden.");
+
+            var sharedKey = BucketKey.Resolve(canonicalGame, BucketScope.Shared, null);
+            var shared = FindGame(sharedKey.Value);
+            if (shared is not null && shared.CurrentRevision > 0)
+                throw new VaultException(409, "Für dieses Spiel gibt es bereits einen geteilten Stand.");
+
+            var head = LoadRevision(priv, priv.CurrentRevision)
+                ?? throw new VaultException(404, "Quell-Revision nicht gefunden.");
+
+            if (shared is null)
+            {
+                shared = new GameRecord
+                {
+                    KeyValue = sharedKey.Value,
+                    DisplayName = priv.DisplayName,
+                    Store = priv.Store,
+                    StoreId = priv.StoreId,
+                };
+                _index.Games.Add(shared);
+            }
+
+            // Inhalte (Blobs) inhaltsadressiert vom privaten in den geteilten Bucket kopieren.
+            CopyManifestBlobs(privateKey, sharedKey, head.Manifest);
+
+            // Erste Revision eines frisch angelegten Buckets → keine Basis (analog Fork/Erst-Upload).
+            var number = shared.LastRevisionNumber + 1;
+            var rev = new Revision(
+                number, ToGameKey(shared), sourceDeviceId, DateTime.UtcNow,
+                head.Manifest, IsConflict: false, BasedOnRevision: null, SaveRoot: head.SaveRoot);
+            WriteRevision(shared, rev);
+            shared.LastRevisionNumber = number;
+            shared.CurrentRevision = number;
+            shared.CurrentFileCount = head.Manifest.FileCount;
+            shared.CurrentTotalBytes = head.Manifest.TotalBytes;
+
+            var srcName = _index.Devices.FirstOrDefault(d => d.Id == sourceDeviceId)?.Name ?? sourceDeviceId;
+            AddActivity(new ActivityEntry
+            {
+                Id = Secrets.NewId(),
+                TimestampUtc = DateTime.UtcNow,
+                Action = "upload",
+                GameKeyValue = shared.KeyValue,
+                GameDisplayName = shared.DisplayName,
+                DeviceId = sourceDeviceId,
+                DeviceName = srcName,
+                Revision = number,
+                Bytes = head.Manifest.TotalBytes,
+                FileCount = head.Manifest.FileCount,
+                Detail = "Geteilter Stand im Dashboard etabliert",
+            });
+
+            Save();
+            return new ShareSeedResponse(number);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// Löscht einen eingefrorenen LEGACY-Bucket samt Revisionen und Blobs. Nur Legacy (kein Präfix)
+    /// ist zulässig – private/geteilte Buckets bleiben geschützt (400). Das Verzeichnis wird
+    /// traversal-sicher über <see cref="StoragePaths"/> aufgelöst und nur gelöscht, wenn es garantiert
+    /// unter dem Datenverzeichnis liegt.
+    /// </summary>
+    public async Task DeleteLegacyBucketAsync(GameKey bucketKey, CancellationToken ct)
+    {
+        if (BucketKey.ScopeOf(bucketKey.Value) != BucketScope.Legacy)
+            throw new VaultException(400, "Nur eingefrorene Legacy-Buckets können hier gelöscht werden.");
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var g = FindGame(bucketKey.Value)
+                ?? throw new VaultException(404, "Unbekannter Bucket.");
+            // Konflikt-Kopien tragen zwar keinen Scope-Präfix (sehen also „legacy" aus), sind aber
+            // bewahrte Verlierer-Stände einer KeepBoth-Lösung – nie über diese Route zu löschen.
+            if (g.IsFork)
+                throw new VaultException(400, "Konflikt-Kopien sind keine Legacy-Buckets.");
+
+            var dir = _paths.GameDirectory(bucketKey);
+            if (_paths.IsWithinData(dir) && Directory.Exists(dir))
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
+            }
+
+            _index.Games.Remove(g);
+            _index.GameStates.RemoveAll(s => s.GameKeyValue == bucketKey.Value);
+            _index.Conflicts.RemoveAll(c => c.Game.Value == bucketKey.Value);
+            _index.Commands.RemoveAll(cmd => cmd.Game.Value == bucketKey.Value);
+            _index.Activity.RemoveAll(a => a.GameKeyValue == bucketKey.Value);
+            Save();
         }
         finally { _gate.Release(); }
     }
@@ -1241,6 +1354,26 @@ public sealed class VaultStore
         var dir = _paths.RevisionDirectory(ToGameKey(g), rev.Number);
         Directory.CreateDirectory(dir);
         AtomicJson.Write(Path.Combine(dir, "revision.json"), rev, _json);
+    }
+
+    /// <summary>
+    /// Kopiert die im Manifest referenzierten Blobs inhaltsadressiert vom Quell- in den
+    /// Ziel-Bucket (je Blob No-Op, wenn er im Ziel schon liegt). Der Quell-Bucket bleibt
+    /// unverändert. Wird beim KeepBoth-Fork und beim Etablieren eines geteilten Buckets genutzt.
+    /// </summary>
+    private void CopyManifestBlobs(GameKey sourceKey, GameKey targetKey, FileManifest manifest)
+    {
+        foreach (var entry in manifest.Entries)
+        {
+            var src = _paths.ContentFile(sourceKey, entry.Sha256);
+            var dst = _paths.ContentFile(targetKey, entry.Sha256);
+            if (File.Exists(src) && !File.Exists(dst))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                try { File.Copy(src, dst); }
+                catch (IOException) when (File.Exists(dst)) { /* parallel schon da */ }
+            }
+        }
     }
 
     private void Save() => AtomicJson.Write(_indexPath, _index, _json);

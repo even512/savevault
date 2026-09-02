@@ -92,6 +92,21 @@ public static class BucketKey
         return bucket;
     }
 
+    /// <summary>
+    /// Die Owner-Geräte-ID eines PRIVATEN Bucket-Schlüssels (<c>dev|{owner}|{value}</c>), sonst
+    /// <c>null</c> (geteilt/legacy haben keinen Owner). Getrennt wird am ersten und letzten <c>|</c>;
+    /// der value-Anteil enthält nie ein <c>|</c>.
+    /// </summary>
+    public static string? OwnerOf(string bucketValue)
+    {
+        ArgumentNullException.ThrowIfNull(bucketValue);
+        if (!bucketValue.StartsWith(PrivateMarker, StringComparison.Ordinal))
+            return null;
+        var rest = bucketValue[PrivateMarker.Length..];
+        var sep = rest.LastIndexOf('|');
+        return sep > 0 ? rest[..sep] : null;
+    }
+
     /// <summary>Leitet den Scope aus einem (evtl. bereits aufgelösten) Bucket-Schlüssel ab.</summary>
     public static BucketScope ScopeOf(string bucketValue)
     {

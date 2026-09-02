@@ -364,6 +364,8 @@ button { font-family: inherit; }
 .btn--accent { background: var(--accent); color: white; }
 .btn--accent:hover { background: var(--accent-strong); }
 .btn--conflict { background: var(--conflict); color: oklch(0.15 0.02 55); font-weight: 700; }
+.btn--danger { background: var(--error); color: white; }
+.btn--danger:hover { filter: brightness(1.08); }
 .btn--ghost { background: transparent; color: var(--muted); }
 .btn--ghost:hover { color: white; }
 .btn--sm { padding: 6px 12px; font-size: 12px; }

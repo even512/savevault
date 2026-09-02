@@ -156,6 +156,27 @@ public static class SaveVaultEndpoints
             async (string gameKey, string? scope, RestoreRequest req, HttpContext ctx, VaultStore store, CancellationToken ct)
             => Results.Json(await store.RestoreAsync(ResolveGameKey(ctx, gameKey, scope), req, ct)));
 
+        // --- Dashboard: Teilen etablieren + Legacy löschen (master-only) -------------
+        // Teilen: {gameKey} ist der KANONISCHE Spielschlüssel; der Server kopiert den Stand des
+        // gewählten Geräts (dessen privater Bucket) als geteilte Revision 1.
+        api.MapPost("/games/{gameKey}/share",
+            async (string gameKey, ShareSeedRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            {
+                if (!Principal(ctx).IsMaster) return AdminOnly();
+                if (req is null || string.IsNullOrWhiteSpace(req.SourceDeviceId))
+                    return ApiResults.Error(400, "Quell-Gerät fehlt.");
+                return Results.Json(await store.SeedSharedFromDeviceAsync(KeyFrom(gameKey), req.SourceDeviceId, ct));
+            });
+
+        // Legacy löschen: {gameKey} ist der rohe Legacy-Bucket-Schlüssel (aus der Spieleliste).
+        api.MapDelete("/games/{gameKey}",
+            async (string gameKey, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            {
+                if (!Principal(ctx).IsMaster) return AdminOnly();
+                await store.DeleteLegacyBucketAsync(KeyFrom(gameKey), ct);
+                return Results.Ok();
+            });
+
         // --- Konflikte --------------------------------------------------------------
         api.MapGet("/conflicts", async (VaultStore store, CancellationToken ct)
             => Results.Json(await store.GetConflictsAsync(ct)));

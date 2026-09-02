@@ -37,13 +37,28 @@ public sealed record HeartbeatResponse(DateTime ServerTimeUtc, int PendingComman
 
 // --- Spiele / Revisionen -----------------------------------------------------------
 
-/// <summary>Übersichtseintrag eines Spiels für Listen/Dashboard.</summary>
+/// <summary>
+/// Übersichtseintrag eines Spiels/Buckets für Listen/Dashboard. <see cref="Scope"/> („private"/
+/// „shared"/„legacy") und <see cref="OwnerDeviceId"/> (nur bei privat) trennen die Bucket-Sorten;
+/// <see cref="CanonicalValue"/> ist der kanonische Spiel-Schlüssel ohne Scope-Präfix (zum Gruppieren
+/// und für die Teilen-Aktion).
+/// </summary>
 public sealed record GameSummary(
     GameKey Game,
     long CurrentRevision,
     SyncStatus Status,
     int FileCount,
-    long TotalBytes);
+    long TotalBytes,
+    string Scope = "legacy",
+    string? OwnerDeviceId = null,
+    string? CanonicalValue = null,
+    bool IsFork = false);
+
+/// <summary>Dashboard-Aktion „Spiel geräteübergreifend teilen": den Stand eines gewählten Geräts als Seed.</summary>
+public sealed record ShareSeedRequest(string SourceDeviceId);
+
+/// <summary>Antwort auf das Etablieren eines geteilten Buckets.</summary>
+public sealed record ShareSeedResponse(long SharedRevision);
 
 /// <summary>Liste aller dem Server bekannten Spiele.</summary>
 public sealed record GamesResponse(IReadOnlyList<GameSummary> Games);

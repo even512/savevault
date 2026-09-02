@@ -606,6 +606,11 @@
     const meta = statusMeta(summary.status);
     const lastT = lastActivityForGame(game.value);
     const metaParts = [];
+    // Scope-Hinweis (Phase 3): geteilt / legacy / lokal je Gerät – damit sich die Bucket-Sorten
+    // in der Liste unterscheiden lassen.
+    if (summary.scope === "shared") metaParts.push("Geteilt");
+    else if (summary.scope === "legacy") metaParts.push("Legacy");
+    else if (summary.ownerDeviceId) metaParts.push("Lokal: " + deviceName(summary.ownerDeviceId));
     if (game.store) metaParts.push(game.store);
     metaParts.push(formatBytes(summary.totalBytes));
     if (lastT) metaParts.push(relTime(lastT.toISOString()));
@@ -918,6 +923,158 @@
     overlayRoot.appendChild(panel);
   }
 
+  // Generischer Bestätigungsdialog (reingezogen aus dem Modal-Muster). onCancel/onConfirm
+  // sind Rückrufe; onCancel führt in der Regel in den Drawer zurück statt nur zu schließen.
+  function confirmModal(opts) {
+    const cancel = opts.onCancel || closeOverlay;
+    const modal = el("div", { class: "modal modal--sm" });
+    const head = el("div", { class: "modal__head" });
+    head.appendChild(el("div", null, [
+      el("div", { class: "modal__title", text: opts.title }),
+      opts.message ? el("div", { class: "modal__sub", text: opts.message }) : null
+    ]));
+    const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: cancel } });
+    closeBtn.appendChild(iconEl("close", "close-btn__glyph"));
+    head.appendChild(closeBtn);
+    modal.appendChild(head);
+    if (opts.lines && opts.lines.length) {
+      const box = el("div", { style: { margin: "8px 0 2px", display: "grid", gap: "6px" } });
+      for (const ln of opts.lines) box.appendChild(el("div", { class: "muted", style: { "font-size": "12.5px" }, text: ln }));
+      modal.appendChild(box);
+    }
+    modal.appendChild(el("div", { class: "modal__foot" }, [
+      el("span"),
+      el("div", { class: "modal__foot-right" }, [
+        el("button", { class: "btn btn--ghost", type: "button", text: "Abbrechen", on: { click: cancel } }),
+        el("button", { class: "btn " + (opts.danger ? "btn--danger" : "btn--accent"), type: "button",
+          text: opts.confirmText || "Bestätigen", on: { click: opts.onConfirm } })
+      ])
+    ]));
+    const scrim = el("div", { class: "modal-scrim", on: { click: e => { if (e.target === scrim) cancel(); } } }, [modal]);
+    clear(overlayRoot);
+    overlayRoot.appendChild(scrim);
+  }
+
+  // ---- Teilen/Legacy-Aktionen (Phase 3) ---------------------------------
+  function scopeLabel(summary) {
+    // Konflikt-Kopien tragen keinen Scope-Präfix, sind aber keine Legacy-/privaten Buckets,
+    // sondern bewahrte Verlierer-Stände einer KeepBoth-Lösung.
+    if (summary.isFork) return "Konflikt-Kopie · bewahrter Verlierer-Stand";
+    if (summary.scope === "shared") return "Geteilt · synchron über Geräte";
+    if (summary.scope === "legacy") return "Legacy · eingefrorener Alt-Verlauf";
+    return "Lokal · " + (summary.ownerDeviceId ? deviceName(summary.ownerDeviceId) : "dieses Gerät");
+  }
+  function sharedExistsFor(canonical) {
+    return state.data.games.some(x => x.scope === "shared" && x.canonicalValue === canonical);
+  }
+  function gameScopeBar(summary) {
+    const wrap = el("div", { style: { display: "flex", "align-items": "center", gap: "10px", "flex-wrap": "wrap", margin: "2px 0 10px" } });
+    wrap.appendChild(el("span", { class: "muted", style: { "font-size": "12.5px" }, text: scopeLabel(summary) }));
+
+    if (summary.isFork) {
+      // Keine Teilen-/Löschen-Aktion auf Konflikt-Kopien.
+    } else if (summary.scope === "legacy") {
+      wrap.appendChild(el("button", { class: "btn btn--ghost", type: "button", text: "Legacy-Bucket löschen",
+        on: { click: () => confirmDeleteLegacy(summary) } }));
+    } else if (summary.scope === "private") {
+      const canonical = summary.canonicalValue || summary.game.value;
+      if (sharedExistsFor(canonical)) {
+        wrap.appendChild(el("span", { class: "muted", style: { "font-size": "12.5px" }, text: "· geteilter Stand existiert bereits" }));
+      } else {
+        wrap.appendChild(el("button", { class: "btn btn--accent", type: "button", text: "Über Geräte teilen",
+          on: { click: () => beginShare(canonical, summary.ownerDeviceId, summary.game.value) } }));
+      }
+    }
+    return wrap;
+  }
+  // Alle privaten Buckets (mit Stand) desselben kanonischen Spiels = Teilen-Kandidaten.
+  function shareCandidates(canonical) {
+    return state.data.games.filter(x =>
+      x.scope === "private" && (x.canonicalValue || x.game.value) === canonical && x.currentRevision > 0);
+  }
+  // Genau ein Kandidat → direkt einsäen (Spec: ohne Rückfrage). Mehrere → Vergleichsdialog.
+  function beginShare(canonical, fallbackOwner, drawerKey) {
+    const cands = shareCandidates(canonical);
+    if (cands.length <= 1) {
+      const owner = (cands[0] && cands[0].ownerDeviceId) || fallbackOwner;
+      doShareSeed(canonical, owner, drawerKey);
+      return;
+    }
+    openSharePicker(canonical, cands, drawerKey);
+  }
+  // Vergleichsdialog: Kennzahlen aller Geräte-Buckets, Admin wählt den geteilten Ausgangsstand.
+  function openSharePicker(canonical, cands, drawerKey) {
+    const modal = el("div", { class: "modal modal--sm" });
+    const head = el("div", { class: "modal__head" });
+    head.appendChild(el("div", null, [
+      el("div", { class: "modal__title", text: "Über Geräte teilen" }),
+      el("div", { class: "modal__sub", text: "Welcher Geräte-Stand wird der geteilte Ausgangsstand?" })
+    ]));
+    const closeBtn = el("button", { class: "close-btn", type: "button", on: { click: () => openGameDrawer(drawerKey) } });
+    closeBtn.appendChild(iconEl("close", "close-btn__glyph"));
+    head.appendChild(closeBtn);
+    modal.appendChild(head);
+
+    const list = el("div", { class: "picker-list" });
+    for (const c of cands) {
+      const t = lastActivityForGame(c.game.value);
+      const item = el("button", { class: "picker-item", type: "button",
+        on: { click: () => doShareSeed(canonical, c.ownerDeviceId, drawerKey) } });
+      item.appendChild(el("div", null, [
+        el("div", { style: { "font-weight": "600", "font-size": "13px" }, text: deviceName(c.ownerDeviceId) }),
+        el("div", { class: "muted", style: { "font-size": "11.5px", "margin-top": "2px" },
+          text: "Revision " + (c.currentRevision || 0) + " · " + formatBytes(c.totalBytes) + " · "
+            + (c.fileCount || 0) + " Dateien" + (t ? " · " + relTime(t.toISOString()) : "") })
+      ]));
+      item.appendChild(iconEl("restore", "history-row__icon status--syncing"));
+      list.appendChild(item);
+    }
+    modal.appendChild(list);
+    modal.appendChild(el("div", { class: "modal__foot" }, [
+      el("span"),
+      el("button", { class: "btn btn--ghost", type: "button", text: "Abbrechen", on: { click: () => openGameDrawer(drawerKey) } })
+    ]));
+
+    const scrim = el("div", { class: "modal-scrim", on: { click: e => { if (e.target === scrim) openGameDrawer(drawerKey); } } }, [modal]);
+    clear(overlayRoot);
+    overlayRoot.appendChild(scrim);
+  }
+  async function doShareSeed(canonical, ownerDeviceId, drawerKey) {
+    if (!ownerDeviceId) { toast("Kein Quell-Gerät bekannt.", true); return; }
+    try {
+      const resp = await api("/api/games/" + encodeURIComponent(canonical) + "/share",
+        { method: "POST", body: JSON.stringify({ sourceDeviceId: ownerDeviceId }) });
+      toast("Geteilter Stand etabliert (Revision " + (resp && resp.sharedRevision) + "). Geräte können jetzt beitreten.");
+      await loadAll(); buildChrome(); openGameDrawer(drawerKey);
+    } catch (err) {
+      if (!handleAuthFailure(err)) toast(err.message || "Teilen fehlgeschlagen.", true);
+    }
+  }
+  function confirmDeleteLegacy(summary) {
+    confirmModal({
+      title: "Legacy-Bucket löschen?",
+      message: gameDisplay(summary.game),
+      lines: [
+        "Entfernt den eingefrorenen Alt-Verlauf samt aller Blobs unwiderruflich.",
+        formatBytes(summary.totalBytes) + " · " + (summary.fileCount || 0) + " Dateien · Revision " + (summary.currentRevision || 0),
+        "Private und geteilte Buckets bleiben unberührt."
+      ],
+      confirmText: "Endgültig löschen",
+      danger: true,
+      onConfirm: () => doDeleteLegacy(summary.game.value),
+      onCancel: () => openGameDrawer(summary.game.value)
+    });
+  }
+  async function doDeleteLegacy(bucketKey) {
+    try {
+      await api("/api/games/" + encodeURIComponent(bucketKey), { method: "DELETE" });
+      toast("Legacy-Bucket gelöscht.");
+      await loadAll(); buildChrome(); closeOverlay(); renderView();
+    } catch (err) {
+      if (!handleAuthFailure(err)) toast(err.message || "Löschen fehlgeschlagen.", true);
+    }
+  }
+
   // ---- Spiel-Drawer ------------------------------------------------------
   async function openGameDrawer(keyValue) {
     const summary = state.data.games.find(g => g.game && g.game.value === keyValue);
@@ -959,6 +1116,9 @@
         on: { click: () => openConflictModal(conflict) } }));
       drawer.appendChild(banner);
     }
+
+    // Scope + Teilen/Legacy-Aktionen (Phase 3)
+    drawer.appendChild(gameScopeBar(summary));
 
     // Bereiche mit Ladezustand
     const clientsSection = el("div");

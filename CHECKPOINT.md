@@ -1,5 +1,52 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-02)
 
+**Phase 3 (von 3) fertig — Dashboard: Teilen etablieren + Legacy löschen + Scope-Sichtbarkeit
+(Server 1.2.0).** Delta-Spec `specs/savevault-change-per-device-sync.md`, Weg über `/projekt-edit`.
+Reine **Server-/Dashboard-Änderung** (kein Client-Code). **Gate grün, committet auf Branch
+`phase3-dashboard-sharing` (kein Push).** Aufgenommen nach Limit-Abbruch bei 0 % — die im Arbeitsbaum
+liegende Vorarbeit (Endpunkte + `VaultStore`-Methoden + Scope-Felder + Dashboard-Anzeige) wurde
+vervollständigt, verifiziert und gehärtet.
+- **Scope-Sichtbarkeit:** `GameSummary` trägt jetzt `Scope`/`OwnerDeviceId`/`CanonicalValue`/`IsFork`;
+  das Dashboard labelt jede Bucket-Zeile (Lokal: <Gerät> / Geteilt / Legacy / Konflikt-Kopie) und
+  gruppiert so privat je Gerät + geteilt + Legacy. Pro-Gerät-Zustände geteilter Buckets entstehen
+  über die echten Revisions-Schreibvorgänge (synchronisierte Geräte erscheinen im geteilten Drawer).
+- **Teilen etablieren (master-only):** neuer Endpunkt `POST /api/games/{canonical}/share`
+  (`SeedSharedFromDeviceAsync`) kopiert den Stand des gewählten Geräts (privater Bucket) als geteilte
+  Revision 1 — Blobs inhaltsadressiert kopiert, privater Bucket bleibt unangetastet. 409 bei
+  vorhandenem geteilten Stand, 404 bei standlosem Quell-Gerät. Dashboard: „Über Geräte teilen" je
+  privatem Bucket; bei **mehreren** Geräte-Kandidaten **Auswahl-/Vergleichsdialog** (Revision, Dateien,
+  Größe, Zeit je Gerät), bei genau einem direkt (Spec: ohne Rückfrage). Beitritt bleibt am Gerät
+  (Phase-2-Client-Vergleichsdialog beim nächsten Sync) — kein stilles Überschreiben.
+- **Legacy löschen (master-only):** `DELETE /api/games/{legacyKey}` (`DeleteLegacyBucketAsync`) entfernt
+  einen eingefrorenen Bucket samt Blobs; **Bestätigungsdialog** im Dashboard vorgeschaltet. Nur
+  Legacy (kein Scope-Präfix) UND **kein Fork** löschbar; Verzeichnis traversal-sicher (Ordnername =
+  `HashKey`, zusätzlich `IsWithinData`-Wache vor `Directory.Delete`).
+- **Gate grün:** Build **0/0**, `dotnet test` **104/0/0**, app.js-Syntax ok, **Laufzeit-Smoke 22/22**
+  (In-Process gegen echten `VaultStore`: 2 private Buckets + Scope/Owner/Canonical-Felder, Seed→Rev 1
+  inkl. physisch kopiertem Blob + ladbarer Revision, 409/404-Fälle, Legacy-Delete-Wache privat/geteilt
+  →400 + echtes Löschen + unbekannt→404, **Konflikt-Fork: IsFork-Markierung + Delete→400**).
+  `/code-review high`: **6 Befunde → 5 behoben, #6 begründet abgelehnt** (Auswahl-Picker folgt dem
+  bestehenden `openRestorePicker`-Idiom, `confirmModal` ist ein Ja/Nein-Dialog). Behoben: Fork-Buckets
+  wurden rein präfix-basiert als Legacy/privat fehlklassifiziert und bekamen Lösch-/Teilen-Aktionen →
+  jetzt Server-Wache (`IsFork→400` in Delete **und** Seed) **und** Dashboard-Markierung „Konflikt-Kopie"
+  ohne Aktionen; Activity-Einträge beim Legacy-Löschen mitbereinigt; geteilte Erst-Revision
+  `BasedOnRevision=null` (statt 0, konsistent zum Fork/Erst-Upload); Blob-Copy in `CopyManifestBlobs`
+  zusammengeführt. **Sicherheits-Selbstprüfung** (statt Agent, wie in früheren Phasen; `/security-review`
+  brauchte das Repo als cwd, das die Sitzung hier zurücksetzte): Traversal ausgeschlossen (gehashter
+  Ordnername + Containment-Wache), beide Endpunkte master-only, kein neues `innerHTML`
+  (XSS-frei, `textContent`), Owner beim Teilen bewusst admin-gewählt (Single-Admin), kein
+  Outbound/Deserialisierung/Prozessstart.
+- **Offen/Rest:** Dashboard-Interaktion (Teilen-Auswahl, Bestätigung, Beitritt) headless nicht
+  bedienbar → **UI-Handtest bei Tim ausständig**. Heartbeat meldet Per-Spiel-Zustände weiter
+  privat-scoped (bekannte Phase-2-Altlast); geteilte Buckets zeigen synchronisierte Geräte über die
+  Revisions-Schreibvorgänge — vollständig scope-treue Heartbeat-Meldung bräuchte eine Client-Vertrags-
+  änderung und ist bewusst nicht Teil dieses Dashboard-Deltas. **Nicht-Umfang v1** (unverändert):
+  Teilen wieder ausschalten (geteilt→privat), automatisches Umschalten anderer Geräte, Auto-Merge.
+- **Verteilung (offen, Tims Schritt):** Branch mergen → master-Push baut Server-`:latest`; Tag (z. B.
+  `server-v1.2.0`/`v1.4.0`) für versioniertes Image.
+
+---
+
 **Phase 1+2 RELEASED als `v1.3.0` (2026-09-02).** Auf master gemerged + gepusht, Tag `v1.3.0`
 gesetzt → CI grün: DockerHub `even512/savevault-server:latest` + `:1.3.0`, GitHub-Release `v1.3.0`
 mit `SaveVault-Client-v1.3.0-win-x64.zip`. **Phase 3 (Dashboard) steht noch aus** — bewusst NICHT
