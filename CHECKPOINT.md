@@ -1,8 +1,13 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-02)
 
+**Phase 1+2 RELEASED als `v1.3.0` (2026-09-02).** Auf master gemerged + gepusht, Tag `v1.3.0`
+gesetzt → CI grün: DockerHub `even512/savevault-server:latest` + `:1.3.0`, GitHub-Release `v1.3.0`
+mit `SaveVault-Client-v1.3.0-win-x64.zip`. **Phase 3 (Dashboard) steht noch aus** — bewusst NICHT
+mehr in diese Sitzung genommen (Budget), damit der Release sauber bleibt.
+
 **Phase 2 (von 3) fertig — Client-Umschalter Lokal/Synchron + Vergleichsdialog (Client 1.3.0).**
 Delta-Spec `specs/savevault-change-per-device-sync.md`, Weg über `/projekt-edit`. **Gate grün,
-committet auf Branch `phase1-per-device-buckets` (kein Push).** Reine Client-Änderung (kein Server).
+Teil des Release v1.3.0.** Reine Client-Änderung (kein Server).
 - **Umschalter je Spielzeile „Über Geräte synchronisieren" (Lokal ↔ Synchron).** Neuer opt-in
   `GameShareStore` (Gegenstück zur Ausschluss-Achse). Sync-Scope pro Spiel: `ClientAgent.ActiveScope`
   → `SyncEngine.RunCycleAsync(scope)`; der ganze Sync-Pfad (Upload/Download/Conflict/ApplyRevision/
