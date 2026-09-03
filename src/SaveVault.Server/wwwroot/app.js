@@ -610,6 +610,7 @@
     state.view = view;
     // Suche/Filter beim Wechsel zurücksetzen (klare Ausgangslage).
     if (view !== "games" && view !== "clients") { /* Suche bleibt egal */ }
+    document.documentElement.classList.remove("sv-live"); // Nutzer-Navigation: darf wieder einblenden
     buildChrome();
     renderView();
   }
@@ -627,6 +628,7 @@
     btn.classList.add("is-busy");
     try {
       await loadAll();
+      document.documentElement.classList.remove("sv-live"); // manueller Refresh: darf einblenden
       buildChrome();
       renderView();
     } catch (err) {
@@ -681,6 +683,7 @@
     if (state.live.refreshing || isInteracting()) { state.live.pending = true; return; }
     state.live.refreshing = true;
     loadAll().then(() => {
+      document.documentElement.classList.add("sv-live"); // Auto-Update: ohne Einblende-Animation (kein Flackern)
       buildChrome();
       renderView();
       refreshOpenDrawer(); // ein offenes Client-Panel gleich mit frischen Daten neu aufbauen
@@ -707,7 +710,10 @@
       if (app.hidden || !state.token || isInteracting()) return; // Interaktion nie unterbrechen
       // Zurückgestelltes Nachladen jetzt nachholen, sonst nur die Zeit-/Offline-Anzeige altern lassen.
       if (state.live.pending) { state.live.pending = false; liveRefreshNow(); }
-      else { renderView(); refreshOpenDrawer(); } // auch ein offenes Client-Panel altern lassen (Offline-Übergang)
+      else {
+        document.documentElement.classList.add("sv-live"); // Takt-Update: ohne Einblende-Animation
+        renderView(); refreshOpenDrawer(); // auch ein offenes Client-Panel altern lassen (Offline-Übergang)
+      }
     }, 12000);
   }
 

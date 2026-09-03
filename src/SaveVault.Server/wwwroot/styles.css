@@ -54,6 +54,19 @@ button { font-family: inherit; }
 @keyframes sv-slideIn { from{opacity:0;transform:translateX(24px)} to{opacity:1;transform:translateX(0)} }
 @keyframes sv-spin    { from{transform:rotate(0)} to{transform:rotate(360deg)} }
 
+/* Bei automatischen Live-Aktualisierungen (SSE-Push + Re-Render-Takt) sollen die Einblende-
+   Animationen NICHT erneut abgespielt werden – sonst „flackert" bei jedem Update die ganze
+   Kachel sichtbar auf. Setzt der Code die Klasse sv-live am Root, laufen die Kacheln/Panels
+   ohne Neu-Einblendung (Werte wechseln still in place). Nutzer-Aktionen (Navigation, manueller
+   Refresh, Erstaufbau) entfernen die Klasse und animieren wie gehabt. Pulse-Punkte und der
+   Refresh-Spinner (sv-pulse/sv-spin) bleiben unberührt. */
+:root.sv-live .stat,
+:root.sv-live .game-card,
+:root.sv-live .client-card,
+:root.sv-live .client-row,
+:root.sv-live .scrim,
+:root.sv-live .drawer { animation: none !important; }
+
 /* ---- Grundlayout ------------------------------------------------------ */
 .app { display: flex; width: 100%; min-height: 100vh; }
 .app[hidden] { display: none; }
