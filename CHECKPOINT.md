@@ -1,5 +1,28 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
 
+**Live-Dashboard Phase 2 von 2 — Client-Heartbeat entkoppelt (Client 1.5.0).**
+Delta-Spec `specs/savevault-change-live-dashboard.md` (Abschnitt 6), Weg über `/projekt-edit`.
+Reine **Client-Änderung**; erfordert (anders als Phase 1) ein **Client-Update auf allen Geräten**.
+**Gate grün, committet auf Branch `phase-live-dashboard` (kein Push).**
+- **Heartbeat vom Sync-Takt entkoppelt:** neues `ClientConfig.HeartbeatIntervalSeconds` (Default 15,
+  rückwärtskompatibel – fehlt das Feld, greift 15) + berechnetes `HeartbeatInterval` (Untergrenze
+  5 s, **nie langsamer als der Sync-Takt** → kein Rückschritt bei sehr kleinem Sync-Intervall).
+  `ClientAgent` startet den Heartbeat-Loop jetzt mit `config.HeartbeatInterval` statt mit dem
+  Sync-Intervall; Rescan-/Command-Loop bleiben am Sync-Takt. So kippt „Verbunden/Offline" im
+  Dashboard binnen ~15 s statt bis zu 60 s. Das Lebenszeichen ist billig (nur Präsenz/Status aus
+  lokalem Zustand, kein ludusavi/Upload) → häufiger unproblematisch.
+- **Gate grün:** Build **0/0**, `dotnet test` **112/0/0** (unverändert). `HeartbeatInterval`-Arithmetik
+  per Wegwerf-Harness real geprüft (6 Fälle: Default 15, nie langsamer als Sync, Untergrenze 5,
+  60/60→60 = altes Verhalten). Kein `/code-review`-Fork (triviale Arithmetik+Verdrahtung, Diff selbst
+  geprüft), kein `/security-review` (keine neue Fläche; bestehender authentifizierter Heartbeat).
+- **Offen (Tims Schritt):** Client-Update auf alle Geräte ausrollen (Tag `v1.5.0` → Release-ZIP);
+  danach live prüfen, dass Präsenz zeitnah umschlägt. WPF-Client-Laufzeit hier nicht isolierbar
+  (wie in früheren Client-Phasen) → Handtest bei Tim.
+
+---
+
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
+
 **Live-Dashboard — Echtzeit-Aktualisierung per Server-Push (Server 1.4.0), Phase 1 von 2.**
 Delta-Spec `specs/savevault-change-live-dashboard.md`, Weg über `/projekt-edit`. Reine
 **Server-/Dashboard-Änderung** (kein Windows-Client-Code) → Rollout = **nur Server neu deployen**.
@@ -30,9 +53,8 @@ kein Polling/Push; „Verbunden/Offline" wurde nur beim Rendern berechnet, das n
   `IOException`-Flut, stale-nach-Inflight-Refresh, Interaktions-Abbruch, Publish-pro-Blob→nur bei
   Finalisierung, Polling-Timer-Leak). `/security-review`: **sauber** (master-only, Token nur im
   Header, Stream trägt nur Codewort+Zeit — keine Fremddaten/PII, kein DOM-Inject).
-- **Offen:** **Phase 2 (Client-Heartbeat-Frequenz, budget-abhängig)** — Heartbeat vom Sync-Intervall
-  entkoppeln (~15 s statt 60 s) für schnellere Präsenz; erfordert Client-Update auf allen Geräten.
-  Visuelle Abnahme des Live-Verhaltens im echten Dashboard nach dem Deploy (Tims Schritt).
+- **Phase 2 erledigt** (Client-Heartbeat entkoppelt, Client 1.5.0 – siehe Block oben).
+  Offen: visuelle Abnahme des Live-Verhaltens im echten Dashboard nach dem Deploy (Tims Schritt).
 - **Verteilung:** master-Push baut Server-`:latest`; Tag (z. B. `server-v1.4.0`) für versioniertes Image.
 
 ---

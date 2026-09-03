@@ -166,7 +166,9 @@ public sealed class ClientAgent : IAsyncDisposable
         var interval = config.SyncInterval;
         _rescanLoop = RunLoopAsync(interval, RescanAllAsync, token, runImmediately: true);
         _commandLoop = RunLoopAsync(interval, c => _commandPoller!.PollOnceAsync(c), token, runImmediately: true);
-        _heartbeatLoop = RunLoopAsync(interval, c => _heartbeat!.SendOnceAsync(c), token, runImmediately: true);
+        // Heartbeat entkoppelt vom Sync-Takt: eigenes, kürzeres Intervall (billiges Lebenszeichen),
+        // damit „Verbunden/Offline" im Dashboard zeitnah statt erst im 60-s-Sync-Takt umschlägt.
+        _heartbeatLoop = RunLoopAsync(config.HeartbeatInterval, c => _heartbeat!.SendOnceAsync(c), token, runImmediately: true);
     }
 
     /// <summary>Stoppt alle Schleifen und Watcher und gibt die Netz-Ressourcen frei.</summary>

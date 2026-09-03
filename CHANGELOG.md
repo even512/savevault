@@ -3,6 +3,17 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.5.0 — 2026-09-03
+
+- **Dashboard zeigt „Verbunden/Offline" schneller.** Der Client sendet sein Lebenszeichen
+  (Präsenz) jetzt in einem eigenen, kürzeren Takt (Standard alle 15 Sekunden) statt nur im
+  vollen Sync-Intervall (Standard 60 Sekunden). Ein Gerät, das online kommt oder wegfällt,
+  erscheint im Dashboard dadurch deutlich zeitnaher. Der eigentliche Sync-Zyklus
+  (Erkennung/Upload) läuft unverändert weiter – nur das billige Lebenszeichen wurde
+  entkoppelt. Das Intervall ist über `heartbeatIntervalSeconds` in der `config.json`
+  einstellbar (Untergrenze 5 s; nie langsamer als das Sync-Intervall). Zusammen mit dem
+  Live-Dashboard (Server 1.4.0) fühlt sich die Übersicht damit „live" an.
+
 ## v1.3.0 — 2026-09-02
 
 - **Pro Spiel wählbar: „Über Geräte synchronisieren" (Lokal ↔ Synchron).** Jedes

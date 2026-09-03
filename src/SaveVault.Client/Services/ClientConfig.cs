@@ -27,6 +27,14 @@ public sealed class ClientConfig
     public int SyncIntervalSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Eigenes Heartbeat-Intervall in Sekunden (Default 15). Das Lebenszeichen (nur Präsenz +
+    /// Zeitstempel, keine ludusavi-Erkennung/kein Upload) ist billig und läuft daher häufiger als
+    /// der volle Sync-Zyklus – so zeigt das Dashboard „Verbunden/Offline" zeitnah. Fehlt das Feld in
+    /// einer alten <c>config.json</c>, wird es als 15 gelesen (Standard). Siehe <see cref="HeartbeatInterval"/>.
+    /// </summary>
+    public int HeartbeatIntervalSeconds { get; set; } = 15;
+
+    /// <summary>
     /// Ob die einmalige Migration auf geräte-eigene Buckets bereits gelaufen ist. Fehlt das Feld
     /// in einer alten <c>config.json</c>, wird es als <c>false</c> gelesen – die Migration läuft
     /// dann beim nächsten Start einmalig (verwirft den lokalen Basis-Stand, sodass jedes Spiel als
@@ -104,6 +112,15 @@ public sealed class ClientConfig
     /// <summary>Das effektive Sync-Intervall, mindestens 5 Sekunden (Schutz vor 0/Negativ).</summary>
     [JsonIgnore]
     public TimeSpan SyncInterval => TimeSpan.FromSeconds(Math.Max(5, SyncIntervalSeconds));
+
+    /// <summary>
+    /// Das effektive Heartbeat-Intervall: mindestens 5 Sekunden und nie langsamer als der
+    /// Sync-Takt (so ist die Präsenz-Anzeige mindestens so frisch wie vor der Entkopplung –
+    /// kein Rückschritt bei sehr kleinem <see cref="SyncIntervalSeconds"/>).
+    /// </summary>
+    [JsonIgnore]
+    public TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(
+        Math.Max(5, Math.Min(HeartbeatIntervalSeconds, Math.Max(5, SyncIntervalSeconds))));
 }
 
 /// <summary>
