@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.Features;
 using SaveVault.Core.Api;
 using SaveVault.Core.Models;
 using SaveVault.Server.Configuration;
+using SaveVault.Server.Realtime;
 using SaveVault.Server.Security;
 using SaveVault.Server.Storage;
 
@@ -52,10 +53,14 @@ public static class SaveVaultEndpoints
         });
 
         // --- Pairing & Heartbeat ----------------------------------------------------
-        api.MapPost("/pair", async (PairRequest req, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.PairAsync(req, ct)));
+        api.MapPost("/pair", async (PairRequest req, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
+        {
+            var result = await store.PairAsync(req, ct);
+            hub.Publish("devices"); // neues Gerät → Client-Liste im Dashboard aktualisieren
+            return Results.Json(result);
+        });
 
-        api.MapPost("/heartbeat", async (HeartbeatRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+        api.MapPost("/heartbeat", async (HeartbeatRequest req, HttpContext ctx, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
         {
             var principal = Principal(ctx);
             if (req.Device is null)
@@ -63,7 +68,9 @@ public static class SaveVaultEndpoints
             if (!principal.CanActAsDevice(req.Device.Id))
                 return ApiResults.Error(403, "Token gehört zu einem anderen Gerät.");
             // Client-IP serverseitig aus der Verbindung ableiten (nie vom Client gemeldet).
-            return Results.Json(await store.HeartbeatAsync(req, ClientIp(ctx), ct));
+            var result = await store.HeartbeatAsync(req, ClientIp(ctx), ct);
+            hub.Publish("presence"); // Lebenszeichen → „Verbunden"/Zeitstempel live im Dashboard
+            return Results.Json(result);
         });
 
         // --- Spiele & Revisionen ----------------------------------------------------
@@ -83,7 +90,7 @@ public static class SaveVaultEndpoints
             => Results.Json(await store.GetRevisionsAsync(ResolveGameKey(ctx, gameKey, scope), ct)));
 
         api.MapPost("/games/{gameKey}/revisions",
-            async (string gameKey, string? scope, UploadRevisionRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, string? scope, UploadRevisionRequest req, HttpContext ctx, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
             {
                 // Attributions-Spoofing verhindern: ein Gerät darf nur unter der EIGENEN Geräte-ID
                 // (oder das Master-Token) eine Revision anmelden – analog zum Heartbeat.
@@ -91,7 +98,9 @@ public static class SaveVaultEndpoints
                     return ApiResults.Error(400, "Unvollständige Revisionsanmeldung.");
                 if (!Principal(ctx).CanActAsDevice(req.Device.Id))
                     return ApiResults.Error(403, "Token gehört zu einem anderen Gerät.");
-                return Results.Json(await store.RegisterRevisionAsync(ResolveGameKey(ctx, gameKey, scope), req, ct));
+                var result = await store.RegisterRevisionAsync(ResolveGameKey(ctx, gameKey, scope), req, ct);
+                hub.Publish("games"); // neue Revision / evtl. Konflikt → Spiele-/Verlaufsdaten aktualisieren
+                return Results.Json(result);
             });
 
         api.MapGet("/games/{gameKey}/revisions/{number:long}",
@@ -127,7 +136,7 @@ public static class SaveVaultEndpoints
 
         // --- Inhalte (inhaltsadressiert) --------------------------------------------
         api.MapPut("/games/{gameKey}/content/{hash}",
-            async (string gameKey, string hash, string? scope, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, string hash, string? scope, HttpContext ctx, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
             {
                 // Große Savegames: die Standard-Body-Grenze nur für diesen Upload-Endpunkt aufheben.
                 var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
@@ -138,7 +147,9 @@ public static class SaveVaultEndpoints
                 await store.StoreContentAsync(key, hash, ctx.Request.Body, ct);
                 // Head erst nach VOLLSTÄNDIGEM Content vorrücken: nach jedem gespeicherten Blob prüfen,
                 // ob eine angemeldete Pending-Revision nun komplett ist, und sie dann finalisieren.
-                await store.TryFinalizePendingAsync(key, ct);
+                // Nur bei ECHTER Finalisierung ein Ereignis senden (nicht pro Blob eines Uploads).
+                if (await store.TryFinalizePendingAsync(key, ct))
+                    hub.Publish("games"); // Revision finalisiert (Head bewegt) → Stand aktualisieren
                 return Results.Ok();
             });
 
@@ -153,27 +164,34 @@ public static class SaveVaultEndpoints
 
         // --- Restore ----------------------------------------------------------------
         api.MapPost("/games/{gameKey}/restore",
-            async (string gameKey, string? scope, RestoreRequest req, HttpContext ctx, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.RestoreAsync(ResolveGameKey(ctx, gameKey, scope), req, ct)));
+            async (string gameKey, string? scope, RestoreRequest req, HttpContext ctx, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
+            {
+                var result = await store.RestoreAsync(ResolveGameKey(ctx, gameKey, scope), req, ct);
+                hub.Publish("games"); // Restore-Befehl eingereiht → Verlauf/Status aktualisieren
+                return Results.Json(result);
+            });
 
         // --- Dashboard: Teilen etablieren + Legacy löschen (master-only) -------------
         // Teilen: {gameKey} ist der KANONISCHE Spielschlüssel; der Server kopiert den Stand des
         // gewählten Geräts (dessen privater Bucket) als geteilte Revision 1.
         api.MapPost("/games/{gameKey}/share",
-            async (string gameKey, ShareSeedRequest req, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, ShareSeedRequest req, HttpContext ctx, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
             {
                 if (!Principal(ctx).IsMaster) return AdminOnly();
                 if (req is null || string.IsNullOrWhiteSpace(req.SourceDeviceId))
                     return ApiResults.Error(400, "Quell-Gerät fehlt.");
-                return Results.Json(await store.SeedSharedFromDeviceAsync(KeyFrom(gameKey), req.SourceDeviceId, ct));
+                var result = await store.SeedSharedFromDeviceAsync(KeyFrom(gameKey), req.SourceDeviceId, ct);
+                hub.Publish("games"); // geteilter Bucket etabliert → Spiele-Ansicht aktualisieren
+                return Results.Json(result);
             });
 
         // Legacy löschen: {gameKey} ist der rohe Legacy-Bucket-Schlüssel (aus der Spieleliste).
         api.MapDelete("/games/{gameKey}",
-            async (string gameKey, HttpContext ctx, VaultStore store, CancellationToken ct) =>
+            async (string gameKey, HttpContext ctx, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
             {
                 if (!Principal(ctx).IsMaster) return AdminOnly();
                 await store.DeleteLegacyBucketAsync(KeyFrom(gameKey), ct);
+                hub.Publish("games"); // Bucket entfernt → Spiele-Ansicht aktualisieren
                 return Results.Ok();
             });
 
@@ -182,8 +200,12 @@ public static class SaveVaultEndpoints
             => Results.Json(await store.GetConflictsAsync(ct)));
 
         api.MapPost("/conflicts/{conflictId}/resolve",
-            async (string conflictId, ResolveConflictRequest req, VaultStore store, CancellationToken ct)
-            => Results.Json(await store.ResolveConflictAsync(conflictId, req, ct)));
+            async (string conflictId, ResolveConflictRequest req, VaultStore store, DashboardEventHub hub, CancellationToken ct) =>
+            {
+                var result = await store.ResolveConflictAsync(conflictId, req, ct);
+                hub.Publish("conflicts"); // Konflikt gelöst → Konflikt-Badge/Verlauf aktualisieren
+                return Results.Json(result);
+            });
 
         // --- Befehls-Warteschlange --------------------------------------------------
         api.MapGet("/commands", async (string? deviceId, HttpContext ctx, VaultStore store, CancellationToken ct) =>
@@ -273,7 +295,73 @@ public static class SaveVaultEndpoints
                 coverEnabled = cfg.IsCoverEnabled,
             });
         });
+
+        // Live-Aktualisierung: Server→Dashboard-Push über einen offenen SSE-Stream. Master-only wie
+        // die übrigen Dashboard-Endpunkte. Der Token kommt (wie überall) aus dem Authorization-Header
+        // – das Dashboard liest den Stream per fetch()-Reader, NICHT per EventSource, damit der Token
+        // niemals in die URL wandert. Der Stream schickt bei jeder Zustandsänderung ein grobes
+        // Ereignis (Kategorie + Zeit); das Dashboard lädt daraufhin den betroffenen Stand neu.
+        api.MapGet("/events", async (HttpContext ctx, DashboardEventHub hub, CancellationToken ct) =>
+        {
+            if (!Principal(ctx).IsMaster) return AdminOnly();
+
+            ctx.Response.Headers.CacheControl = "no-cache, no-transform";
+            ctx.Response.Headers["X-Accel-Buffering"] = "no"; // Reverse-Proxys (nginx) nicht puffern lassen
+            ctx.Response.ContentType = "text/event-stream";
+
+            using var sub = hub.Subscribe();
+            var body = ctx.Response.Body;
+
+            // Reconnect-Hinweis für den Client + initiales Hallo (das Dashboard lädt bei Verbindung
+            // ohnehin einmal den vollen Stand – verpasste Ereignisse sind damit unkritisch).
+            await WriteSseAsync(body, ": verbunden\nretry: 3000\n\n", ct);
+            await WriteSseEventAsync(body, "hello", DateTime.UtcNow.ToString("o"), ct);
+
+            var keepAlive = TimeSpan.FromSeconds(15);
+            Task<bool>? read = null;
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    // EIN ausstehendes WaitToReadAsync über die Keep-Alive-Ticks hinweg halten – der
+                    // Kanal ist SingleReader, es darf nie mehr als ein Warte-Awaiter gleichzeitig geben.
+                    read ??= sub.Reader.WaitToReadAsync(ct).AsTask();
+                    using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    var finished = await Task.WhenAny(read, Task.Delay(keepAlive, delayCts.Token));
+                    if (finished != read)
+                    {
+                        // Leerlauf: Keep-Alive-Kommentar, damit Proxys die Verbindung nicht kappen.
+                        // Das read-Task bleibt bestehen (kein neuer Awaiter, kein Leak).
+                        await WriteSseAsync(body, ": ping\n\n", ct);
+                        continue;
+                    }
+                    delayCts.Cancel(); // Ereignis hat gewonnen → Wartezeit-Timer sofort freigeben
+                    if (!await read) break; // Kanal geschlossen (Abmeldung)
+                    read = null;            // verbraucht → beim nächsten Durchlauf neu anlegen
+                    while (sub.Reader.TryRead(out var evt))
+                        await WriteSseEventAsync(body, evt.Type, evt.TimestampUtc, ct);
+                }
+            }
+            catch (OperationCanceledException) { /* Client hat getrennt – normaler Abschluss */ }
+            catch (System.IO.IOException) { /* Verbindung abrupt gerissen (broken pipe) – normaler Abschluss */ }
+            return Results.Empty;
+        });
     }
+
+    /// <summary>Schreibt rohen SSE-Text (UTF-8) und leert den Puffer sofort ans Netz.</summary>
+    private static async Task WriteSseAsync(Stream body, string text, CancellationToken ct)
+    {
+        await body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(text), ct);
+        await body.FlushAsync(ct);
+    }
+
+    /// <summary>
+    /// Schreibt ein SSE-Ereignis (<c>event:</c>/<c>data:</c>). <paramref name="type"/> ist ein
+    /// vom Server kontrolliertes Codewort, <paramref name="tsIso"/> ein ISO-Zeitstempel – beide
+    /// ohne Zeilenumbrüche, daher SSE-sicher.
+    /// </summary>
+    private static Task WriteSseEventAsync(Stream body, string type, string tsIso, CancellationToken ct)
+        => WriteSseAsync(body, $"event: {type}\ndata: {tsIso}\n\n", ct);
 
     /// <summary>Assembly-Version der Server-Assembly (robust; Fallback „?", falls nicht ermittelbar).</summary>
     private static readonly string ServerVersion =

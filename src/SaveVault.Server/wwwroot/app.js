@@ -84,7 +84,18 @@
     expandedHistory: {},
     // lokale (nicht server-persistente) Einstellungen – als Anzeige/Spielerei
     localSettings: { interval: 5, retention: 0, autoConflict: true, notify: true },
-    loaded: false
+    loaded: false,
+    // Live-Aktualisierung (SSE-Push + lokaler Re-Render-Takt); siehe startLive().
+    live: {
+      abort: null,        // AbortController des laufenden Streams
+      backoff: 0,         // aktuelle Reconnect-Verzögerung (ms)
+      refreshTimer: null, // Entprell-Timer fürs Nachladen nach einem Ereignis
+      renderTimer: null,  // lokaler Re-Render-Takt (Zeit-/Offline-Anzeige altern)
+      pollTimer: null,    // Fallback-Polling, falls Streaming nicht möglich ist
+      refreshing: false,  // läuft gerade ein Nachladen?
+      pending: false,     // während eines Nachladens/einer Interaktion kam ein weiteres Ereignis
+      stopped: true       // bewusst gestoppt (Logout/Auth-Fehler) → kein Reconnect
+    }
   };
 
   // =====================================================================
@@ -535,6 +546,7 @@
 
   // Meldet die aktuelle Sitzung ab (Session serverseitig beenden, Token verwerfen, zurück zum Login).
   async function doLogout() {
+    stopLive();
     const token = state.token;
     state.token = null;
     sessionStorage.removeItem(TOKEN_KEY);
@@ -548,8 +560,9 @@
 
   // Auth-Fehler zentral behandeln: Sitzung verwerfen, zurück zum Tor.
   function handleAuthFailure(err) {
-    if (err && err.status === 503) { renderGate({ setup: true }); return true; }
+    if (err && err.status === 503) { stopLive(); renderGate({ setup: true }); return true; }
     if (err && err.isAuth) {
+      stopLive();
       state.token = null;
       sessionStorage.removeItem(TOKEN_KEY);
       renderGate({ error: err.message });
@@ -587,7 +600,7 @@
     }
 
     const search = document.getElementById("search-input");
-    search.value = state.search;
+    if (search.value !== state.search) search.value = state.search; // Caret nicht unnötig ans Ende springen lassen
     search.oninput = e => { state.search = e.target.value; if (state.view === "games" || state.view === "clients") renderView(); };
 
     document.getElementById("refresh-btn").onclick = refreshData;
@@ -627,6 +640,142 @@
     showApp();
     buildChrome();
     renderView();
+    startLive();
+  }
+
+  // =====================================================================
+  // Live-Aktualisierung (Server-Push per SSE + lokaler Re-Render-Takt)
+  // ---------------------------------------------------------------------
+  // Der Server hält einen offenen Stream (/api/events) und schickt bei jeder
+  // Zustandsänderung ein grobes Ereignis; darauf lädt das Dashboard den vollen
+  // Stand nach (entprellt) und rendert neu – ohne Zutun des Nutzers. Der Stream
+  // wird per fetch()-Reader gelesen (NICHT EventSource), damit der Session-Token
+  // im Authorization-Header bleibt und nie in eine URL wandert. Zusätzlich rendert
+  // ein lokaler Takt regelmäßig neu, damit zeitabhängige Anzeigen (relative Zeiten,
+  // aus lastSeen abgeleiteter Offline-Status) auch ohne Server-Ereignis „altern".
+  // =====================================================================
+
+  // Ist der Nutzer gerade dabei, etwas zu bedienen (Sucheingabe, Slider …)? Dann NICHT die
+  // Ansicht unter seinen Fingern neu aufbauen – der Refresh wird bis danach zurückgestellt.
+  function isInteracting() {
+    const a = document.activeElement;
+    return !!(a && !app.hidden && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
+  }
+
+  // Entprellter Voll-Refresh nach einem Ereignis: neu laden + rendern, ohne den manuellen
+  // Refresh-Button-Zustand zu stören. Kommt ein Ereignis, während schon geladen wird ODER der
+  // Nutzer gerade tippt/schiebt, wird es als „pending" gemerkt und danach nachgeholt (kein
+  // stiller Verlust). Auth-Fehler → zurück zum Tor.
+  function liveRefreshNow() {
+    if (!state.token || app.hidden) return;
+    if (state.live.refreshing || isInteracting()) { state.live.pending = true; return; }
+    state.live.refreshing = true;
+    loadAll().then(() => {
+      buildChrome();
+      renderView();
+    }).catch(err => {
+      if (handleAuthFailure(err)) stopLive();
+      // sonst still schlucken – der nächste Tick/das nächste Ereignis versucht es erneut
+    }).finally(() => {
+      state.live.refreshing = false;
+      // Während des Ladens kam ein weiteres Ereignis? Sofort nachziehen (sofern nicht gerade bedient).
+      if (state.live.pending && !isInteracting()) { state.live.pending = false; scheduleLiveRefresh(); }
+    });
+  }
+  function scheduleLiveRefresh() {
+    if (state.live.refreshTimer) return; // schon geplant → Ereignis-Bursts entprellen
+    state.live.refreshTimer = setTimeout(() => {
+      state.live.refreshTimer = null;
+      liveRefreshNow();
+    }, 400);
+  }
+
+  function startRenderTimer() {
+    if (state.live.renderTimer) return;
+    state.live.renderTimer = setInterval(() => {
+      if (app.hidden || !state.token || isInteracting()) return; // Interaktion nie unterbrechen
+      // Zurückgestelltes Nachladen jetzt nachholen, sonst nur die Zeit-/Offline-Anzeige altern lassen.
+      if (state.live.pending) { state.live.pending = false; liveRefreshNow(); }
+      else renderView();
+    }, 12000);
+  }
+
+  // Fallback: kann der Browser den Stream nicht lesen (kein ReadableStream/getReader),
+  // aktualisiert sich das Dashboard eben per periodischem Polling.
+  function startPollingFallback() {
+    if (state.live.pollTimer || state.live.stopped) return;
+    state.live.pollTimer = setInterval(() => {
+      if (!app.hidden && state.token) liveRefreshNow();
+    }, 8000);
+  }
+
+  function scheduleReconnect() {
+    state.live.abort = null;
+    const delay = Math.min(30000, state.live.backoff ? state.live.backoff * 2 : 1000);
+    state.live.backoff = delay;
+    setTimeout(() => { if (!state.live.stopped) liveConnect(); }, delay);
+  }
+
+  async function liveConnect() {
+    if (state.live.stopped || !state.token) return;
+    if (typeof ReadableStream === "undefined") { startPollingFallback(); return; }
+
+    const ctrl = new AbortController();
+    state.live.abort = ctrl;
+    try {
+      const res = await fetch("/api/events", {
+        headers: { "Authorization": "Bearer " + state.token, "Accept": "text/event-stream" },
+        signal: ctrl.signal, cache: "no-store"
+      });
+      if (res.status === 401 || res.status === 503) { handleAuthFailure(AuthError("Sitzung abgelaufen.", res.status)); stopLive(); return; }
+      if (res.status === 403) { handleAuthFailure(AuthError("Zugriff verweigert.", 403)); stopLive(); return; }
+      // Browser kann den Stream nicht lesen → dauerhaft auf Polling ausweichen (kein Reconnect mehr).
+      if (!res.body || !res.body.getReader) { startPollingFallback(); return; }
+      // Vorübergehender Serverfehler (500/502 …): wie ein Abbruch behandeln → Reconnect mit Backoff.
+      if (!res.ok) throw new Error("http-" + res.status);
+
+      // Stream steht: ein evtl. laufendes Fallback-Polling beenden (nie beides gleichzeitig laufen lassen).
+      if (state.live.pollTimer) { clearInterval(state.live.pollTimer); state.live.pollTimer = null; }
+      state.live.backoff = 0; // Backoff zurücksetzen
+      scheduleLiveRefresh();  // bei (Re)Connect einmal voll nachladen (verpasste Änderungen)
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        // SSE-Ereignisse sind durch Leerzeilen getrennt. Den Inhalt müssen wir nicht deuten:
+        // JEDES Ereignis (event:/data:-Block) stößt einen Voll-Refresh an. Kommentare (: ping)
+        // werden ignoriert.
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          if (/^(event|data):/m.test(block)) scheduleLiveRefresh();
+        }
+      }
+      throw new Error("stream-ended"); // Server hat beendet → Reconnect
+    } catch (err) {
+      if (state.live.stopped || ctrl.signal.aborted) return; // von uns beendet
+      scheduleReconnect();
+    }
+  }
+
+  function startLive() {
+    stopLive();                 // sauberer Neustart (doppelte Verbindungen vermeiden)
+    state.live.stopped = false;
+    state.live.backoff = 0;
+    startRenderTimer();
+    liveConnect();
+  }
+  function stopLive() {
+    state.live.stopped = true;
+    if (state.live.abort) { try { state.live.abort.abort(); } catch (_) {} state.live.abort = null; }
+    if (state.live.refreshTimer) { clearTimeout(state.live.refreshTimer); state.live.refreshTimer = null; }
+    if (state.live.renderTimer) { clearInterval(state.live.renderTimer); state.live.renderTimer = null; }
+    if (state.live.pollTimer) { clearInterval(state.live.pollTimer); state.live.pollTimer = null; }
   }
 
   // =====================================================================

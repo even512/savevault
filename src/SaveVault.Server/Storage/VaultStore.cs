@@ -692,13 +692,15 @@ public sealed class VaultStore
     /// nebenläufigkeitssicher (läuft unter <see cref="_gate"/>); typischerweise aufgerufen, nachdem
     /// ein Content-Blob per PUT eintraf.
     /// </summary>
-    public async Task TryFinalizePendingAsync(GameKey game, CancellationToken ct)
+    /// <returns><c>true</c>, wenn dabei mindestens eine Revision finalisiert wurde (Head bewegt) –
+    /// so kann der Aufrufer ein Live-Ereignis nur bei echter Änderung auslösen, nicht pro Blob.</returns>
+    public async Task<bool> TryFinalizePendingAsync(GameKey game, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var g = FindGame(game.Value);
-            if (g is null || g.PendingRevisions.Count == 0) return;
+            if (g is null || g.PendingRevisions.Count == 0) return false;
 
             var gameKey = ToGameKey(g);
             var changed = false;
@@ -738,6 +740,7 @@ public sealed class VaultStore
             while (finalizedOne);
 
             if (changed) Save();
+            return changed;
         }
         finally { _gate.Release(); }
     }

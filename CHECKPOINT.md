@@ -1,5 +1,44 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
 
+**Live-Dashboard — Echtzeit-Aktualisierung per Server-Push (Server 1.4.0), Phase 1 von 2.**
+Delta-Spec `specs/savevault-change-live-dashboard.md`, Weg über `/projekt-edit`. Reine
+**Server-/Dashboard-Änderung** (kein Windows-Client-Code) → Rollout = **nur Server neu deployen**.
+Behebt die Trägheit: das Dashboard aktualisierte sich bisher nur beim Login/Refresh-Klick (Ursache:
+kein Polling/Push; „Verbunden/Offline" wurde nur beim Rendern berechnet, das nie von selbst lief).
+**Gate grün, committet auf Branch `phase-live-dashboard` (kein Push).**
+- **Server-Push (SSE):** neuer In-Memory-`DashboardEventHub` (Singleton, `Realtime/`) + Endpunkt
+  `GET /api/events` (`text/event-stream`, **master-only**). Nach jeder Zustandsänderung wird ein
+  grobes Ereignis gepusht — verdrahtet in der **Endpunkt-Schicht** (Heartbeat→`presence`,
+  Register/Finalize→`games`, Restore/Share/Delete→`games`, Resolve→`conflicts`, Pair→`devices`);
+  `VaultStore` bleibt bis auf eine Rückgabe (`TryFinalizePendingAsync` meldet jetzt, **ob**
+  finalisiert wurde) unangetastet. Keep-Alive-Kommentar alle 15 s; EIN gehaltenes
+  `WaitToReadAsync` (SingleReader-treu), Wartezeit-Timer wird bei Ereignis freigegeben; abrupte
+  Trennung (`IOException`/Cancel) sauber abgefangen (keine Fehlerflut).
+- **Dashboard:** liest den Stream per **`fetch`-Streaming-Reader** (nicht `EventSource`), damit der
+  Session-Token im `Authorization`-Header bleibt (nie in der URL — konsistent zur Cover-/Export-
+  Linie). Jedes Ereignis → **entprelltes** `loadAll()`+Render; kommt eins während Laden/Bedienung,
+  wird es als `pending` nachgeholt (kein stiller Verlust). **Lokaler Re-Render-Takt (12 s)** lässt
+  Zeit-/Offline-Anzeige altern; **Interaktions-Guard** (`isInteracting`) unterbricht keine
+  Sucheingabe/Slider. **Reconnect mit Backoff**; transiente Serverfehler reconnecten, nur echte
+  Streaming-Unfähigkeit fällt dauerhaft auf **Polling** zurück (nie beides gleichzeitig).
+- **Gate grün:** Build **0/0**, `dotnet test` **112/0/0** (+4 `DashboardEventHub`-Tests: Zustellung
+  an mehrere Abonnenten, Abmeldung stoppt/vervollständigt, voller Kanal blockiert andere nicht,
+  No-Sub-No-Op). **Laufzeit-Smoke** gegen echten Server (2×): `/api/events` ohne Token→401,
+  Geräte-Token→403, Master→200 + korrekte Header; Push `hello`→`presence`(Heartbeat)→`devices`
+  (Pairing) live; Keep-Alive-`ping` nach 15 s; keine Exceptions im Log bei abruptem Disconnect.
+  `/code-review high`: **6 Befunde → alle 6 behoben** (SSE-Awaiter/Timer-Leak + SingleReader,
+  `IOException`-Flut, stale-nach-Inflight-Refresh, Interaktions-Abbruch, Publish-pro-Blob→nur bei
+  Finalisierung, Polling-Timer-Leak). `/security-review`: **sauber** (master-only, Token nur im
+  Header, Stream trägt nur Codewort+Zeit — keine Fremddaten/PII, kein DOM-Inject).
+- **Offen:** **Phase 2 (Client-Heartbeat-Frequenz, budget-abhängig)** — Heartbeat vom Sync-Intervall
+  entkoppeln (~15 s statt 60 s) für schnellere Präsenz; erfordert Client-Update auf allen Geräten.
+  Visuelle Abnahme des Live-Verhaltens im echten Dashboard nach dem Deploy (Tims Schritt).
+- **Verteilung:** master-Push baut Server-`:latest`; Tag (z. B. `server-v1.4.0`) für versioniertes Image.
+
+---
+
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
+
 **Dashboard-Fix + kompletter Legacy-Neustart + Client-Reseed (Server 1.3.0 / Client 1.4.0).**
 Delta-Spec `.claude/projekt-werkstatt/specs/savevault-change-dashboard-fix-legacy-neustart.md`,
 Weg über `/projekt-edit`. Behebt den Dashboard-Fehler nach dem Per-Gerät-Umbau (dasselbe Spiel

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using SaveVault.Server.Configuration;
 using SaveVault.Server.Endpoints;
+using SaveVault.Server.Realtime;
 using SaveVault.Server.Security;
 using SaveVault.Server.Storage;
 
@@ -26,6 +27,10 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
+
+// Live-Aktualisierung des Dashboards: der Event-Hub hält die offenen SSE-Abonnenten und
+// verteilt Zustandsänderungen prozess-lokal → als Singleton (zustandsbehaftet, ein Prozess).
+builder.Services.AddSingleton<DashboardEventHub>();
 
 // Der Vault-Store ist zustandsbehaftet (Index im Speicher + Platte) → als Singleton.
 builder.Services.AddSingleton(sp => new VaultStore(

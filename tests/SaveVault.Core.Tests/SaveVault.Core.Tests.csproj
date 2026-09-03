@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SaveVault.Core\SaveVault.Core.csproj" />
+    <ProjectReference Include="..\..\src\SaveVault.Server\SaveVault.Server.csproj" />
   </ItemGroup>
 
 </Project>

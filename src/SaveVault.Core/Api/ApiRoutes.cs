@@ -55,4 +55,8 @@ public static class ApiRoutes
     // Dashboard-Übersichten (master-only; nicht Teil des Client-Vertrags)
     public const string GameStates = Base + "/game-states";
     public const string ServerInfo = Base + "/server-info";
+
+    // Live-Aktualisierung: SSE-Stream, über den der Server dem Dashboard Zustandsänderungen
+    // aktiv meldet (master-only; nicht Teil des Client-Vertrags).
+    public const string Events = Base + "/events";
 }
