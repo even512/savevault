@@ -25,6 +25,10 @@ public partial class MainWindow : Window
 {
     private readonly ClientAgent _agent;
     private readonly ClientConfigStore _configStore = new(new AppPaths());
+    private readonly UpdateService _updater = new();
+
+    // Zuletzt gefundenes, noch nicht angewandtes Update (null = keins bekannt).
+    private UpdateCheckResult? _pendingUpdate;
 
     // Additiv abgeglichene Spiel-Liste (Quelle für Auswahl-Dropdown + Aufmerksamkeit).
     private readonly ObservableCollection<GameRow> _games = new();
@@ -727,6 +731,8 @@ public partial class MainWindow : Window
         DeviceNameBox.Text = config.DeviceName ?? Environment.MachineName;
         IntervalBox.Text = config.SyncIntervalSeconds.ToString();
         AutostartToggle.IsChecked = config.AutostartEnabled;
+        AutoUpdateToggle.IsChecked = config.AutoUpdateCheckEnabled;
+        UpdateVersionText.Text = "Installierte Version: " + UpdateService.CurrentVersion;
         NotifyEnabledToggle.IsChecked = config.ToastsEnabled;
         NotifyTransfersToggle.IsChecked = config.NotifyTransfers;
         NotifyConflictsToggle.IsChecked = config.NotifyConflicts;
@@ -823,6 +829,7 @@ public partial class MainWindow : Window
             config.DeviceName = deviceName;
             config.SyncIntervalSeconds = seconds;
             config.AutostartEnabled = AutostartToggle.IsChecked == true;
+            config.AutoUpdateCheckEnabled = AutoUpdateToggle.IsChecked == true;
             config.ToastsEnabled = NotifyEnabledToggle.IsChecked == true;
             config.NotifyTransfers = NotifyTransfersToggle.IsChecked == true;
             config.NotifyConflicts = NotifyConflictsToggle.IsChecked == true;
@@ -858,6 +865,146 @@ public partial class MainWindow : Window
         target.Text = message;
         target.Visibility = Visibility.Visible;
         target.Foreground = neutral
+            ? StatusVisuals.Offline
+            : (ok ? StatusVisuals.Synced : StatusVisuals.Error);
+    }
+
+    // --- Selbst-Update -------------------------------------------------------------
+
+    /// <summary>
+    /// Prüft gegen GitHub, ob ein neueres Release vorliegt, und spiegelt das Ergebnis in Banner und
+    /// Optionen. Wird vom Nutzer („Nach Updates suchen") wie auch selbsttätig (App: Start/täglich)
+    /// aufgerufen. Läuft auf dem UI-Thread und wirft nie – jeder Fehler landet als
+    /// <see cref="UpdateCheckStatus.Failed"/> im Ergebnis.
+    /// </summary>
+    public async Task<UpdateCheckResult> CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (userInitiated)
+        {
+            CheckUpdatesButton.IsEnabled = false;
+            ShowUpdateStatus("Suche nach Updates…", neutral: true);
+        }
+
+        UpdateCheckResult result;
+        try
+        {
+            result = await _updater.CheckAsync();
+        }
+        catch (Exception ex)
+        {
+            result = new UpdateCheckResult(UpdateCheckStatus.Failed, null, null, ex.Message);
+        }
+        finally
+        {
+            CheckUpdatesButton.IsEnabled = true;
+        }
+
+        // Zeitpunkt einer ERFOLGREICHEN Prüfung merken (dämpft die Startprüfung). Bei einem
+        // Fehlschlag (z. B. Netz beim Boot noch nicht da) NICHT stempeln, sonst würde die
+        // 20-h-Dämpfung die nächste Startprüfung unterdrücken, obwohl nie geprüft wurde.
+        if (result.Status != UpdateCheckStatus.Failed)
+        {
+            try
+            {
+                var config = _configStore.Load();
+                config.LastUpdateCheckUtc = DateTime.UtcNow;
+                _configStore.Save(config);
+            }
+            catch { /* nicht kritisch */ }
+        }
+
+        ApplyUpdateResultToUi(result, userInitiated);
+        return result;
+    }
+
+    /// <summary>Überträgt ein Prüfergebnis in Banner + Optionen (Status/Buttons).</summary>
+    private void ApplyUpdateResultToUi(UpdateCheckResult result, bool userInitiated)
+    {
+        switch (result.Status)
+        {
+            case UpdateCheckStatus.UpdateAvailable:
+                _pendingUpdate = result;
+                UpdateBannerText.Text = $"Neue Version {result.Available} verfügbar";
+                UpdateBannerSubText.Text = "Der Client aktualisiert sich und startet neu.";
+                UpdateBanner.Visibility = Visibility.Visible;
+                SettingsApplyButton.Visibility = Visibility.Visible;
+                ShowUpdateStatus(
+                    $"Neue Version {result.Available} verfügbar (installiert: {UpdateService.CurrentVersion}).",
+                    neutral: false, ok: true);
+                break;
+
+            case UpdateCheckStatus.UpToDate:
+                _pendingUpdate = null;
+                UpdateBanner.Visibility = Visibility.Collapsed;
+                SettingsApplyButton.Visibility = Visibility.Collapsed;
+                if (userInitiated)
+                    ShowUpdateStatus($"Du hast bereits die aktuelle Version ({UpdateService.CurrentVersion}).",
+                        neutral: false, ok: true);
+                break;
+
+            default: // Failed
+                if (userInitiated)
+                    ShowUpdateStatus("Update-Prüfung fehlgeschlagen: " + (result.Error ?? "unbekannt"),
+                        neutral: false, ok: false);
+                break;
+        }
+    }
+
+    private async void OnCheckUpdatesClick(object sender, RoutedEventArgs e)
+        => await CheckForUpdatesAsync(userInitiated: true);
+
+    /// <summary>
+    /// Wendet das gefundene Update an: lädt/entpackt das Release ins Staging, startet die gestagte
+    /// exe im Applier-Modus und beendet die App, damit der Austausch die laufenden Dateien freibekommt.
+    /// </summary>
+    private async void OnApplyUpdateClick(object sender, RoutedEventArgs e)
+    {
+        var pending = _pendingUpdate;
+        if (pending?.DownloadUrl is null)
+            return;
+
+        SetApplyBusy(true);
+        UpdateBannerSubText.Text = "Lade Update…";
+        ShowUpdateStatus("Lade Update…", neutral: true);
+        try
+        {
+            var stagedExe = await _updater.DownloadAndStageAsync(pending.DownloadUrl);
+
+            UpdateBannerSubText.Text = "Starte Aktualisierung…";
+            ShowUpdateStatus("Starte Aktualisierung…", neutral: true);
+
+            if (!_updater.StartApplier(stagedExe))
+            {
+                SetApplyBusy(false);
+                UpdateBannerSubText.Text = "Der Client aktualisiert sich und startet neu.";
+                ShowUpdateStatus("Aktualisierung konnte nicht gestartet werden.", neutral: false, ok: false);
+                return;
+            }
+
+            // Applier läuft und wartet auf unser Ende → sauber beenden. Danach tauscht er aus und startet neu.
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            SetApplyBusy(false);
+            UpdateBannerSubText.Text = "Der Client aktualisiert sich und startet neu.";
+            ShowUpdateStatus("Update fehlgeschlagen: " + ex.Message, neutral: false, ok: false);
+        }
+    }
+
+    /// <summary>Sperrt/entsperrt die Update-Knöpfe (Banner + Optionen) während des Anwendens.</summary>
+    private void SetApplyBusy(bool busy)
+    {
+        BannerApplyButton.IsEnabled = !busy;
+        SettingsApplyButton.IsEnabled = !busy;
+        CheckUpdatesButton.IsEnabled = !busy;
+    }
+
+    private void ShowUpdateStatus(string message, bool neutral, bool ok = true)
+    {
+        UpdateStatusText.Text = message;
+        UpdateStatusText.Visibility = Visibility.Visible;
+        UpdateStatusText.Foreground = neutral
             ? StatusVisuals.Offline
             : (ok ? StatusVisuals.Synced : StatusVisuals.Error);
     }

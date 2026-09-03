@@ -1,5 +1,46 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
 
+**Client-Selbst-Updater (Client 1.6.0) — Update im laufenden Betrieb aus GitHub-Releases.**
+Delta-Spec `specs/savevault-change-selbst-updater.md`, Weg über `/projekt-edit`. Reine
+**Client-Änderung**; erfordert (wie frühere Client-Phasen) ein Client-Update auf allen Geräten.
+**Gate grün, committet auf Branch `phase-selbst-updater` (kein Push).**
+- **Was neu ist:** Der Client prüft beim Start (verzögert, ~20-h-gedämpft über `LastUpdateCheckUtc`)
+  und danach **alle 24 h**, ob `even512/savevault` ein neueres Release hat (`releases/latest`, Tag
+  `vX.Y.Z`, Asset `SaveVault-Client-*-win-x64.zip`; öffentliches Repo → kein Login). Fund → **Banner**
+  im Fenster + einmaliger **Tray-Hinweis**; Optionen-Karte **„Über & Updates"** (installierte Version,
+  „Nach Updates suchen", Schalter „Automatisch nach Updates suchen" Default an). Angewandt nur auf Klick.
+- **Selbst-Austausch (im laufenden Betrieb):** ZIP → `%LocalAppData%\SaveVault\update\staging` entpackt
+  → gestagte exe startet im **Applier-Modus** (`--apply-update <installDir> <pid>`, ganz früh in
+  `App.OnStartup` abgefangen, ohne Tray/Agent) → alte Instanz beendet sich → Applier wartet aufs Ende,
+  tauscht **transaktional** aus (jede Alt-Datei per atomarem Rename `.svold` zur Seite; bei Fehler
+  **Rollback** auf den letzten guten Stand) → startet die neue exe im Installationsordner. Reste räumt
+  der neue Start verzögert im Hintergrund mit Wiederholungen auf (Applier hält die Staging-exe kurz).
+- **Neu:** `Services/UpdateService.cs` (Prüfen/Staging/Applier), Felder `AutoUpdateCheckEnabled` +
+  `LastUpdateCheckUtc` in `ClientConfig`. Geändert: `App.xaml.cs` (Applier-Zweig, Start-/24-h-Check,
+  Tray-Hinweis, verzögertes Cleanup), `MainWindow.xaml`/`.cs` (Banner, Optionen-Karte, Toggle, Logik).
+- **Gate grün:** Build **0/0**, `dotnet test` **112/0/0** (unverändert). **Laufzeit real belegt** per
+  Wegwerf-Harness: Versions-Parsing/-Vergleich (v1.6.0>1.5.0, ==, <, kaputt→null), Asset-Auswahl,
+  **echter GitHub-Live-Check** (UA akzeptiert, Tag+Vergleich korrekt → „UpToDate" gegen 1.5.0),
+  Erfolgs-Austausch (Überschreiben/Unterordner/Fremddateien bleiben, `.svold` weg) **und Rollback**
+  (erzwungener Kopierfehler → app.exe auf Alt-Stand zurückgerollt, keine Reste). `/code-review high`:
+  **6 Befunde → 5 behoben** (transaktionaler Austausch + Rollback, kein toter Zustand, Zeitstempel nur
+  bei Erfolg, XAML-Überlappung, verzögertes Cleanup), **1 begründet zurückgestellt** (überzählige
+  Alt-Dateien werden nicht gelöscht – installDir ist reiner Publish-Output, self-contained-Loader bindet
+  keine überzähligen DLLs; als bekannte Grenze vermerkt). `/security-review`: **sauber** (fester
+  HTTPS-Host + Repo → kein SSRF; Zip-Slip framework-abgesichert; `Process.Start` ohne Shell/Injektion;
+  Applier-Args = lokal/selber Nutzer, keine Rechte-Grenze; keine Geheimnisse berührt/geloggt).
+- **Bewusst akzeptiert (Spec):** Keine zusätzliche Signatur-/Hash-Prüfung über HTTPS-zu-github.com
+  hinaus – gleiche Vertrauensbasis wie der bisherige manuelle Handdownload desselben ZIPs.
+- **Offen (Tims Schritt):** Version **1.6.0 taggen → Release-ZIP** und **einmal noch von Hand** auf alle
+  Geräte ausrollen (der laufende 1.5.0-Client hat den Updater noch nicht); danach greift die
+  Automatik. **Handtest** nach dem Deploy: ein späteres Tag (z. B. 1.6.1) muss den Banner auslösen und
+  „Jetzt aktualisieren" den Client live in der neuen Version hochbringen. Der volle Live-Austausch der
+  echten WPF-exe ist auf dem Notebook nicht isolierbar (wie in früheren Client-Phasen).
+
+---
+
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
+
 **Live-Dashboard Fix (Server 1.4.1) — Offline-Erkennung zeitnah + offener Client-Drawer live.**
 Nach dem Deploy fiel auf: „Verbunden/Offline" reagierte träge. Ursache: der Offline-Schwellwert
 in `app.js` stand noch auf **3 Minuten** (Alt-Wert des 60-s-Heartbeats), und ein geöffnetes

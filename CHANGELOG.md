@@ -3,6 +3,20 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.6.0 — 2026-09-03
+
+- **Der Client aktualisiert sich selbst.** Kein manuelles ZIP-Herunterladen und Ordner-Austauschen
+  mehr: Der Client prüft beim Start und danach täglich, ob auf GitHub ein neueres Release vorliegt.
+  Wird eine neuere Version gefunden, erscheint ein **Banner** im Fenster (und ein kurzer Tray-Hinweis).
+  Auf **„Jetzt aktualisieren & neu starten"** zieht der Client das neue Release, tauscht sich im
+  laufenden Betrieb aus und startet in der neuen Version neu. Der Austausch ist **transaktional**:
+  scheitert er zwischendurch, wird auf den vorherigen Stand zurückgerollt – kein halb-aktualisierter
+  Client. In den **Optionen → „Über & Updates"**: installierte Version, Knopf **„Nach Updates suchen"**
+  und der Schalter **„Automatisch nach Updates suchen"** (Standard an). Angewandt wird ein Update nie
+  ohne Bestätigung.
+- **Hinweis:** Diese automatische Aktualisierung greift ab dieser Version. Der Schritt von 1.5.0 auf
+  1.6.0 wird noch einmal wie gewohnt von Hand ausgerollt; danach übernimmt der Updater.
+
 ## v1.5.0 — 2026-09-03
 
 - **Dashboard zeigt „Verbunden/Offline" schneller.** Der Client sendet sein Lebenszeichen

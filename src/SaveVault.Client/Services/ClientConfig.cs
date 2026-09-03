@@ -51,6 +51,21 @@ public sealed class ClientConfig
     public bool AutostartEnabled { get; set; } = true;
 
     /// <summary>
+    /// Ob der Client beim Start und danach täglich selbsttätig prüft, ob auf GitHub ein neueres
+    /// Release vorliegt (Default <c>true</c>). Fehlt das Feld in einer alten <c>config.json</c>,
+    /// wird es als <c>true</c> gelesen – also „an", konsistent mit den anderen Default-AN-Feldern.
+    /// Das eigentliche Anwenden eines Updates passiert nie automatisch, sondern erst auf Bestätigung.
+    /// </summary>
+    public bool AutoUpdateCheckEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Zeitpunkt (UTC) der letzten selbsttätigen Update-Prüfung. Dient nur dazu, beim Start nicht
+    /// öfter als nötig gegen die GitHub-API zu laufen (siehe <c>UpdateService</c>). Fehlt das Feld,
+    /// wird es als <c>null</c> gelesen – dann prüft der nächste Start einmalig.
+    /// </summary>
+    public DateTime? LastUpdateCheckUtc { get; set; }
+
+    /// <summary>
     /// Ob der Client kurze Windows-Benachrichtigungen (Tray-Toasts) über abgeschlossene
     /// Sync-Aktionen (gesichert/synchronisiert/Konflikt) anzeigen soll (Default <c>true</c>).
     /// Fehlt das Feld in einer alten <c>config.json</c>, wird es als <c>true</c> gelesen –

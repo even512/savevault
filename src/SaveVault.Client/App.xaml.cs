@@ -34,9 +34,36 @@ public partial class App : Application
     // Höchstens ein laufendes Wasserzeichen-Overlay – kein Fenster-Stapel.
     private WatermarkWindow? _watermark;
 
+    // Selbst-Update: 24-h-Prüftakt und die zuletzt per Tray gemeldete Version (kein Doppel-Hinweis).
+    private System.Windows.Threading.DispatcherTimer? _updateTimer;
+    private Version? _announcedUpdate;
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Applier-Modus: Wird diese exe von der gestagten Kopie mit --apply-update gestartet, tauscht
+        // sie nur die Installation aus (kopiert Staging → Installationsordner, startet die neue exe)
+        // und beendet sich – ohne Tray/Agent hochzufahren. Muss ganz am Anfang stehen.
+        if (e.Args.Length >= 3 && e.Args[0] == UpdateService.ApplyUpdateSwitch)
+        {
+            base.OnStartup(e);
+            try
+            {
+                _ = int.TryParse(e.Args[2], out var oldPid);
+                UpdateService.RunApplier(e.Args[1], oldPid);
+            }
+            finally
+            {
+                Shutdown();
+            }
+            return;
+        }
+
         base.OnStartup(e);
+
+        // Reste eines vorangegangenen Updates aufräumen – verzögert im Hintergrund und mit
+        // Wiederholungen, weil direkt nach einem Update der noch beendende Applier seine exe im
+        // Staging kurz sperrt. Blockiert den Start nie.
+        _ = CleanupStagingLaterAsync();
 
         DispatcherUnhandledException += (_, args) =>
         {
@@ -64,6 +91,73 @@ public partial class App : Application
 
         // Hintergrunddienst starten (nicht eingerichtet → Ruhezustand, kein Fehler).
         _ = StartAgentAsync();
+
+        // Selbst-Update-Prüfung planen (Start + täglich) – blockiert den Start nicht.
+        SetupUpdateChecks();
+    }
+
+    // --- Selbst-Update -------------------------------------------------------------
+
+    /// <summary>Räumt zurückgebliebenes Update-Staging auf – mehrere Versuche mit Pause, best-effort.</summary>
+    private static async Task CleanupStagingLaterAsync()
+    {
+        for (var i = 0; i < 6; i++)
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(2)); } catch { return; }
+            try { if (UpdateService.CleanupStaging()) return; } catch { /* nächster Versuch */ }
+        }
+    }
+
+    /// <summary>Richtet den 24-h-Prüftakt ein und stößt die (gedämpfte) Startprüfung an.</summary>
+    private void SetupUpdateChecks()
+    {
+        _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(24) };
+        _updateTimer.Tick += (_, _) => _ = RunAutoUpdateCheckAsync();
+        _updateTimer.Start();
+
+        _ = DelayThenStartupCheckAsync();
+    }
+
+    /// <summary>Startprüfung: kurz verzögert (freier Start) und nur, wenn seit der letzten Prüfung ~20 h um sind.</summary>
+    private async Task DelayThenStartupCheckAsync()
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(8)); } catch { return; }
+
+        ClientConfig config;
+        try { config = new ClientConfigStore(new AppPaths()).Load(); } catch { return; }
+        if (!config.AutoUpdateCheckEnabled)
+            return;
+        if (config.LastUpdateCheckUtc is { } last && DateTime.UtcNow - last < TimeSpan.FromHours(20))
+            return;
+
+        await RunAutoUpdateCheckAsync();
+    }
+
+    /// <summary>Führt eine selbsttätige Prüfung aus und meldet einen Fund einmalig per Tray-Hinweis.</summary>
+    private async Task RunAutoUpdateCheckAsync()
+    {
+        if (_window is null)
+            return;
+        try
+        {
+            if (!new ClientConfigStore(new AppPaths()).Load().AutoUpdateCheckEnabled)
+                return;
+        }
+        catch { /* im Zweifel prüfen */ }
+
+        UpdateCheckResult result;
+        try { result = await _window.CheckForUpdatesAsync(userInitiated: false); }
+        catch { return; }
+
+        if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Available is not null
+            && !result.Available.Equals(_announcedUpdate))
+        {
+            _announcedUpdate = result.Available;
+            if (_tray is not null && _tray.Visible)
+                _tray.ShowBalloonTip(6000, "SaveVault",
+                    $"Neue Version {result.Available} verfügbar. Fenster öffnen, um zu aktualisieren.",
+                    WinForms.ToolTipIcon.Info);
+        }
     }
 
     private static void SyncAutostart()
@@ -330,6 +424,10 @@ public partial class App : Application
         _activityHandler = null;
         _toastTimer?.Dispose();
         _toastTimer = null;
+
+        // Update-Prüftakt stoppen.
+        _updateTimer?.Stop();
+        _updateTimer = null;
 
         // Ein evtl. noch offenes Wasserzeichen sauber schließen (kein hängendes Fenster).
         try { _watermark?.Close(); }
