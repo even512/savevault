@@ -34,7 +34,8 @@ committet + released als `v1.4.0`.**
   → Upload/Revision 1, kein 409), Server startet sauber, Endpunkte/Fehlerfälle korrekt.
 - **Rollout-Reihenfolge:** erst Server deployen (löscht Legacy, gruppiert), dann Client-Update auf
   alle Geräte (Reseed greift beim nächsten Zyklus). **Alle Geräte laufen bereits auf v1.3.0.**
-- **Offen (Tims Schritt):** visuelle Abnahme der Kacheln/Cover mit echten Daten nach dem Deploy.
+- **Abgenommen (2026-09-03):** Server 1.3.0 + Client 1.4.0 auf allen Geräten deployt; visuelle
+  Abnahme der Kacheln/Cover mit echten Daten durch Tim erfolgt — sieht gut aus. Delta abgeschlossen.
 
 ---
 
