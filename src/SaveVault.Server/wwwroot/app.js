@@ -662,6 +662,16 @@
     return !!(a && !app.hidden && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
   }
 
+  // Baut ein offenes Client-Detail-Panel mit frischen Daten neu auf (Status/„zuletzt gesehen"
+  // altern live mit). Nur wenn der Client-Drawer das aktuelle Overlay ist (der Marker existiert
+  // nur dann – ein Modal/anderes Overlay hätte den overlayRoot geleert) und der Nutzer nicht
+  // gerade darin tippt. openClientDrawer ist rein synchron aus state.data → gefahrlos.
+  function refreshOpenDrawer() {
+    const p = overlayRoot.querySelector(".js-client-drawer");
+    if (p && p.getAttribute("data-device-id") && !isInteracting())
+      openClientDrawer(p.getAttribute("data-device-id"));
+  }
+
   // Entprellter Voll-Refresh nach einem Ereignis: neu laden + rendern, ohne den manuellen
   // Refresh-Button-Zustand zu stören. Kommt ein Ereignis, während schon geladen wird ODER der
   // Nutzer gerade tippt/schiebt, wird es als „pending" gemerkt und danach nachgeholt (kein
@@ -673,6 +683,7 @@
     loadAll().then(() => {
       buildChrome();
       renderView();
+      refreshOpenDrawer(); // ein offenes Client-Panel gleich mit frischen Daten neu aufbauen
     }).catch(err => {
       if (handleAuthFailure(err)) stopLive();
       // sonst still schlucken – der nächste Tick/das nächste Ereignis versucht es erneut
@@ -696,7 +707,7 @@
       if (app.hidden || !state.token || isInteracting()) return; // Interaktion nie unterbrechen
       // Zurückgestelltes Nachladen jetzt nachholen, sonst nur die Zeit-/Offline-Anzeige altern lassen.
       if (state.live.pending) { state.live.pending = false; liveRefreshNow(); }
-      else renderView();
+      else { renderView(); refreshOpenDrawer(); } // auch ein offenes Client-Panel altern lassen (Offline-Übergang)
     }, 12000);
   }
 
@@ -879,11 +890,17 @@
   }
 
   // ---- ClientRow (kompakt) ----------------------------------------------
+  // Ein Client gilt als „verbunden", solange sein letzter Heartbeat nicht länger als
+  // CLIENT_OFFLINE_AFTER_SEC zurückliegt. Der Wert entspricht ~3 ausgebliebenen Heartbeats
+  // (Default-Takt 15 s) – tolerant gegen einen einzelnen verpassten Heartbeat/Netz-Jitter,
+  // aber zeitnah genug, dass ein geschlossener Client rasch als offline erscheint. (Der lokale
+  // Re-Render-Takt lässt diesen Übergang „altern", ohne dass ein Server-Ereignis nötig ist.)
+  const CLIENT_OFFLINE_AFTER_SEC = 45;
   function clientDerivedStatus(device) {
     const d = parseDate(device.lastSeenUtc);
     if (!d) return "Offline";
-    const min = (Date.now() - d.getTime()) / 60000;
-    return min <= 3 ? "Synced" : "Offline"; // ohne Live-Status: „verbunden" via lastSeen
+    const sec = (Date.now() - d.getTime()) / 1000;
+    return sec <= CLIENT_OFFLINE_AFTER_SEC ? "Synced" : "Offline";
   }
   function clientStatusLabel(device) {
     return clientDerivedStatus(device) === "Synced" ? "Verbunden" : "Offline";
@@ -1515,7 +1532,10 @@
   function openClientDrawer(deviceId) {
     const device = state.data.devices.find(d => d.id === deviceId);
     if (!device) return;
-    const drawer = el("div", { class: "drawer" });
+    // Marker + Geräte-ID, damit refreshOpenDrawer() dieses (rein aus state.data gebaute, synchrone)
+    // Panel bei Live-Updates zerstörungsfrei neu aufbauen kann. Wird ein anderes Overlay/Modal
+    // geöffnet, leert das den overlayRoot → der Marker verschwindet → keine Auto-Aktualisierung.
+    const drawer = el("div", { class: "drawer js-client-drawer", attrs: { "data-device-id": deviceId } });
     openOverlay(closeOverlay, drawer);
 
     const st = clientDerivedStatus(device);

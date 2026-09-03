@@ -1,5 +1,24 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
 
+**Live-Dashboard Fix (Server 1.4.1) — Offline-Erkennung zeitnah + offener Client-Drawer live.**
+Nach dem Deploy fiel auf: „Verbunden/Offline" reagierte träge. Ursache: der Offline-Schwellwert
+in `app.js` stand noch auf **3 Minuten** (Alt-Wert des 60-s-Heartbeats), und ein geöffnetes
+Client-Detail-Panel (Overlay) wurde vom Re-Render-Takt nicht erfasst.
+- **Schwellwert `CLIENT_OFFLINE_AFTER_SEC = 45`** (≈3 ausgebliebene 15-s-Heartbeats, jitter-tolerant);
+  `clientDerivedStatus` sekundenbasiert. Der lokale 12-s-Re-Render-Takt lässt den Übergang altern
+  → geschlossener Client kippt binnen ~45–57 s auf Offline, **ohne Reload**.
+- **`refreshOpenDrawer()`:** ein offener **Client**-Drawer (Marker `js-client-drawer` + Geräte-ID,
+  rein synchron aus `state.data`) wird bei Live-Refresh und im Re-Render-Takt zerstörungsfrei neu
+  gebaut; ein Modal/anderes Overlay leert den overlayRoot → keine Kollision.
+- **Browser-Laufzeit real belegt** (lokaler Server 1.4.1, Chrome): SSE offen (Heartbeat → Nachladen
+  ohne Reload, `/api/devices` before=2→after=3 in 1,5 s); Gerät kippt **Verbunden→Offline bei ~45 s
+  ohne Reload**; Drawer öffnet mit korrektem Status + Live-Marker. Build 0/0, Tests 112/0/0.
+- **Rollout:** Server-only (`:latest` neu). Danach **einmal Ctrl+F5** (neues `app.js` aus dem Cache).
+
+---
+
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
+
 **Live-Dashboard Phase 2 von 2 — Client-Heartbeat entkoppelt (Client 1.5.0).**
 Delta-Spec `specs/savevault-change-live-dashboard.md` (Abschnitt 6), Weg über `/projekt-edit`.
 Reine **Client-Änderung**; erfordert (anders als Phase 1) ein **Client-Update auf allen Geräten**.
