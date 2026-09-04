@@ -5,9 +5,9 @@
 
 ## Status
 - **Freigegeben von Tim:** ja (2026-09-03)
-- **Runde:** Etappe 1 + 2a + 2b **gebaut, getestet, Security-Gate bestanden**; Build 0/0,
-  `dotnet test` **187 grün**. Offen: Push + Release `v1.7.0` (Tims Entscheidung) und Tims
-  visueller Zwei-Ordner-Handtest nach dem Release (WPF-Client-Laufzeit hier nicht isolierbar).
+- **Runde:** **ABGENOMMEN (2026-09-04).** Etappe 1 + 2a + 2b gebaut, getestet (187 grün, Build 0/0),
+  Security-Gate bestanden, als **v1.7.0** released und von Tim auf echter Hardware bestätigt
+  („läuft gut, alles synchronisiert") — visueller Zwei-Ordner-Handtest bestanden.
 - **Datum:** 2026-09-04
 - **Fahrweise (Budget):** zwei Etappen mit Checkpoint am Kern-Gate — Etappe 1 = Delta-Gate
   + Kern-Bau (GameDiscovery-Gruppierung + SaveFolderSafety) + Kern-Gate; danach Halt vor dem
