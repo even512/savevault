@@ -35,6 +35,37 @@
 
   const TOKEN_KEY = "savevault.token";
 
+  // ---- Sortierung der Spiele-Ansicht (lokal gemerkt) --------------------
+  // Wählbare Sortierfelder: interner Key + sichtbares deutsches Label.
+  const GAME_SORT_KEY = "savevault:gameSort";
+  const GAME_SORT_FIELDS = [
+    { key: "name",     label: "Name" },
+    { key: "size",     label: "Speichergröße" },
+    { key: "activity", label: "Zuletzt aktiv" },
+    { key: "devices",  label: "Geräte-Anzahl" }
+  ];
+  const GAME_SORT_DEFAULT = { field: "name", dir: "asc" };
+
+  // Gemerkte Sortierung aus localStorage lesen; fehlender/defekter Wert → Default.
+  function loadGameSort() {
+    try {
+      const raw = localStorage.getItem(GAME_SORT_KEY);
+      if (!raw) return Object.assign({}, GAME_SORT_DEFAULT);
+      const parsed = JSON.parse(raw);
+      const field = GAME_SORT_FIELDS.some(f => f.key === (parsed && parsed.field))
+        ? parsed.field : GAME_SORT_DEFAULT.field;
+      const dir = (parsed && (parsed.dir === "asc" || parsed.dir === "desc"))
+        ? parsed.dir : GAME_SORT_DEFAULT.dir;
+      return { field: field, dir: dir };
+    } catch (_) {
+      return Object.assign({}, GAME_SORT_DEFAULT);
+    }
+  }
+  // Aktuelle Sortierung lokal merken (localStorage evtl. gesperrt → still ignorieren).
+  function saveGameSort() {
+    try { localStorage.setItem(GAME_SORT_KEY, JSON.stringify(state.gameSort)); } catch (_) {}
+  }
+
   // ---- Status: feste Zuordnung Enum -> CSS-Klasse + deutscher Text -------
   const STATUS = {
     Synced:   { cls: "synced",   label: "Synchronisiert",      pulse: false },
@@ -78,6 +109,7 @@
     view: "dashboard",
     search: "",
     gameFilter: "all",
+    gameSort: loadGameSort(),   // { field, dir } – lokal gemerkt, Default Name A→Z
     historyFilter: "all",
     data: { games: [], devices: [], conflicts: [], activity: [], pairing: null, gameStates: [], serverInfo: null },
     revCache: {},          // gameKeyValue -> RevisionInfo[]
@@ -323,6 +355,40 @@
     parts.push(formatBytes(grp.totalBytes));
     if (grp.lastActivity) parts.push(relTime(grp.lastActivity.toISOString()));
     return parts;
+  }
+
+  // Vergleich zweier Spiel-Gruppen nach Name (A→Z), deutsch und zahlen-bewusst.
+  // Dient als Primär-Ordnung für „Name" und als stabile Sekundär-Ordnung sonst.
+  function compareGamesByName(a, b) {
+    return String(a.displayName).localeCompare(String(b.displayName), "de",
+      { numeric: true, sensitivity: "base" });
+  }
+  // Comparator für die aktive Sortierung (state.gameSort). Die Richtung dreht die
+  // Primär-Ordnung; bei Gleichstand wird stets nach Name A→Z sortiert. Bei „Zuletzt
+  // aktiv" landen Gruppen ohne Aktivität (null) immer am Ende – unabhängig von der
+  // Richtung.
+  function gameSortComparator() {
+    const field = state.gameSort.field;
+    const factor = state.gameSort.dir === "desc" ? -1 : 1;
+    return function (a, b) {
+      let primary = 0;
+      if (field === "name") {
+        primary = factor * compareGamesByName(a, b);
+      } else if (field === "size") {
+        primary = factor * ((a.totalBytes || 0) - (b.totalBytes || 0));
+      } else if (field === "devices") {
+        primary = factor * ((a.deviceCount || 0) - (b.deviceCount || 0));
+      } else if (field === "activity") {
+        const ta = a.lastActivity ? a.lastActivity.getTime() : null;
+        const tb = b.lastActivity ? b.lastActivity.getTime() : null;
+        if (ta === null && tb === null) primary = 0;
+        else if (ta === null) return 1;   // null immer ans Ende
+        else if (tb === null) return -1;  // null immer ans Ende
+        else primary = factor * (ta - tb);
+      }
+      if (primary !== 0) return primary;
+      return compareGamesByName(a, b); // stabile Sekundär-Ordnung
+    };
   }
 
   // =====================================================================
@@ -927,6 +993,35 @@
     return row;
   }
 
+  // ---- Sortier-Regler der Spiele-Ansicht --------------------------------
+  // Dropdown (Feld) + Richtungsknopf (↑/↓). Änderung: State setzen, lokal merken,
+  // neu rendern. Reine Client-Werte – keine neue Eingabe von aussen.
+  function buildGameSortControl() {
+    const wrap = el("div", { class: "sort-control" });
+    wrap.appendChild(el("label", { class: "sort-control__label", text: "Sortieren:",
+      attrs: { for: "game-sort-select" } }));
+
+    const select = el("select", { class: "sort-control__select",
+      attrs: { id: "game-sort-select", "aria-label": "Spiele sortieren nach" },
+      on: { change: e => { state.gameSort.field = e.target.value; saveGameSort(); renderView(); } } });
+    for (const f of GAME_SORT_FIELDS) {
+      select.appendChild(el("option", { text: f.label, attrs: { value: f.key } }));
+    }
+    select.value = state.gameSort.field; // fällt auf erstes Feld zurück, falls unbekannt
+    wrap.appendChild(select);
+
+    const asc = state.gameSort.dir === "asc";
+    const dirText = asc ? "Aufsteigend (A→Z)" : "Absteigend (Z→A)";
+    wrap.appendChild(el("button", { class: "sort-control__dir", type: "button",
+      text: asc ? "↑" : "↓", title: "Sortierrichtung: " + dirText,
+      attrs: { "aria-label": "Sortierrichtung umschalten – aktuell: " + dirText },
+      on: { click: () => {
+        state.gameSort.dir = state.gameSort.dir === "asc" ? "desc" : "asc";
+        saveGameSort(); renderView();
+      } } }));
+    return wrap;
+  }
+
   // ---- Spiele-Ansicht ----------------------------------------------------
   function viewGames() {
     const frag = document.createDocumentFragment();
@@ -939,7 +1034,8 @@
       pillRow.appendChild(el("button", { class: "pill" + (state.gameFilter === key ? " is-active" : ""), type: "button",
         text: label, on: { click: () => { state.gameFilter = key; renderView(); } } }));
     }
-    frag.appendChild(pillRow);
+    // Statusfilter links, Sortier-Regler rechts (bricht bei schmalem Viewport um).
+    frag.appendChild(el("div", { class: "games-toolbar" }, [pillRow, buildGameSortControl()]));
 
     const search = state.search.trim().toLowerCase();
     // Filter/Suche arbeiten auf SPIEL-Ebene: ein Treffer je Spiel, Statusfilter
@@ -956,6 +1052,10 @@
         text: state.data.games.length === 0 ? "Noch keine Spiele erfasst. Koppele einen Client, damit Spielstände erscheinen." : "Keine Spiele gefunden." }));
       return frag;
     }
+
+    // Sortierung wirkt NACH Filter und Suche auf die bereits gefilterte Liste.
+    list.sort(gameSortComparator());
+
     const grid = el("div", { class: "card-grid-3" });
     for (const grp of list) grid.appendChild(gameCard(grp, true));
     frag.appendChild(grid);

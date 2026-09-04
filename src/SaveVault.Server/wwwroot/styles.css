@@ -251,6 +251,34 @@ button { font-family: inherit; }
 .pill:hover { color: var(--text); }
 .pill.is-active { background: var(--accent); border-color: var(--accent); color: white; }
 
+/* ---- Sortier-Regler (Spiele-Ansicht) --------------------------------- */
+/* Statusfilter links, Sortierung rechts – gleiche Zeile, bricht bei schmalem
+   Viewport um. Optik nutzt dieselben Tokens/Radien wie Pills & Textfeld. */
+.games-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px 16px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.games-toolbar .pill-row { margin-bottom: 0; }
+.sort-control { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.sort-control__label { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.sort-control__select {
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border-strong);
+  border-radius: 20px; padding: 7px 12px; cursor: pointer; outline: none;
+  transition: border-color .15s;
+}
+.sort-control__select:hover,
+.sort-control__select:focus { border-color: var(--accent); }
+.sort-control__dir {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: 20px;
+  font-size: 15px; font-weight: 700; line-height: 1; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--border-strong); transition: all .15s;
+}
+.sort-control__dir:hover,
+.sort-control__dir:focus-visible { color: var(--text); border-color: var(--accent); outline: none; }
+
 .card-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
 .empty { text-align: center; padding: 60px 0; color: var(--muted-2); font-size: 13.5px; }
