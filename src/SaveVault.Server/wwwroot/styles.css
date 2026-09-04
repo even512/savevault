@@ -388,6 +388,18 @@ button { font-family: inherit; }
 .version-row__actions { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
 .btn-inline:disabled { opacity: 0.6; cursor: default; text-decoration: none; }
 
+/* Ältere Versionen im Bucket-Abschnitt: standardmäßig eingeklappt hinter einem Toggle. */
+.version-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; margin-top: 2px; padding: 9px 4px; border: none; background: none;
+  color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600;
+  text-align: left; cursor: pointer; border-radius: 8px; transition: background .15s, color .15s;
+}
+.version-toggle:hover { background: var(--card-2); color: var(--text); }
+.version-toggle__chevron { width: 12px; height: 12px; color: oklch(0.5 0.02 280); transition: transform .2s; flex: 0 0 auto; }
+.version-toggle.is-open .version-toggle__chevron { transform: rotate(90deg); }
+.version-older { display: flex; flex-direction: column; gap: 2px; }
+
 .conflict-banner {
   background: oklch(0.75 0.18 55 / 0.12); border: 1px solid oklch(0.75 0.18 55 / 0.4);
   border-radius: 12px; padding: 14px 16px; margin-bottom: 20px;

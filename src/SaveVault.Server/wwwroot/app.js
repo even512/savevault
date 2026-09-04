@@ -1547,26 +1547,58 @@
     if (revisions.length === 0) {
       versionBody.appendChild(el("div", { class: "empty", text: "Noch keine Versionen." }));
     } else {
-      for (const r of revisions) {
-        const row = el("div", { class: "version-row" });
-        const info = el("div", null, [
-          el("div", { class: "version-row__time" }, [
-            document.createTextNode("#" + r.number + " · " + absTime(r.timestampUtc)),
-            r.isConflict ? el("span", { class: "status--conflict", text: "  (Konflikt)", style: { "font-size": "11px" } }) : null
-          ]),
-          el("div", { class: "version-row__sub", text: deviceName(r.deviceId) + " · " + formatBytes(r.totalBytes) + " · " + r.fileCount + " Dateien" })
+      // Standardmäßig nur die aktuellste Version zeigen; ältere Versionen (falls
+      // vorhanden) hinter einem lokalen Auf-/Zuklapp-Toggle verstecken. Der Zustand
+      // lebt nur hier, da der Drawer bei jedem Öffnen neu aufgebaut wird.
+      const [latest, ...older] = revisions;
+      versionBody.appendChild(versionRow(latest, bucketValue, canonical));
+
+      if (older.length > 0) {
+        let expanded = false;
+        const olderWrap = el("div", { class: "version-older" });
+        const label = el("span", { class: "version-toggle__label" });
+        const toggle = el("button", { class: "version-toggle", type: "button" }, [
+          label, iconEl("chevron", "version-toggle__chevron")
         ]);
-        row.appendChild(info);
-        const actions = el("div", { class: "version-row__actions" });
-        actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Export",
-          title: "Diese Version als ZIP herunterladen",
-          on: { click: (ev) => downloadRevisionExport(bucketValue, r.number, ev.currentTarget) } }));
-        actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Wiederherstellen",
-          on: { click: () => openRestorePicker(bucketValue, r.number, canonical) } }));
-        row.appendChild(actions);
-        versionBody.appendChild(row);
+
+        const renderOlder = () => {
+          clear(olderWrap);
+          if (expanded) for (const r of older) olderWrap.appendChild(versionRow(r, bucketValue, canonical));
+        };
+        const updateToggle = () => {
+          label.textContent = expanded ? "Ältere Versionen ausblenden" : "Ältere Versionen anzeigen (" + older.length + ")";
+          toggle.classList.toggle("is-open", expanded);
+        };
+        toggle.addEventListener("click", () => { expanded = !expanded; updateToggle(); renderOlder(); });
+        updateToggle();
+
+        versionBody.appendChild(toggle);
+        versionBody.appendChild(olderWrap);
       }
     }
+  }
+
+  // Eine Versionszeile (Revisionsnummer, Zeit, Gerät, Größe, Export/Wiederherstellen).
+  // Wird sowohl für die stets sichtbare aktuellste Version als auch für die
+  // eingeklappten älteren Versionen verwendet.
+  function versionRow(r, bucketValue, canonical) {
+    const row = el("div", { class: "version-row" });
+    const info = el("div", null, [
+      el("div", { class: "version-row__time" }, [
+        document.createTextNode("#" + r.number + " · " + absTime(r.timestampUtc)),
+        r.isConflict ? el("span", { class: "status--conflict", text: "  (Konflikt)", style: { "font-size": "11px" } }) : null
+      ]),
+      el("div", { class: "version-row__sub", text: deviceName(r.deviceId) + " · " + formatBytes(r.totalBytes) + " · " + r.fileCount + " Dateien" })
+    ]);
+    row.appendChild(info);
+    const actions = el("div", { class: "version-row__actions" });
+    actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Export",
+      title: "Diese Version als ZIP herunterladen",
+      on: { click: (ev) => downloadRevisionExport(bucketValue, r.number, ev.currentTarget) } }));
+    actions.appendChild(el("button", { class: "btn-inline", type: "button", text: "Wiederherstellen",
+      on: { click: () => openRestorePicker(bucketValue, r.number, canonical) } }));
+    row.appendChild(actions);
+    return row;
   }
 
   function loadingState() {
