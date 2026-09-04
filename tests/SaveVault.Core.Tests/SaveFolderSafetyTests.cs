@@ -76,4 +76,75 @@ public class SaveFolderSafetyTests
     {
         Assert.False(SaveFolderSafety.IsTooBroad(path, BroadRoots));
     }
+
+    // --- IsContainerRoot – Sammelordner, die eine Ebene tiefer betreten werden ----
+
+    [Theory]
+    // Steam-Install-Wurzeln (an Laufwerk / Program Files verankert)
+    [InlineData("D:\\Steam")]
+    [InlineData("C:\\Program Files (x86)\\Steam")]
+    [InlineData("C:\\Program Files\\Steam")]
+    [InlineData("E:\\SteamLibrary")]
+    // steamapps / common
+    [InlineData("D:\\SteamLibrary\\steamapps")]
+    [InlineData("C:\\Program Files (x86)\\Steam\\steamapps\\common")]
+    // Steam userdata (Sammelordner über alle Konten + je Konto)
+    [InlineData("C:\\Program Files (x86)\\Steam\\userdata")]
+    [InlineData("C:\\Program Files (x86)\\Steam\\userdata\\56296790")]
+    // Ubisoft
+    [InlineData("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher")]
+    [InlineData("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\savegames")]
+    [InlineData("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\savegames\\db47b069-c627-4678-b277-316c8a9cf11d")]
+    // Launcher-Bibliotheken
+    [InlineData("C:\\GOG Games")]
+    [InlineData("D:\\Epic Games")]
+    public void IsContainerRoot_true_fuer_bekannte_Sammelwurzeln(string path)
+    {
+        Assert.True(SaveFolderSafety.IsContainerRoot(path));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    // Enge, spielspezifische Ordner UNTER einem Container sind KEIN Container mehr:
+    [InlineData("C:\\Program Files (x86)\\Steam\\userdata\\56296790\\730")]      // …\userdata\<id>\<appid>
+    [InlineData("C:\\Program Files (x86)\\Steam\\steamapps\\common\\No Man's Sky")]
+    [InlineData("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\savegames\\db47b069-c627-4678-b277-316c8a9cf11d\\6100")]
+    // Bloß der Name „steam" tief in Nutzerdaten ist KEIN Container (nicht verankert):
+    [InlineData("C:\\Users\\tim\\Documents\\Battlefield 6\\settings\\steam")]
+    // Ein Unreal-„SaveGames\steam\<steamid>" ist kein Ubisoft-savegames-Container:
+    [InlineData("C:\\Users\\tim\\AppData\\Local\\WB Games\\LEGO\\SaveGames\\steam\\76561197960285355")]
+    // Gewöhnlicher Save-Ordner:
+    [InlineData("C:\\Users\\tim\\Saved Games\\CD Projekt Red\\Cyberpunk 2077")]
+    public void IsContainerRoot_false_fuer_enge_oder_ungueltige_Pfade(string? path)
+    {
+        Assert.False(SaveFolderSafety.IsContainerRoot(path));
+    }
+
+    // --- IsBroadUserStructure – lexikalische, maschinenunabhängige Sammelwurzeln ----
+
+    [Theory]
+    [InlineData("C:\\Users\\beliebig")]                          // Benutzerprofil (beliebiger Name)
+    [InlineData("D:\\Users\\zweitprofil")]
+    [InlineData("C:\\Users\\tim\\AppData")]                      // AppData-Sammelebene
+    [InlineData("C:\\Users\\tim\\AppData\\Local")]
+    [InlineData("C:\\Users\\tim\\AppData\\LocalLow")]
+    [InlineData("C:\\Users\\tim\\AppData\\Roaming")]
+    public void IsBroadUserStructure_true_fuer_universelle_Sammelwurzeln(string path)
+    {
+        Assert.True(SaveFolderSafety.IsBroadUserStructure(path));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("C:\\Users\\tim\\Documents")]                    // Documents ist NICHT breit
+    [InlineData("C:\\Users\\tim\\Documents\\My Game")]
+    [InlineData("C:\\Users\\tim\\AppData\\Roaming\\HelloGames")] // Vendor unter Roaming ist eng
+    [InlineData("C:\\Users\\tim\\AppData\\LocalLow\\Vendor\\Spiel")]
+    [InlineData("C:\\Users\\tim\\Saved Games\\Vendor")]
+    public void IsBroadUserStructure_false_fuer_enge_oder_ungueltige_Pfade(string? path)
+    {
+        Assert.False(SaveFolderSafety.IsBroadUserStructure(path));
+    }
 }
