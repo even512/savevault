@@ -1,4 +1,5 @@
 using SaveVault.Core.Models;
+using SaveVault.Core.Storage;
 
 namespace SaveVault.Core.Hashing;
 
@@ -21,12 +22,51 @@ public sealed class ManifestBuilder
         if (string.IsNullOrWhiteSpace(rootDirectory))
             throw new ArgumentException("rootDirectory darf nicht leer sein.", nameof(rootDirectory));
 
-        if (!Directory.Exists(rootDirectory))
-            return FileManifest.Empty;
-
-        var root = Path.GetFullPath(rootDirectory);
         var previousByPath = BuildLookup(previous);
         var entries = new List<FileEntry>();
+        ScanRootInto(rootDirectory, keyPrefix: null, previous, previousByPath, entries, ct);
+        return FileManifest.Create(entries);
+    }
+
+    /// <summary>
+    /// Baut EIN Manifest über <b>mehrere</b> Save-Wurzeln eines Spiels (Mehr-Ordner-Erkennung).
+    /// Bei genau einer Wurzel bleibt das Ergebnis <b>bit-identisch</b> zu <see cref="Build"/> (kein
+    /// Präfix, kein Reseed); bei mehreren Wurzeln bekommt jede Datei ihren Root-Key als Präfix
+    /// (<see cref="SaveRootLayout.Combine"/>), damit ein Restore sie der richtigen Wurzel zuordnen
+    /// kann. Der Vorfilter (unveränderte Dateien nicht neu hashen) arbeitet gegen dieselben
+    /// präfixierten Pfade wie das vorige Manifest.
+    /// </summary>
+    public FileManifest BuildCombined(IReadOnlyList<SaveRoot> roots, FileManifest? previous = null, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(roots);
+        if (roots.Count == 0)
+            return FileManifest.Empty;
+        if (roots.Count == 1)
+            return Build(roots[0].Folder, previous, ct);
+
+        var previousByPath = BuildLookup(previous);
+        var entries = new List<FileEntry>();
+        foreach (var root in roots)
+        {
+            ct.ThrowIfCancellationRequested();
+            ScanRootInto(root.Folder, root.Key, previous, previousByPath, entries, ct);
+        }
+        return FileManifest.Create(entries);
+    }
+
+    /// <summary>
+    /// Scannt eine Wurzel und hängt ihre Einträge an <paramref name="entries"/> an. Ist
+    /// <paramref name="keyPrefix"/> gesetzt (Mehr-Root), wird jeder relative Pfad als
+    /// <c>"&lt;keyPrefix&gt;/&lt;rel&gt;"</c> abgelegt; sonst unverändert (Einfach-Root).
+    /// Nicht existierende Ordner werden übersprungen (kein Absturz).
+    /// </summary>
+    private void ScanRootInto(string rootDirectory, string? keyPrefix, FileManifest? previous,
+        Dictionary<string, FileEntry> previousByPath, List<FileEntry> entries, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
+            return;
+
+        var root = Path.GetFullPath(rootDirectory);
 
         foreach (var file in EnumerateFilesSafe(root))
         {
@@ -41,7 +81,10 @@ public sealed class ManifestBuilder
             catch (IOException) { continue; }
             catch (UnauthorizedAccessException) { continue; }
 
-            var rel = NormalizeRelative(Path.GetRelativePath(root, file));
+            var relWithinRoot = NormalizeRelative(Path.GetRelativePath(root, file));
+            var rel = string.IsNullOrEmpty(keyPrefix)
+                ? relWithinRoot
+                : SaveRootLayout.Combine(keyPrefix, relWithinRoot);
             var size = info.Length;
             var mtime = info.LastWriteTimeUtc;
 
@@ -66,8 +109,6 @@ public sealed class ManifestBuilder
 
             entries.Add(new FileEntry(rel, hash, size, mtime));
         }
-
-        return FileManifest.Create(entries);
     }
 
     /// <summary>
