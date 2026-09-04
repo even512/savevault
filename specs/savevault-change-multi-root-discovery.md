@@ -5,8 +5,9 @@
 
 ## Status
 - **Freigegeben von Tim:** ja (2026-09-03)
-- **Runde:** Phase B′ Etappe 1 (Kern-Gruppierung) **gebaut + headless bewiesen**; Halt vor Etappe 2
-  (Sync-Plumbing) bis frischer `/usage`-Stand.
+- **Runde:** Etappe 1 + 2a + 2b **gebaut, getestet, Security-Gate bestanden**; Build 0/0,
+  `dotnet test` **187 grün**. Offen: Push + Release `v1.7.0` (Tims Entscheidung) und Tims
+  visueller Zwei-Ordner-Handtest nach dem Release (WPF-Client-Laufzeit hier nicht isolierbar).
 - **Datum:** 2026-09-04
 - **Fahrweise (Budget):** zwei Etappen mit Checkpoint am Kern-Gate — Etappe 1 = Delta-Gate
   + Kern-Bau (GameDiscovery-Gruppierung + SaveFolderSafety) + Kern-Gate; danach Halt vor dem
@@ -67,6 +68,21 @@
   **Sicherheits-Gate Pflicht:** `security-auditor` über den mehr-Root-`ApplyRevisionAsync` (kein
   Ausbrechen je Root, unbekannter Key schreibt nirgends, Alles-oder-nichts bei Traversal). Danach
   Laufzeit-Gate/`tester` + Tims visueller Zwei-Ordner-Handtest nach Release.
+- **Etappe-2b-Stand (2026-09-04) — FERTIG + Security-Gate bestanden:**
+  - Verdrahtung komplett (committet `fec98af`): `SaveFolderRegistry` (Liste je Spiel + Migration +
+    „Handzuordnung ersetzen wo sicher"), `GameDiscovery` (Mehr-Root über `SaveRootGrouping`+
+    `SaveRootKey`, Disk-Heuristik abgelöst), `SyncEngine` (RunCycle/Upload/Download/Conflict/
+    ApplyRevision/UploadMissing über Roots, `BuildCombined`), Verdrahtung in `ClientAgent`/
+    `CommandPoller`/`HeartbeatReporter`, **je Ordner ein `FolderWatcher`**, GUI `RootCount`→„N Ordner",
+    Version **1.7.0**.
+  - **Security-Gate** (`security-auditor`, 2026-09-04): kein kritischer Ausbruch; ein **MITTEL**-Fund
+    behoben (committet `5c0cac5`): Manifest-Pfad `"."`/`"<key>/."` kollabierte aufs Wurzelverzeichnis
+    → Temp-Datei landete im Elternordner; Fix in `PathSanitizer.TryResolveWithin` (Ziel == Wurzel →
+    ungültig) + `ResolveRootsSafe` für defekte Roots. Regressionstests ergänzt. GERING-Punkte
+    (Key-Kollision distinkter Ordner – strukturell ausgeschlossen; Symlink-in-Wurzel – vorbestehende
+    Grenze) bewusst offen.
+  - **Verifikation:** Build 0/0, `dotnet test` **187 grün**. **Offen:** Push + Release `v1.7.0`
+    (Tim entscheidet) und Tims visueller Zwei-Ordner-Handtest nach dem Release.
 
 ## Bezug
 - **Projekt-id / Ordner:** `savevault` (`<werkstatt>/savevault/`)
