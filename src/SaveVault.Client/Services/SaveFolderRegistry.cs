@@ -4,16 +4,35 @@ using SaveVault.Core.Storage;
 
 namespace SaveVault.Client.Services;
 
-/// <summary>Eine Zuordnung Spiel → lokaler Save-Ordner. <see cref="Manual"/> markiert einen
-/// vom Nutzer hinzugefügten Ordner (überschreibt eine spätere ludusavi-Erkennung nicht).</summary>
-public sealed record SaveFolderEntry(GameKey Game, string FolderPath, bool Manual);
+/// <summary>Ein einzelner persistierter Save-Ordner eines Spiels. <see cref="Manual"/> markiert
+/// einen vom Nutzer hinzugefügten Ordner; <see cref="RootKey"/> ist sein stabiles, geräte-
+/// übergreifendes Kennzeichen (bei Altdaten leer → wird beim Laden abgeleitet).</summary>
+public sealed record SaveFolderEntry(GameKey Game, string FolderPath, bool Manual, string? RootKey = null);
 
 /// <summary>
-/// Hält die Zuordnung <c>GameKey → lokaler Ordnerpfad</c> – gespeist aus der
-/// ludusavi-Erkennung (<see cref="SetDiscovered"/>) und aus manuell hinzugefügten
-/// Ordnern (<see cref="AddManual"/>, persistiert). Manuell gesetzte Ordner haben Vorrang
-/// und werden von der Erkennung nicht überschrieben. Thread-safe; jede Änderung wird
-/// atomar persistiert.
+/// Die Save-Wurzeln EINES Spiels (Mehr-Ordner-Erkennung): eine oder mehrere. <see cref="Manual"/>
+/// ist true, wenn der Nutzer den Ordner selbst zugeordnet hat (Vorrang vor der Erkennung).
+/// </summary>
+public sealed record GameRoots(GameKey Game, IReadOnlyList<SaveRoot> Roots, bool Manual)
+{
+    /// <summary>Der primäre (erste) lokale Ordner – für „Ordner öffnen" und Anzeige.</summary>
+    public string? PrimaryFolder => Roots.Count > 0 ? Roots[0].Folder : null;
+
+    /// <summary>Anzahl der Save-Wurzeln dieses Spiels.</summary>
+    public int Count => Roots.Count;
+}
+
+/// <summary>
+/// Hält die Zuordnung <c>GameKey → eine oder mehrere lokale Save-Wurzeln</c> – gespeist aus der
+/// ludusavi-Erkennung (<see cref="SetDiscovered"/>, Mehr-Ordner-Gruppierung) und aus manuell
+/// hinzugefügten Ordnern (<see cref="AddManual"/>). Manuell gesetzte Ordner haben Vorrang; die
+/// Erkennung ersetzt eine manuelle Zuordnung nur dann, wenn sie den manuellen Ordner sicher mit
+/// abdeckt. Thread-safe; jede Änderung wird atomar persistiert.
+///
+/// <para><b>Persistenz + Migration:</b> gespeichert wird eine flache Liste von
+/// <see cref="SaveFolderEntry"/> (je Wurzel eine); intern nach Spiel gruppiert. Altdaten (ein
+/// Ordner je Spiel, ohne <see cref="SaveFolderEntry.RootKey"/>) bleiben lesbar – der fehlende Key
+/// wird beim Laden über <see cref="SaveRootKey"/> abgeleitet (idempotent, kein Datenverlust).</para>
 /// </summary>
 public sealed class SaveFolderRegistry
 {
@@ -24,13 +43,14 @@ public sealed class SaveFolderRegistry
 
     private readonly AppPaths _paths;
     private readonly object _lock = new();
-    private readonly Dictionary<string, SaveFolderEntry> _byGame = new(StringComparer.Ordinal);
+    // Je Spiel eine Liste von Wurzeln (in Einfüge-/Ladereihenfolge; der erste gilt als primär).
+    private readonly Dictionary<string, List<SaveFolderEntry>> _byGame = new(StringComparer.Ordinal);
 
     public SaveFolderRegistry(AppPaths paths)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         var data = JsonFileStore.Read<RegistryData>(_paths.FolderRegistryFile);
-        var dropped = false;
+        var changed = false;
         if (data is not null)
         {
             foreach (var e in data.Entries)
@@ -42,39 +62,74 @@ public sealed class SaveFolderRegistry
                 // damit ein bestehender Client nicht weiter die ganze Platte durchsucht.
                 if (SaveFolderSafety.IsTooBroad(e.FolderPath))
                 {
-                    dropped = true;
+                    changed = true;
                     continue;
                 }
 
-                _byGame[e.Game.Value] = e;
+                // Migration: fehlenden Root-Key ableiten (Altformat: ein Ordner je Spiel ohne Key).
+                var normalized = e;
+                if (string.IsNullOrEmpty(e.RootKey))
+                {
+                    normalized = e with { RootKey = SaveRootKey.Derive(e.FolderPath) };
+                    changed = true;
+                }
+
+                Add(normalized);
             }
         }
 
-        // Fiel mindestens ein Eintrag weg, die bereinigte Registry einmalig neu schreiben.
+        // Fiel etwas weg oder wurde migriert, die bereinigte Registry einmalig neu schreiben.
         // Im Konstruktor gibt es noch keine Nebenläufigkeit → direkter Schreibaufruf ohne Lock.
-        if (dropped)
+        if (changed)
             WriteData();
     }
 
-    /// <summary>Alle aktuell bekannten Zuordnungen (Momentaufnahme).</summary>
-    public IReadOnlyList<SaveFolderEntry> GetAll()
+    /// <summary>Alle Spiele mit ihren Save-Wurzeln (Momentaufnahme, pro Spiel gruppiert).</summary>
+    public IReadOnlyList<GameRoots> GetGames()
     {
         lock (_lock)
-            return _byGame.Values.ToList();
+            return _byGame.Values.Where(l => l.Count > 0).Select(ToGameRoots).ToList();
     }
 
-    /// <summary>Die Zuordnung eines Spiels oder <c>null</c>.</summary>
-    public SaveFolderEntry? TryGet(GameKey game)
+    /// <summary>Die Wurzeln eines Spiels oder <c>null</c>.</summary>
+    public GameRoots? TryGet(GameKey game)
     {
         ArgumentNullException.ThrowIfNull(game);
         lock (_lock)
-            return _byGame.TryGetValue(game.Value, out var e) ? e : null;
+            return _byGame.TryGetValue(game.Value, out var list) && list.Count > 0 ? ToGameRoots(list) : null;
     }
 
     /// <summary>
-    /// Fügt einen manuell gewählten Ordner hinzu. Validiert, dass der Pfad existiert und
-    /// ein Verzeichnis ist; sonst <see cref="ArgumentException"/> (die GUI meldet das dem
-    /// Nutzer). Ein manueller Ordner hat Vorrang vor der Erkennung.
+    /// Jede einzelne Save-Wurzel über alle Spiele (für die Watcher: <b>ein Watcher je Ordner</b>).
+    /// </summary>
+    public IReadOnlyList<(GameKey Game, SaveRoot Root)> EnumerateRoots()
+    {
+        lock (_lock)
+            return _byGame.Values
+                .SelectMany(list => list.Select(e => (e.Game, new SaveRoot(e.RootKey ?? SaveRootKey.Derive(e.FolderPath), e.FolderPath))))
+                .ToList();
+    }
+
+    private static GameRoots ToGameRoots(List<SaveFolderEntry> list)
+    {
+        var game = list[0].Game;
+        var manual = list.Any(e => e.Manual);
+        var roots = list.Select(e => new SaveRoot(e.RootKey ?? SaveRootKey.Derive(e.FolderPath), e.FolderPath)).ToList();
+        return new GameRoots(game, roots, manual);
+    }
+
+    /// <summary>Fügt einen Eintrag der In-Memory-Gruppe seines Spiels hinzu (ohne Persistenz).</summary>
+    private void Add(SaveFolderEntry entry)
+    {
+        if (!_byGame.TryGetValue(entry.Game.Value, out var list))
+            _byGame[entry.Game.Value] = list = new List<SaveFolderEntry>();
+        list.Add(entry);
+    }
+
+    /// <summary>
+    /// Fügt einen manuell gewählten Ordner für ein Spiel hinzu und macht ihn zur <b>alleinigen</b>,
+    /// manuellen Wurzel dieses Spiels (Vorrang vor der Erkennung). Validiert, dass der Pfad existiert,
+    /// ein Verzeichnis und nicht zu breit ist; sonst <see cref="ArgumentException"/> (die GUI meldet das).
     /// </summary>
     public void AddManual(GameKey game, string folderPath)
     {
@@ -102,7 +157,10 @@ public sealed class SaveFolderRegistry
 
         lock (_lock)
         {
-            _byGame[game.Value] = new SaveFolderEntry(game, full, Manual: true);
+            _byGame[game.Value] = new List<SaveFolderEntry>
+            {
+                new(game, full, Manual: true, RootKey: SaveRootKey.Derive(full)),
+            };
             Persist();
         }
     }
@@ -123,23 +181,23 @@ public sealed class SaveFolderRegistry
     }
 
     /// <summary>
-    /// Gleicht die nicht-manuellen Einträge mit dem Erkennungsergebnis ab (nicht nur
-    /// hinzufügen/aktualisieren). Ablauf unter <see cref="_lock"/>:
+    /// Gleicht die nicht-manuellen Einträge mit dem Erkennungsergebnis ab. Je Spiel liefert die
+    /// Erkennung jetzt eine <b>Liste</b> von Wurzeln (Mehr-Ordner-Gruppierung). Ablauf unter
+    /// <see cref="_lock"/>:
     /// <list type="bullet">
-    /// <item>Für jedes übergebene (nutzbare) Spiel wird der erkannte Ordner gesetzt bzw.
-    /// aktualisiert. Zu breite Ordner werden nie gesetzt; manuelle Einträge
-    /// (<see cref="SaveFolderEntry.Manual"/> = <c>true</c>) bleiben IMMER unangetastet.</item>
-    /// <item>Anschließend werden ALLE nicht-manuellen Einträge entfernt, deren
-    /// <c>GameKey.Value</c> NICHT in der übergebenen Menge enthalten ist. Damit fällt ein
-    /// Spiel, das die Erkennung nicht mehr liefert (z. B. Project Zomboid, weil sein Save-Set
-    /// jetzt als zu groß übersprungen wird), beim nächsten Lauf automatisch aus der Registry –
-    /// Selbstheilung, ohne dass die Registry die Größe selbst kennen muss.</item>
+    /// <item>Zu breite Wurzeln werden nie gesetzt. Bleibt für ein Spiel keine gültige Wurzel übrig,
+    /// gilt es als nicht geliefert.</item>
+    /// <item><b>Manuelle Zuordnung ersetzen, wo sicher:</b> ist ein Spiel bisher manuell und deckt
+    /// das Erkennungsergebnis den manuellen Ordner ab (er gleicht einer erkannten Wurzel oder liegt
+    /// darin), übernimmt die Erkennung (Manual=false). Ein manueller Ordner, der zu <b>nichts</b>
+    /// aus der Erkennung passt (echter Nischen-Override), bleibt unangetastet.</item>
+    /// <item>Anschließend werden alle nicht-manuellen Spiele entfernt, die die Erkennung nicht mehr
+    /// liefert (Selbstheilung, z. B. jetzt zu große Save-Sets).</item>
     /// </list>
-    /// Persistiert wird nur, wenn sich tatsächlich etwas geändert hat (Hinzufügen,
-    /// Aktualisieren ODER Entfernen). Der Aufrufer ruft dies nur bei mindestens einem
+    /// Persistiert wird nur bei echter Änderung. Der Aufrufer ruft dies nur bei mindestens einem
     /// erkannten Spiel auf – ein leeres/transientes Ergebnis darf die Registry nicht leeren.
     /// </summary>
-    public void SetDiscovered(IEnumerable<(GameKey Game, string FolderPath)> discovered)
+    public void SetDiscovered(IEnumerable<(GameKey Game, IReadOnlyList<SaveRoot> Roots)> discovered)
     {
         ArgumentNullException.ThrowIfNull(discovered);
         lock (_lock)
@@ -147,35 +205,42 @@ public sealed class SaveFolderRegistry
             var changed = false;
             var discoveredKeys = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var (game, folderPath) in discovered)
+            foreach (var (game, roots) in discovered)
             {
-                if (game is null || string.IsNullOrWhiteSpace(folderPath))
+                if (game is null || roots is null)
                     continue;
 
-                // Zu breite Ordner (Laufwerks-/Systemwurzel) nie setzen und nicht als
-                // „gesehen" merken (sonst würden sie den Abgleich verwässern).
-                if (SaveFolderSafety.IsTooBroad(folderPath))
+                // Zu breite Wurzeln aussortieren; ohne gültige Wurzel gilt das Spiel als nicht geliefert.
+                var usable = roots.Where(r => r is not null && !string.IsNullOrWhiteSpace(r.Folder)
+                                              && !SaveFolderSafety.IsTooBroad(r.Folder)).ToList();
+                if (usable.Count == 0)
                     continue;
 
                 discoveredKeys.Add(game.Value);
 
-                // Manuelle Ordner haben Vorrang und werden nicht überschrieben.
-                if (_byGame.TryGetValue(game.Value, out var existing) && existing.Manual)
+                _byGame.TryGetValue(game.Value, out var existing);
+                var existingIsManual = existing is not null && existing.Any(e => e.Manual);
+
+                // Manueller Eintrag: nur ersetzen, wenn die Erkennung den manuellen Ordner abdeckt.
+                if (existingIsManual && !DiscoveryCoversManual(existing!, usable))
                     continue;
 
-                var entry = new SaveFolderEntry(game, folderPath, Manual: false);
-                if (existing is null || !string.Equals(existing.FolderPath, folderPath, StringComparison.Ordinal))
+                var newEntries = usable
+                    .Select(r => new SaveFolderEntry(game, Path.GetFullPath(r.Folder), Manual: false,
+                        RootKey: string.IsNullOrEmpty(r.Key) ? SaveRootKey.Derive(r.Folder) : r.Key))
+                    .ToList();
+
+                if (existing is null || !SameRoots(existing, newEntries))
                 {
-                    _byGame[game.Value] = entry;
+                    _byGame[game.Value] = newEntries;
                     changed = true;
                 }
             }
 
-            // Abgleich: nicht-manuelle Einträge entfernen, die die Erkennung nicht (mehr)
-            // liefert. Manuelle Einträge bleiben unangetastet.
-            var toRemove = _byGame.Values
-                .Where(e => !e.Manual && !discoveredKeys.Contains(e.Game.Value))
-                .Select(e => e.Game.Value)
+            // Abgleich: nicht-manuelle Spiele entfernen, die die Erkennung nicht (mehr) liefert.
+            var toRemove = _byGame
+                .Where(kv => !kv.Value.Any(e => e.Manual) && !discoveredKeys.Contains(kv.Key))
+                .Select(kv => kv.Key)
                 .ToList();
             foreach (var key in toRemove)
             {
@@ -188,20 +253,58 @@ public sealed class SaveFolderRegistry
         }
     }
 
-    private void Persist()
+    /// <summary>
+    /// <c>true</c>, wenn JEDER manuelle Ordner des Spiels von mindestens einer erkannten Wurzel
+    /// abgedeckt wird (gleicht ihr oder liegt darin) – dann darf die Erkennung übernehmen.
+    /// </summary>
+    private static bool DiscoveryCoversManual(List<SaveFolderEntry> existing, List<SaveRoot> discovered)
     {
-        // Aufruf immer unter _lock.
-        WriteData();
+        foreach (var m in existing.Where(e => e.Manual))
+        {
+            var covered = discovered.Any(d => IsWithinOrEqual(m.FolderPath, d.Folder));
+            if (!covered)
+                return false;
+        }
+        return true;
     }
 
+    /// <summary><c>true</c>, wenn <paramref name="child"/> gleich <paramref name="parent"/> ist
+    /// oder darin liegt (normalisierter, case-insensitiver Pfadvergleich).</summary>
+    private static bool IsWithinOrEqual(string child, string parent)
+    {
+        string c, p;
+        try
+        {
+            c = Path.GetFullPath(child).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            p = Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+        if (string.Equals(c, p, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return c.StartsWith(p + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Ob zwei Wurzel-Listen (Ordner-Mengen) übereinstimmen – Reihenfolge-unabhängig.</summary>
+    private static bool SameRoots(List<SaveFolderEntry> a, List<SaveFolderEntry> b)
+    {
+        if (a.Count != b.Count)
+            return false;
+        var setA = a.Select(e => e.FolderPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return b.All(e => setA.Contains(e.FolderPath));
+    }
+
+    private void Persist() => WriteData(); // Aufruf immer unter _lock (Laufzeit) oder im Ctor.
+
     /// <summary>
-    /// Serialisiert den aktuellen Stand auf die Platte. Selbst nicht sperrend – der Aufrufer
-    /// hält entweder <see cref="_lock"/> (Laufzeit) oder ist der Konstruktor (keine
-    /// Nebenläufigkeit). So entsteht kein Deadlock bei der Selbstheilung im Konstruktor.
+    /// Serialisiert den aktuellen Stand (flache Liste über alle Wurzeln) auf die Platte. Selbst
+    /// nicht sperrend – der Aufrufer hält <see cref="_lock"/> (Laufzeit) oder ist der Konstruktor.
     /// </summary>
     private void WriteData()
     {
-        var data = new RegistryData { Entries = _byGame.Values.ToList() };
+        var data = new RegistryData { Entries = _byGame.Values.SelectMany(l => l).ToList() };
         JsonFileStore.Write(_paths.FolderRegistryFile, data);
     }
 }

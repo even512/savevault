@@ -140,10 +140,10 @@ public sealed class CommandPoller
                 // Exklusiv pro Spiel (B1): kein gleichzeitiger Sync-Zyklus, der einen halb
                 // geschriebenen Restore-Ordner als „Änderung" hochladen könnte.
                 await _serializer.RunExclusiveAsync(game,
-                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, scope, c), ct)
+                    c => _engine.ApplyRevisionAsync(game, entry.Roots, revision.Manifest, revision.Number, scope, c), ct)
                     .ConfigureAwait(false);
                 _state.SetStatus(game, SyncStatus.Synced,
-                    action: $"Wiederhergestellt ← Revision {revision.Number}", folder: entry.FolderPath, baseRevision: revision.Number);
+                    action: $"Wiederhergestellt ← Revision {revision.Number}", folder: entry.PrimaryFolder, baseRevision: revision.Number);
                 return true;
             }
 
@@ -156,10 +156,10 @@ public sealed class CommandPoller
                 var revision = await _api.GetRevisionAsync(game, head.CurrentRevision, scope, ct).ConfigureAwait(false);
                 // Exklusiv pro Spiel (B1), gleiches Gate wie der Sync-Zyklus.
                 await _serializer.RunExclusiveAsync(game,
-                    c => _engine.ApplyRevisionAsync(game, entry.FolderPath, revision.Manifest, revision.Number, scope, c), ct)
+                    c => _engine.ApplyRevisionAsync(game, entry.Roots, revision.Manifest, revision.Number, scope, c), ct)
                     .ConfigureAwait(false);
                 _state.SetStatus(game, SyncStatus.Synced,
-                    action: $"Konflikt gelöst ← Revision {revision.Number}", folder: entry.FolderPath, baseRevision: revision.Number);
+                    action: $"Konflikt gelöst ← Revision {revision.Number}", folder: entry.PrimaryFolder, baseRevision: revision.Number);
                 return true;
             }
 

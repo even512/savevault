@@ -1,12 +1,19 @@
-using System.IO;
 using SaveVault.Core.Ludusavi;
 using SaveVault.Core.Models;
 using SaveVault.Core.Storage;
 
 namespace SaveVault.Client.Services;
 
-/// <summary>Ein von ludusavi erkanntes Spiel samt abgeleitetem lokalem Save-Ordner.</summary>
-public sealed record DiscoveredGame(GameKey Game, string SaveFolder, int FileCount, long TotalBytes);
+/// <summary>
+/// Ein von ludusavi erkanntes Spiel samt abgeleiteten lokalen Save-Wurzeln. Ein Spiel kann
+/// <b>mehrere</b> Wurzeln haben (Mehr-Ordner-Erkennung); <see cref="FileCount"/>/<see cref="TotalBytes"/>
+/// gelten fürs ganze Spiel (Summe über alle Wurzeln).
+/// </summary>
+public sealed record DiscoveredGame(GameKey Game, IReadOnlyList<SaveRoot> Roots, int FileCount, long TotalBytes)
+{
+    /// <summary>Der primäre (erste) Ordner – für Anzeige/„Ordner öffnen".</summary>
+    public string? PrimaryFolder => Roots.Count > 0 ? Roots[0].Folder : null;
+}
 
 /// <summary>Warum ein erkanntes Spiel NICHT automatisch übernommen wurde.</summary>
 public enum SkipReason
@@ -98,13 +105,12 @@ public sealed class GameDiscovery
                 continue;
 
             var filePaths = backup.Files.Keys;
-            var folder = CommonDirectory(filePaths);
-            if (folder is null)
-                continue;
 
-            // Zu breite Ordner (Laufwerks-/Systemwurzel) NICHT übernehmen – sie würden beim
-            // Scannen/Überwachen die ganze Platte umfassen und den Client blockieren.
-            if (SaveFolderSafety.IsTooBroad(folder))
+            // Mehr-Ordner-Gruppierung: ludusavis Dateipfade in ihre natürlichen, engen Save-Wurzeln
+            // zerlegen (steigt durch Container-/Systemwurzeln hindurch). Bleibt ein Teil zu breit/
+            // unauflösbar oder gibt es gar keine Wurzel → als mehrdeutig überspringen (manuell zuordnen).
+            var grouping = SaveRootGrouping.Group(filePaths);
+            if (grouping.Roots.Count == 0 || !grouping.FullyResolved)
             {
                 skipped.Add(new SkippedGame(name, SkipReason.AmbiguousFolder));
                 continue;
@@ -114,8 +120,9 @@ public sealed class GameDiscovery
             var totalBytes = backup.Files.Values.Sum(f => f.Bytes);
 
             // Zu große Save-Sets (z. B. Project Zomboid: zehntausende Chunk-Dateien, mehrere GB)
-            // NICHT automatisch übernehmen – sie würden das Hashen/Uploaden über Stunden
-            // blockieren und (weil der Rescan sequenziell läuft) alle weiteren Spiele ausbremsen.
+            // NICHT automatisch übernehmen – sie würden das Hashen/Uploaden über Stunden blockieren
+            // und (weil der Rescan sequenziell läuft) alle weiteren Spiele ausbremsen. Der Schutz
+            // gilt PRO SPIEL (Summe über alle Wurzeln), wie von ludusavi gemeldet.
             if (SaveFolderSafety.IsSaveSetTooLarge(fileCount, totalBytes))
             {
                 skipped.Add(new SkippedGame(name, SkipReason.TooLarge,
@@ -123,19 +130,10 @@ public sealed class GameDiscovery
                 continue;
             }
 
-            // Ordner-Kollaps (z. B. Street Fighter 6): streuen die Savegame-Dateien über mehrere
-            // Unterbäume (etwa Steam userdata + steamapps), kollabiert der gemeinsame Nenner auf
-            // eine breite Ahnen-Wurzel wie die Steam-Installationswurzel. Diese ist nicht formal
-            // „zu breit" und laut ludusavi klein, würde beim Scannen aber die ganze Steam-Bibliothek
-            // umfassen. Erkennung: enthält der abgeleitete Ordner VIEL mehr Dateien als das Spiel
-            // laut ludusavi besitzt, ist er zu weit gefasst → überspringen (als mehrdeutig melden).
-            if (FolderMuchLargerThanSaves(folder, fileCount, ct))
-            {
-                skipped.Add(new SkippedGame(name, SkipReason.AmbiguousFolder));
-                continue;
-            }
-
-            games.Add(new DiscoveredGame(GameKey.FromName(name), folder, fileCount, totalBytes));
+            var roots = grouping.Roots
+                .Select(folder => new SaveRoot(SaveRootKey.Derive(folder), folder))
+                .ToList();
+            games.Add(new DiscoveredGame(GameKey.FromName(name), roots, fileCount, totalBytes));
         }
 
         return new DiscoveryResult(true, games, null, skipped);
@@ -160,111 +158,5 @@ public sealed class GameDiscovery
         if (bytes >= kb)
             return (bytes / kb).ToString("0.0", de) + " KB";
         return bytes.ToString(de) + " B";
-    }
-
-    /// <summary>
-    /// <c>true</c>, wenn der abgeleitete Ordner <paramref name="folder"/> auf der Platte
-    /// DEUTLICH mehr Dateien enthält, als das Spiel laut ludusavi besitzt
-    /// (<paramref name="saveFileCount"/>) – ein Zeichen dafür, dass der gemeinsame Nenner der
-    /// Save-Pfade auf eine zu breite Ahnen-Wurzel (z. B. die Steam-Installationswurzel bei
-    /// Street&#160;Fighter&#160;6) kollabiert ist. Solche Ordner sind formal nicht „zu breit",
-    /// würden beim Scannen/Überwachen aber die ganze Steam-Bibliothek umfassen.
-    ///
-    /// <para>Wichtig: Die Zählung ist <b>beschränkt</b> und bricht ab, sobald das Limit
-    /// überschritten ist – sie enumeriert also NIE einen riesigen Baum vollständig und wird
-    /// selbst nie zum Show-Stopper. Unlesbare Unterordner werden übersprungen
-    /// (<see cref="EnumerationOptions.IgnoreInaccessible"/>); Reparse-Points (Symlinks/
-    /// Junctions) werden nicht verfolgt. Ist der Ordner gar nicht lesbar, gilt er im Zweifel
-    /// als zu weit gefasst (sicherer Default → überspringen).</para>
-    /// </summary>
-    private static bool FolderMuchLargerThanSaves(string folder, int saveFileCount, CancellationToken ct)
-    {
-        // Wie viele Dateien darf der abgeleitete Ordner höchstens enthalten, bevor er als
-        // „viel zu weit gefasst" gilt? Großzügiger Spielraum über die von ludusavi gemeldete
-        // Save-Dateizahl hinaus (Begleitdateien im selben Ordner sind normal), aber weit
-        // unterhalb einer ganzen Steam-Bibliothek. Zusätzlicher Sockel für sehr kleine Sets.
-        var limit = Math.Max(saveFileCount * 4, saveFileCount + 100);
-
-        var options = new EnumerationOptions
-        {
-            RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
-            AttributesToSkip = FileAttributes.ReparsePoint, // Symlinks/Junctions nicht folgen
-        };
-
-        try
-        {
-            var count = 0;
-            foreach (var _ in Directory.EnumerateFiles(folder, "*", options))
-            {
-                ct.ThrowIfCancellationRequested();
-                if (++count > limit)
-                    return true; // deutlich mehr Dateien als das Spiel besitzt → zu weit gefasst
-            }
-            return false;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-        {
-            // Ordner nicht (mehr) lesbar: im Zweifel als zu weit gefasst behandeln.
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Bestimmt das gemeinsame Wurzelverzeichnis einer Menge von Dateipfaden (der
-    /// Save-Ordner). Pfade werden erst auf Vollpfade normalisiert, dann segmentweise
-    /// der gemeinsame Präfix gebildet. Liegt kein gemeinsames Verzeichnis vor, <c>null</c>.
-    /// </summary>
-    internal static string? CommonDirectory(IEnumerable<string> filePaths)
-    {
-        var dirs = new List<string[]>();
-        foreach (var raw in filePaths)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-                continue;
-            string? dir;
-            try
-            {
-                var full = Path.GetFullPath(raw.Replace('\\', '/'));
-                dir = Path.GetDirectoryName(full);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                continue;
-            }
-            if (string.IsNullOrEmpty(dir))
-                continue;
-            dirs.Add(dir.Split(Path.DirectorySeparatorChar));
-        }
-
-        if (dirs.Count == 0)
-            return null;
-
-        var prefix = dirs[0];
-        var commonLen = prefix.Length;
-        for (var i = 1; i < dirs.Count; i++)
-        {
-            var current = dirs[i];
-            var len = Math.Min(commonLen, current.Length);
-            var j = 0;
-            while (j < len && string.Equals(prefix[j], current[j], StringComparison.OrdinalIgnoreCase))
-                j++;
-            commonLen = j;
-            if (commonLen == 0)
-                return null;
-        }
-
-        var segments = prefix.Take(commonLen).ToArray();
-        var result = string.Join(Path.DirectorySeparatorChar, segments);
-
-        // Windows-Laufwerk („C:") allein ist kein gültiges Verzeichnis → Separator anhängen.
-        if (result.EndsWith(':'))
-            result += Path.DirectorySeparatorChar;
-
-        return string.IsNullOrEmpty(result) ? null : result;
     }
 }

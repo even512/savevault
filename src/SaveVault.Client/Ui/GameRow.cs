@@ -235,7 +235,7 @@ public sealed class GameRow : INotifyPropertyChanged
             LastActionText = "Nur lokal – nicht hochgeladen";
 
             FolderPathRaw = string.IsNullOrWhiteSpace(view.FolderPath) ? null : view.FolderPath;
-            FolderText = FolderPathRaw ?? "Kein Ordner zugeordnet";
+            FolderText = FolderDisplay(view);
             OpenFolderVisibility = FolderPathRaw is null ? Visibility.Collapsed : Visibility.Visible;
             CanOpenFolder = FolderPathRaw is not null && SafeDirectoryExists(FolderPathRaw);
             ConflictVisibility = Visibility.Collapsed;
@@ -277,7 +277,7 @@ public sealed class GameRow : INotifyPropertyChanged
 
         StatusLabel = StatusVisuals.LabelFor(view.Status);
         StatusBrush = StatusVisuals.BrushFor(view.Status);
-        FolderText = string.IsNullOrWhiteSpace(view.FolderPath) ? "Kein Ordner zugeordnet" : view.FolderPath!;
+        FolderText = FolderDisplay(view);
 
         var action = string.IsNullOrWhiteSpace(view.LastAction) ? null : view.LastAction!;
         var time = RelativeTime.Format(view.LastActionUtc);
@@ -325,6 +325,17 @@ public sealed class GameRow : INotifyPropertyChanged
     {
         try { return Directory.Exists(path); }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Ordner-Anzeigetext: Bei mehreren Save-Ordnern „N Ordner" (Mehr-Ordner-Erkennung), sonst der
+    /// einzelne Pfad bzw. ein Hinweis, wenn keiner zugeordnet ist.
+    /// </summary>
+    private static string FolderDisplay(GameStatusView view)
+    {
+        if (view.RootCount > 1)
+            return $"{view.RootCount} Ordner";
+        return string.IsNullOrWhiteSpace(view.FolderPath) ? "Kein Ordner zugeordnet" : view.FolderPath!;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

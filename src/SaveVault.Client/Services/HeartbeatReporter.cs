@@ -46,11 +46,11 @@ public sealed class HeartbeatReporter
         var device = DeviceIdentity.FromConfig(config, _nowUtc());
 
         var gameStates = new List<DeviceGameState>();
-        foreach (var entry in _registry.GetAll())
+        foreach (var g in _registry.GetGames())
         {
-            var baseRevision = _stateStore.Load(entry.Game).BaseRevision;
-            var status = _state.GetStatus(entry.Game) ?? SyncStatus.Synced;
-            gameStates.Add(new DeviceGameState(entry.Game, baseRevision, status));
+            var baseRevision = _stateStore.Load(g.Game).BaseRevision;
+            var status = _state.GetStatus(g.Game) ?? SyncStatus.Synced;
+            gameStates.Add(new DeviceGameState(g.Game, baseRevision, status));
         }
 
         try

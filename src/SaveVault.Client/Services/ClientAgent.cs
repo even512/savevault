@@ -152,13 +152,13 @@ public sealed class ClientAgent : IAsyncDisposable
         // Erkennung (best effort), dann je Spiel den Ordner sowie den persistierten Ausschluss-/
         // Teilen-Zustand in die Status-Fläche nachziehen (überlebt so den Neustart) – in EINEM Durchlauf.
         await RefreshDiscoveryAsync(token).ConfigureAwait(false);
-        foreach (var entry in _registry.GetAll())
+        foreach (var g in _registry.GetGames())
         {
-            State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game, ActiveScope(entry.Game)).BaseRevision);
-            if (_exclusions.IsExcluded(entry.Game))
-                State.SetExcluded(entry.Game, true);
-            if (_shares.IsShared(entry.Game))
-                State.SetShared(entry.Game, true);
+            State.EnsureGame(g.Game, g.PrimaryFolder, _stateStore.Load(g.Game, ActiveScope(g.Game)).BaseRevision, g.Count);
+            if (_exclusions.IsExcluded(g.Game))
+                State.SetExcluded(g.Game, true);
+            if (_shares.IsShared(g.Game))
+                State.SetShared(g.Game, true);
         }
 
         StartWatchers(token);
@@ -223,7 +223,7 @@ public sealed class ClientAgent : IAsyncDisposable
         if (entry is null)
             return;
 
-        State.EnsureGame(entry.Game, entry.FolderPath, _stateStore.Load(entry.Game, ActiveScope(entry.Game)).BaseRevision);
+        State.EnsureGame(entry.Game, entry.PrimaryFolder, _stateStore.Load(entry.Game, ActiveScope(entry.Game)).BaseRevision, entry.Count);
 
         CancellationToken token;
         lock (_lifecycleLock)
@@ -232,8 +232,8 @@ public sealed class ClientAgent : IAsyncDisposable
                 return;
             token = _cts.Token;
         }
-        AddWatcher(entry, token);
-        _ = SyncGameSafeAsync(entry.Game, entry.FolderPath, token);
+        AddWatchersFor(entry, token);
+        _ = SyncGameSafeAsync(entry.Game, token);
     }
 
     /// <summary>Ob ein Spiel aktuell dauerhaft vom Sync ausgeschlossen ist.</summary>
@@ -278,7 +278,7 @@ public sealed class ClientAgent : IAsyncDisposable
                 return;
             token = _cts.Token;
         }
-        _ = SyncGameSafeAsync(entry.Game, entry.FolderPath, token);
+        _ = SyncGameSafeAsync(entry.Game, token);
     }
 
     // --- Teilen (Lokal ↔ Synchron), Phase 2 ----------------------------------------
@@ -309,8 +309,8 @@ public sealed class ClientAgent : IAsyncDisposable
 
         // Das lokale Manifest hasht alle Save-Dateien – das gehört NICHT auf den UI-Thread (der
         // Aufrufer awaitet hier aus dem Klick-Handler). Auf einen Threadpool-Thread auslagern.
-        var folder = entry.FolderPath;
-        var local = await Task.Run(() => new ManifestBuilder().Build(folder, null, ct), ct).ConfigureAwait(false);
+        var roots = entry.Roots;
+        var local = await Task.Run(() => new ManifestBuilder().BuildCombined(roots, null, ct), ct).ConfigureAwait(false);
         var localSide = new ShareSide(local.FileCount, local.TotalBytes, null, CurrentDeviceName);
 
         var head = await api.GetHeadAsync(game, BucketScope.Shared, ct).ConfigureAwait(false);
@@ -366,11 +366,11 @@ public sealed class ClientAgent : IAsyncDisposable
         {
             _shares.Add(game);
             State.SetShared(game, true);
-            await engine.ApplyRevisionAsync(game, entry.FolderPath, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
+            await engine.ApplyRevisionAsync(game, entry.Roots, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
         }, token).ConfigureAwait(false);
 
         State.SetStatus(game, SyncStatus.Synced,
-            action: $"Geteilten Stand übernommen ← Revision {sharedRevision}", folder: entry.FolderPath, baseRevision: sharedRevision);
+            action: $"Geteilten Stand übernommen ← Revision {sharedRevision}", folder: entry.PrimaryFolder, baseRevision: sharedRevision);
     }
 
     /// <summary>
@@ -399,7 +399,7 @@ public sealed class ClientAgent : IAsyncDisposable
             _stateStore.Save(newBase, BucketScope.Shared);
             var engine = _engine;
             if (engine is not null && IsRunning)
-                await engine.RunCycleAsync(game, entry.FolderPath, BucketScope.Shared, c).ConfigureAwait(false);
+                await engine.RunCycleAsync(game, entry.Roots, BucketScope.Shared, c).ConfigureAwait(false);
         }, token).ConfigureAwait(false);
     }
 
@@ -431,9 +431,9 @@ public sealed class ClientAgent : IAsyncDisposable
 
         if (result.Games.Count > 0)
         {
-            _registry.SetDiscovered(result.Games.Select(g => (g.Game, g.SaveFolder)));
+            _registry.SetDiscovered(result.Games.Select(g => (g.Game, g.Roots)));
             foreach (var g in result.Games)
-                State.EnsureGame(g.Game, g.SaveFolder, _stateStore.Load(g.Game, ActiveScope(g.Game)).BaseRevision);
+                State.EnsureGame(g.Game, g.PrimaryFolder, _stateStore.Load(g.Game, ActiveScope(g.Game)).BaseRevision, g.Roots.Count);
         }
 
         // Übersprungene Spiele dauerhaft sichtbar machen (mit Hinweis „manuell zuordnen").
@@ -591,10 +591,10 @@ public sealed class ClientAgent : IAsyncDisposable
 
     private async Task RescanAllAsync(CancellationToken ct)
     {
-        foreach (var entry in _registry.GetAll())
+        foreach (var g in _registry.GetGames())
         {
             ct.ThrowIfCancellationRequested();
-            await SyncGameSafeAsync(entry.Game, entry.FolderPath, ct).ConfigureAwait(false);
+            await SyncGameSafeAsync(g.Game, ct).ConfigureAwait(false);
         }
     }
 
@@ -605,7 +605,7 @@ public sealed class ClientAgent : IAsyncDisposable
     /// wird nur hier (äußerste Ebene) genommen – <see cref="SyncEngine.ApplyRevisionAsync"/>
     /// nimmt es nicht, sonst würde der Download-Fall es rekursiv anfordern (Deadlock).
     /// </summary>
-    private async Task SyncGameSafeAsync(GameKey game, string folder, CancellationToken ct)
+    private async Task SyncGameSafeAsync(GameKey game, CancellationToken ct)
     {
         // Einziger Choke-Point für ALLE automatischen und manuellen Sync-Pfade (periodischer
         // Rescan über RescanAllAsync, FolderWatcher-Trigger, „Jetzt synchronisieren" via
@@ -618,11 +618,18 @@ public sealed class ClientAgent : IAsyncDisposable
         if (engine is null)
             return;
 
+        // Die aktuellen Wurzeln erst hier holen (der Watcher-Trigger kennt nur das Spiel) – so
+        // wirkt eine zwischenzeitliche Änderung der Zuordnung sofort.
+        var entry = _registry.TryGet(game);
+        if (entry is null)
+            return;
+
         try
         {
             // Gegen welchen Bucket synchronisiert wird, entscheidet der Teilen-Zustand des Spiels:
-            // „Synchron" → geteilter Bucket, sonst der private Bucket dieses Geräts.
-            await _serializer.RunExclusiveAsync(game, c => engine.RunCycleAsync(game, folder, ActiveScope(game), c), ct).ConfigureAwait(false);
+            // „Synchron" → geteilter Bucket, sonst der private Bucket dieses Geräts. Der Sync eines
+            // Spiels läuft serialisiert über ALLE seine Wurzeln (ein Gate übers ganze Spiel).
+            await _serializer.RunExclusiveAsync(game, c => engine.RunCycleAsync(game, entry.Roots, ActiveScope(game), c), ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -630,29 +637,34 @@ public sealed class ClientAgent : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            State.SetStatus(game, SyncStatus.Error, action: "Sync-Fehler: " + ex.Message, folder: folder);
+            State.SetStatus(game, SyncStatus.Error, action: "Sync-Fehler: " + ex.Message, folder: entry.PrimaryFolder);
         }
     }
 
     private void StartWatchers(CancellationToken token)
     {
-        foreach (var entry in _registry.GetAll())
-            AddWatcher(entry, token);
+        foreach (var g in _registry.GetGames())
+            AddWatchersFor(g, token);
     }
 
-    private void AddWatcher(SaveFolderEntry entry, CancellationToken token)
+    /// <summary>Legt für jede Save-Wurzel eines Spiels einen Watcher an (Duplikate je Ordner
+    /// werden vermieden). Ein Ereignis in irgendeiner Wurzel stößt den Sync des ganzen Spiels an.</summary>
+    private void AddWatchersFor(GameRoots entry, CancellationToken token)
     {
         lock (_lifecycleLock)
         {
-            // Doppelte Watcher desselben Ordners vermeiden.
-            if (_watchers.Any(w => string.Equals(w.Folder, Path.GetFullPath(entry.FolderPath), StringComparison.OrdinalIgnoreCase)))
-                return;
-
-            var watcher = new FolderWatcher(entry.FolderPath, _debounce);
             var game = entry.Game;
-            var folder = entry.FolderPath;
-            watcher.Changed += changedFolder => { _ = SyncGameSafeAsync(game, folder, token); };
-            _watchers.Add(watcher);
+            foreach (var root in entry.Roots)
+            {
+                var folder = root.Folder;
+                // Doppelte Watcher desselben Ordners vermeiden.
+                if (_watchers.Any(w => string.Equals(w.Folder, Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                var watcher = new FolderWatcher(folder, _debounce);
+                watcher.Changed += changedFolder => { _ = SyncGameSafeAsync(game, token); };
+                _watchers.Add(watcher);
+            }
         }
     }
 

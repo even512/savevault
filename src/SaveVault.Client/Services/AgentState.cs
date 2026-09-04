@@ -48,8 +48,13 @@ public sealed class GameStatusView
     /// <summary>Zuletzt gesehene Basis-Revision.</summary>
     public long BaseRevision { get; internal set; }
 
-    /// <summary>Zugeordneter lokaler Save-Ordner (falls bekannt).</summary>
+    /// <summary>Zugeordneter primärer lokaler Save-Ordner (falls bekannt). Bei mehreren Ordnern
+    /// der erste – für „Ordner öffnen" und die Pfadanzeige.</summary>
     public string? FolderPath { get; internal set; }
+
+    /// <summary>Anzahl der Save-Ordner (Wurzeln) dieses Spiels. Mehr als 1 = Mehr-Ordner-Spiel;
+    /// die GUI zeigt dann „N Ordner" statt eines einzelnen Pfads. Default 1.</summary>
+    public int RootCount { get; internal set; } = 1;
 
     /// <summary>Kurztext der letzten Aktion (z. B. „Hochgeladen → Rev 4").</summary>
     public string? LastAction { get; internal set; }
@@ -85,6 +90,7 @@ public sealed class GameStatusView
         Status = Status,
         BaseRevision = BaseRevision,
         FolderPath = FolderPath,
+        RootCount = RootCount,
         LastAction = LastAction,
         LastActionUtc = LastActionUtc,
         IsSkipped = IsSkipped,
@@ -164,8 +170,9 @@ public sealed class AgentState
         RaiseChanged();
     }
 
-    /// <summary>Legt (falls nötig) einen Spiel-Eintrag an und ordnet ihm den Ordner zu.</summary>
-    public void EnsureGame(GameKey game, string? folder = null, long? baseRevision = null)
+    /// <summary>Legt (falls nötig) einen Spiel-Eintrag an und ordnet ihm den (primären) Ordner
+    /// sowie – optional – die Anzahl der Save-Ordner zu.</summary>
+    public void EnsureGame(GameKey game, string? folder = null, long? baseRevision = null, int? rootCount = null)
     {
         ArgumentNullException.ThrowIfNull(game);
         lock (_lock)
@@ -173,6 +180,7 @@ public sealed class AgentState
             var view = GetOrCreate(game);
             if (folder is not null) view.FolderPath = folder;
             if (baseRevision is not null) view.BaseRevision = baseRevision.Value;
+            if (rootCount is not null) view.RootCount = rootCount.Value;
             // Ein echt verwaltetes Spiel ist nicht (mehr) „übersprungen".
             view.IsSkipped = false;
             view.SkipReason = null;
