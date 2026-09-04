@@ -39,6 +39,34 @@
     `ApplyRevisionAsync` mehr-Root + `security-auditor` (Punkt 4), Registry-Liste + Migration
     (Punkt 5), Verdrahtung (Punkt 6), GUI „mehrere Ordner". Unabhängiges Kern-Gate
     (`reviewer`/`inspekteur`) auf Wunsch vor Etappe 2.
+- **Etappe-2a-Stand (2026-09-04, committet `367d5f9`) — Fundament fertig + bewiesen:**
+  - `SaveRootKey.Derive` (NEU, Core, rein lexikalisch): stabiles, geräteübergreifendes
+    Root-Kennzeichen. Konto-verankerte Orte (Steam `userdata\<id>`, Ubisoft `savegames\<guid>`,
+    `AppData\{Local,LocalLow,Roaming}`, `Saved Games`, `Documents`) → Key **ohne** Laufwerk/Profil
+    (geräteübergreifend stabil). Installations-Orte (`steamapps\common`, GOG/Epic) → **Laufwerk im
+    Key** (RE Village: identische `config.ini` auf C: **und** D: → sonst Kollision).
+  - `SaveRoot` + `SaveRootLayout` (NEU, Core): Präfix-Konvention. Eine Wurzel → **unpräfixiert**
+    (bit-identisch, kein Reseed); mehrere → je Datei `"<key>/<sub>"`. `TryResolve` bildet einen
+    Manifest-Pfad auf die richtige lokale Wurzel ab; **unbekannter Key → nicht abgebildet** (kein
+    Blindschreiben) — Traversal-Abwehr danach über `PathSanitizer.TryResolveWithin`.
+  - `ManifestBuilder.BuildCombined` (NEU, Core): EIN Manifest über mehrere Wurzeln; Einzel-Wurzel
+    bleibt bit-identisch zu `Build`.
+  - **Verifikation:** Build 0/0; `dotnet test` **182 grün** (+27: `SaveRootKey`, `SaveRootLayout`,
+    `ManifestBuilderCombined`). Headless-Key-Ableitung über Tims echte 18 Mehr-Root-Spiele:
+    **0 Kollisionen** innerhalb eines Spiels.
+- **Etappe 2b (Verdrahtung) — OFFEN, ein zusammenhängender Block:** `SaveFolderRegistry` auf
+  **Liste je Spiel** + idempotente Migration (Alt-Einzelordner → ein Root mit abgeleitetem Key;
+  Handzuordnung ersetzen wo sicher, Nischen-Override behalten); `GameDiscovery` nutzt
+  `SaveRootGrouping`+`SaveRootKey` und emittiert mehrere Roots je Spiel (Größen-/Container-Disk-
+  Heuristik `FolderMuchLargerThanSaves` dabei ablösen, Größen-Schutz pro Spiel = Summe erhalten);
+  `SyncEngine.RunCycleAsync`/`ApplyRevisionAsync`/`UploadMissingContents` über Roots
+  (`BuildCombined` + `TryResolve`+`TryResolveWithin` je Eintrag); Verdrahtung in `ClientAgent`
+  (Rescan/Sync/`ShareAndSync`/`JoinTakeShared`), `CommandPoller` (Restore/Resolve),
+  `HeartbeatReporter` (Storage = Summe über Roots), **je Root ein `FolderWatcher`**;
+  `AgentState.EnsureGame`/GUI-Zeile „mehrere Ordner"; Version → **1.7.0**, Release-ZIP Tag `v1.7.0`.
+  **Sicherheits-Gate Pflicht:** `security-auditor` über den mehr-Root-`ApplyRevisionAsync` (kein
+  Ausbrechen je Root, unbekannter Key schreibt nirgends, Alles-oder-nichts bei Traversal). Danach
+  Laufzeit-Gate/`tester` + Tims visueller Zwei-Ordner-Handtest nach Release.
 
 ## Bezug
 - **Projekt-id / Ordner:** `savevault` (`<werkstatt>/savevault/`)
