@@ -81,4 +81,25 @@ public class SaveRootLayoutTests
         Assert.False(SaveRootLayout.TryResolve(Array.Empty<SaveRoot>(), "x", out _, out _));
         Assert.False(SaveRootLayout.TryResolve(new[] { new SaveRoot("K", @"C:\a") }, "", out _, out _));
     }
+
+    [Fact]
+    public void Auf_die_Wurzel_kollabierender_Manifest_Pfad_wird_beim_Schreiben_abgewehrt()
+    {
+        // Sicherheits-Regression (Security-Gate): ein Manifest-Pfad "<key>/." bildet zwar auf die
+        // Wurzel + Rest-Pfad "." ab, aber der Schreib-Chokepoint validiert danach über
+        // TryResolveWithin – und dieses lehnt einen auf die Wurzel selbst kollabierenden Rest ab,
+        // sodass NICHTS (auch keine Temp-Datei) außerhalb der Wurzel entsteht.
+        using var root = new TempDirectory();
+        var roots = new[]
+        {
+            new SaveRoot("Documents/Game", root.Path),
+            new SaveRoot("SteamCommon/C/Game", @"C:\Steam\steamapps\common\Game"),
+        };
+
+        Assert.True(SaveRootLayout.TryResolve(roots, "Documents/Game/.", out var folder, out var sub));
+        Assert.Equal(root.Path, folder);
+        Assert.Equal(".", sub);
+        // Der nachgelagerte Schreib-Guard weist genau diesen Rest ab.
+        Assert.False(PathSanitizer.TryResolveWithin(folder, sub, out _));
+    }
 }

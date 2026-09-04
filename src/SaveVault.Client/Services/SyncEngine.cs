@@ -119,6 +119,25 @@ public sealed class SyncEngine
     private static string PrimaryFolder(IReadOnlyList<SaveRoot> roots)
         => roots.Count > 0 ? roots[0].Folder : "(kein Ordner)";
 
+    /// <summary>
+    /// Löst die Ordner der Wurzeln auf Vollpfade auf und überspringt dabei defekte Einträge
+    /// (leerer/ungültiger Pfad) sauber, statt mit einer untypisierten Exception abzubrechen.
+    /// </summary>
+    private static List<SaveRoot> ResolveRootsSafe(IReadOnlyList<SaveRoot> roots)
+    {
+        var list = new List<SaveRoot>(roots.Count);
+        foreach (var r in roots)
+        {
+            if (r is null || string.IsNullOrWhiteSpace(r.Folder))
+                continue;
+            string full;
+            try { full = Path.GetFullPath(r.Folder); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { continue; }
+            list.Add(new SaveRoot(r.Key, full));
+        }
+        return list;
+    }
+
     // --- die vier Fälle ------------------------------------------------------------
 
     private async Task<SyncCycleResult> UploadAsync(GameKey game, IReadOnlyList<SaveRoot> roots, FileManifest local, SyncState state, long serverHeadRevision, BucketScope scope, CancellationToken ct)
@@ -222,8 +241,12 @@ public sealed class SyncEngine
         if (roots.Count == 0)
             throw new SyncSecurityException(game, "(kein Ordner)");
 
-        // Zielordner der Wurzeln vorab auflösen (einmal Path.GetFullPath je Wurzel).
-        var resolvedRoots = roots.Select(r => new SaveRoot(r.Key, Path.GetFullPath(r.Folder))).ToList();
+        // Zielordner der Wurzeln vorab auflösen (defekte Roots sauber überspringen, statt mit
+        // untypisierter Exception abzubrechen). Bleibt keine gültige Wurzel, wird der gesamte
+        // Vorgang abgelehnt (nichts wird geschrieben).
+        var resolvedRoots = ResolveRootsSafe(roots);
+        if (resolvedRoots.Count == 0)
+            throw new SyncSecurityException(game, "(kein gültiger Ordner)");
 
         // Pass 1: ALLE Einträge auf ihre Wurzel abbilden und validieren, bevor etwas geschrieben wird.
         // Unbekannter Root-Key → Eintrag überspringen; Traversal → gesamter Vorgang abgelehnt.
@@ -273,7 +296,9 @@ public sealed class SyncEngine
         if (missingHashes.Count == 0)
             return;
 
-        var resolvedRoots = roots.Select(r => new SaveRoot(r.Key, Path.GetFullPath(r.Folder))).ToList();
+        var resolvedRoots = ResolveRootsSafe(roots);
+        if (resolvedRoots.Count == 0)
+            return;
 
         // Hash → erster passender (präfixierter) relativer Pfad im lokalen Manifest.
         var pathByHash = new Dictionary<string, string>(StringComparer.Ordinal);

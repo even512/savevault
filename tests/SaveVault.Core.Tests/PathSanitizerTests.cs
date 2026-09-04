@@ -88,6 +88,24 @@ public class PathSanitizerTests
         Assert.False(PathSanitizer.TryResolveWithin(root.Path, relative, out _));
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("./")]
+    [InlineData(".\\")]
+    [InlineData("./.")]
+    public void TryResolveWithin_lehnt_auf_die_Wurzel_kollabierenden_Pfad_ab(string relative)
+    {
+        // Regression: ein Rest-Pfad, der auf das Wurzelverzeichnis SELBST zeigt, ist kein gültiges
+        // Datei-Ziel – sonst könnte ein Aufrufer, der ein Suffix anhängt (z. B. eine Temp-Endung),
+        // OBERHALB der Wurzel schreiben.
+        using var root = new TempDirectory();
+
+        var ok = PathSanitizer.TryResolveWithin(root.Path, relative, out var full);
+
+        Assert.False(ok);
+        Assert.Equal(string.Empty, full);
+    }
+
     // --- IsWithinRoot: Präfix-Trick -----------------------------------------
 
     [Fact]

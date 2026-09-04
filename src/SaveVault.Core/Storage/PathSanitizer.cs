@@ -104,8 +104,10 @@ public static class PathSanitizer
     /// <summary>
     /// Löst einen fremd gelieferten RELATIVEN Pfad sicher unter <paramref name="root"/>
     /// auf. Gibt false zurück (statt zu werfen), wenn der Eingabepfad absolut/rooted
-    /// ist, ein <c>..</c>-Segment enthält oder das Ergebnis aus dem Wurzelverzeichnis
-    /// herausführen würde. Nur bei true ist <paramref name="fullPath"/> gesetzt.
+    /// ist, ein <c>..</c>-Segment enthält, auf das Wurzelverzeichnis <b>selbst</b> kollabiert
+    /// (z. B. <c>"."</c> / <c>"./"</c> – kein gültiger Datei-Zielpfad) oder das Ergebnis aus dem
+    /// Wurzelverzeichnis herausführen würde. Nur bei true ist <paramref name="fullPath"/> gesetzt
+    /// und zeigt garantiert auf einen Ort <b>echt unterhalb</b> von <paramref name="root"/>.
     /// </summary>
     public static bool TryResolveWithin(string root, string untrustedRelative, out string fullPath)
     {
@@ -139,6 +141,14 @@ public static class PathSanitizer
         {
             return false;
         }
+
+        // Ein relativer Pfad, der auf das Wurzelverzeichnis SELBST kollabiert (z. B. "." oder
+        // "./."), ist kein gültiges Datei-Ziel: sonst könnte ein Aufrufer, der an das Ergebnis
+        // ein Suffix hängt (z. B. eine Temp-Endung), OBERHALB der Wurzel schreiben. Ablehnen.
+        var normalizedRoot = fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedCombined = combined.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.Equals(normalizedCombined, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            return false;
 
         // Doppelte Absicherung: auch nach der Auflösung muss es unter root liegen.
         if (!IsWithinRoot(fullRoot, combined))
