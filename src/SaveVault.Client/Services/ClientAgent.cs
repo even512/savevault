@@ -27,6 +27,16 @@ public sealed record ShareProbe(
     FileManifest? SharedManifest);
 
 /// <summary>
+/// Ergebnis der reinen Kennzahlen-Vorschau vor <see cref="ClientAgent.ClearOrphanedConflictAsync"/>
+/// (siehe dort, „Ergänzung nach Rückfrage bei Tim" in
+/// specs/savevault-change-shared-save-sichtbarkeit.md, Nachtrag 4): Kennzahlen des aktuellen
+/// lokalen Ordnerinhalts und des Server-Head des aktiven Scopes, für den UI-Vergleichshinweis vor
+/// der Bestätigung. <see cref="ServerRevision"/> ist die Revisionsnummer des Server-Standes, den
+/// <see cref="ClientAgent.ClearOrphanedConflictAsync"/> nach „Ja" übernehmen würde.
+/// </summary>
+public sealed record OrphanedConflictProbe(ShareSide Local, ShareSide Server, long ServerRevision);
+
+/// <summary>
 /// Der Kopf des Client-Hintergrunds: bindet Konfiguration, Ordner-Registry, Erkennung,
 /// Watcher, Sync-Engine, Befehls-Poller und Heartbeat zu einem laufenden Dienst zusammen.
 /// Reine Logik, <b>kein WPF</b> – die GUI (Schritt 6) liest ausschließlich die
@@ -716,6 +726,125 @@ public sealed class ClientAgent : IAsyncDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Reine Kennzahlen-Vorschau <b>vor</b> <see cref="ClearOrphanedConflictAsync"/> (siehe dort,
+    /// „Ergänzung nach Rückfrage bei Tim" in specs/savevault-change-shared-save-sichtbarkeit.md,
+    /// Nachtrag 4): anders als der Kästen-Klick (wo der jeweils inaktive Stand als Backup erhalten
+    /// bleibt) ersetzt <see cref="ClearOrphanedConflictAsync"/> den AKTIVEN lokalen Ordnerinhalt
+    /// sofort – dafür soll die Oberfläche vorher einen echten Lokal-vs-Server-Vergleich zeigen und
+    /// eine Bestätigung einholen, analog zum Force-Upload-Knopf
+    /// (<see cref="ForceUploadLocalAsSharedAsync"/>). Diese Methode liefert genau die dafür nötigen
+    /// Zahlen, verändert aber selbst <b>nichts</b> – reine Abfrage, gleiches Prinzip wie
+    /// <see cref="ProbeShareAsync"/> für die lokale Seite.
+    ///
+    /// <para>Die Server-Seite wird gegen denselben <see cref="ActiveScope">aktiven Scope</see>
+    /// abgefragt, den <see cref="ClearOrphanedConflictAsync"/> gleich darauf auch übernehmen würde
+    /// (nicht zwingend der geteilte Scope – bei einem verwaisten Konflikt im „Lokal"-Zustand ist das
+    /// der private Scope).</para>
+    ///
+    /// <para>Liefert <c>null</c>, wenn kein Ordner zugeordnet ist oder der Agent nicht verbunden ist
+    /// (analog <see cref="ProbeShareAsync"/>), oder wenn der aktive Scope serverseitig keinen Stand
+    /// hat (<c>head.CurrentRevision &lt;= 0</c>) – dann gibt es nichts zu vergleichen/übernehmen,
+    /// <see cref="ClearOrphanedConflictAsync"/> würde in diesem Fall ohnehin nichts tun.</para>
+    /// </summary>
+    public async Task<OrphanedConflictProbe?> ProbeOrphanedConflictAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var api = _api;
+        var entry = _registry.TryGet(game);
+        if (api is null || entry is null)
+            return null;
+
+        // Das lokale Manifest hasht alle Save-Dateien – wie in ProbeShareAsync NICHT auf den
+        // UI-Thread, der Aufrufer awaitet hier aus dem Klick-Handler.
+        var roots = entry.Roots;
+        var local = await Task.Run(() => new ManifestBuilder().BuildCombined(roots, null, ct), ct).ConfigureAwait(false);
+        var localWhenUtc = local.Entries.Count == 0 ? (DateTime?)null : local.Entries.Max(e => e.LastWriteUtc);
+        var localSide = new ShareSide(local.FileCount, local.TotalBytes, localWhenUtc, CurrentDeviceName);
+
+        var scope = ActiveScope(game);
+        var head = await api.GetHeadAsync(game, scope, ct).ConfigureAwait(false);
+        if (head.CurrentRevision <= 0)
+            return null; // Kein Server-Stand für den aktiven Scope – nichts zu vergleichen/übernehmen.
+
+        var revision = await api.GetRevisionAsync(game, head.CurrentRevision, scope, ct).ConfigureAwait(false);
+        var serverSide = new ShareSide(revision.Manifest.FileCount, revision.Manifest.TotalBytes, revision.TimestampUtc, revision.DeviceId);
+        return new OrphanedConflictProbe(localSide, serverSide, revision.Number);
+    }
+
+    /// <summary>
+    /// Räumt eine <b>verwaiste</b> lokale Konflikt-Marke auf (siehe
+    /// <c>specs/savevault-change-shared-save-sichtbarkeit.md</c>, „Plan-Korrektur … Nachtrag 4"):
+    /// der Nutzer klickt „Lösen", der Server kennt aber keinen offenen Konflikt mehr für dieses
+    /// Spiel (er wurde z. B. schon vor einem Fix aufgelöst), während die Zeile lokal trotzdem
+    /// weiterhin „Konflikt" zeigt.
+    ///
+    /// <para><b>Nicht ausreichend wäre, nur die Konflikt-Marke zu löschen</b> (frühere Fassung dieser
+    /// Methode): <see cref="SyncStateStore.ClearConflictHash"/> löscht ausschließlich die separate
+    /// Marken-Datei, NICHT den eigentlichen eingefrorenen <see cref="SyncState"/> (Basis-Revision/
+    /// -Manifest), gegen den <see cref="SyncDecider"/> weiterhin vergleicht. Ein danach angestoßener
+    /// regulärer Sync-Zyklus (<see cref="SyncGameSafeAsync"/>) vergleicht also weiter gegen den alten,
+    /// eingefrorenen Basis-Stand – <c>localChanged</c> bleibt <c>true</c> und
+    /// <c>serverRevision &gt; baseRevision</c> bleibt ebenfalls <c>true</c>, sodass
+    /// <see cref="SyncDecider"/> sofort wieder <see cref="SyncAction.Conflict"/> liefern und der
+    /// Status umgehend wieder auf „Konflikt" zurückspringen würde.</para>
+    ///
+    /// <para><b>Stattdessen (diese Fassung):</b> übernimmt den aktuellen Server-Head des
+    /// <see cref="ActiveScope">aktiven Scopes</see> als neue, verbindliche Basis – dasselbe Prinzip wie
+    /// beim Umschalten (<see cref="SwitchToLocalAsync"/>/<see cref="JoinTakeSharedAsync"/>), nur über
+    /// „Lösen" statt über einen Kasten-Klick ausgelöst. Der Server-Konflikt wurde ja bereits (über das
+    /// Dashboard) aufgelöst; sein aktueller Head ist damit die korrekte, gewollte Fassung für dieses
+    /// Spiel. Nutzt dafür <see cref="SyncEngine.ReplaceLocalContentAsync"/> – dieselbe Methode, die
+    /// <see cref="JoinTakeSharedAsync"/>/<see cref="SwitchToLocalAsync"/> bereits für einen exakten
+    /// Austausch verwenden und die (dank „Plan-Korrektur"/Nachtrag 2+3) bereits alles Nötige übernimmt:
+    /// den Ordnerinhalt bit-genau ersetzt, <see cref="SyncState"/> korrekt auf den neuen Stand setzt,
+    /// die Konflikt-Marke löscht UND den Anzeige-Status explizit auf <see cref="SyncStatus.Synced"/>
+    /// zurücksetzt. Ein danach angestoßener Sync-Zyklus vergleicht somit gegen die frisch gesetzte
+    /// Basis (== aktueller Server-Stand) statt gegen den alten eingefrorenen Stand – <c>localChanged</c>
+    /// ist unmittelbar danach <c>false</c> für den aktiven Scope, <see cref="SyncDecider"/> kann also
+    /// gar nicht mehr <see cref="SyncAction.Conflict"/> liefern. Der separate
+    /// <see cref="SyncStateStore.ClearConflictHash"/>-Aufruf für beide Scopes und der abschließende
+    /// <see cref="SyncGameSafeAsync"/>-Aufruf entfallen dadurch komplett – beides deckt
+    /// <see cref="SyncEngine.ReplaceLocalContentAsync"/> bereits ab.</para>
+    ///
+    /// <para>Gibt es serverseitig <b>keinen</b> Stand für den aktiven Scope
+    /// (<c>head.CurrentRevision &lt;= 0</c>), gibt es nichts zu übernehmen – die Methode lässt den
+    /// bisherigen Zustand unangetastet (Sonderfall praktisch ausgeschlossen, da ein Konflikt bereits
+    /// mindestens eine Server-Revision voraussetzt).</para>
+    ///
+    /// <para>Läuft – wie <see cref="SwitchToLocalAsync"/>/<see cref="JoinTakeSharedAsync"/> – atomar
+    /// unter dem Spiel-Lock (<see cref="GameSerializer"/>), damit kein paralleler Hintergrund-Zyklus
+    /// dazwischenfunkt. Fehlt der Registry-Eintrag (kein Ordner zugeordnet) oder ist der Agent nicht
+    /// verbunden (<c>_api</c>/<c>_engine</c> noch <c>null</c>), wird nichts angefasst – es gibt dann
+    /// weder einen Ordner zum Austauschen noch eine Verbindung, um den Server-Head abzufragen.</para>
+    ///
+    /// <para>Wirft – anders als die frühere Fassung, aber wie die Nachbarmethoden
+    /// <see cref="SwitchToLocalAsync"/>/<see cref="JoinTakeSharedAsync"/> – Netzwerk-/IO-Fehler nach
+    /// außen durch (kein stiller Fehlschlag): der Aufrufer in der Oberfläche
+    /// (<c>OnResolveConflictClick</c>) fängt sie wie bei den Nachbarmethoden ab und zeigt sie an.</para>
+    /// </summary>
+    public async Task ClearOrphanedConflictAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var entry = _registry.TryGet(game);
+        var api = _api;
+        var engine = _engine;
+        if (entry is null || api is null || engine is null)
+            return; // Kein Ordner zugeordnet bzw. nicht verbunden – nichts zum Austauschen/Abfragen.
+
+        var token = LinkedToken(ct);
+        await _serializer.RunExclusiveAsync(game, async c =>
+        {
+            var scope = ActiveScope(game);
+            var head = await api.GetHeadAsync(game, scope, c).ConfigureAwait(false);
+            if (head.CurrentRevision <= 0)
+                return; // Kein Server-Stand für den aktiven Scope – nichts zu übernehmen.
+
+            var revision = await api.GetRevisionAsync(game, head.CurrentRevision, scope, c).ConfigureAwait(false);
+            await engine.ReplaceLocalContentAsync(game, entry.Roots, revision.Manifest, revision.Number, scope, c).ConfigureAwait(false);
+        }, token).ConfigureAwait(false);
     }
 
     /// <summary>

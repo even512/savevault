@@ -682,7 +682,36 @@ public partial class MainWindow : Window
             var conflict = conflicts.FirstOrDefault(c => BucketKey.Original(c.Game).Equals(row.Game) && !c.Resolved);
             if (conflict is null)
             {
-                Info("Für dieses Spiel liegt aktuell kein offener Konflikt vor.");
+                // Kein offener Server-Konflikt (mehr) gefunden, aber die Zeile zeigt trotzdem
+                // "Konflikt" – das ist genau das Signal für einen VERWAISTEN Status (siehe
+                // savevault-change-shared-save-sichtbarkeit.md, Nachtrag 4). Statt nur einer
+                // Info-Meldung: prüfen, ob es überhaupt etwas zum Vergleichen/Übernehmen gibt.
+                var probe = await _agent.ProbeOrphanedConflictAsync(row.Game);
+                if (probe is null)
+                {
+                    Info("Für dieses Spiel liegt aktuell kein offener Konflikt vor.");
+                    return;
+                }
+
+                var localInfo = $"Lokal: {probe.Local.FileCount} Dat. · {ByteSize.Format(probe.Local.TotalBytes)} · {RelativeTime.Format(probe.Local.WhenUtc)}";
+                var serverInfo = $"Server: {probe.Server.FileCount} Dat. · {ByteSize.Format(probe.Server.TotalBytes)} · {RelativeTime.Format(probe.Server.WhenUtc)}";
+                var message = "Kein offener Konflikt mehr auf dem Server. Aktuellen Server-Stand übernehmen? "
+                    + "Das ersetzt deinen jetzigen lokalen Ordnerinhalt.\n\n" + localInfo + "\n" + serverInfo;
+
+                var choice = System.Windows.MessageBox.Show(this, message, "Verwaisten Konflikt auflösen",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (choice != MessageBoxResult.Yes)
+                    return;
+
+                try
+                {
+                    await _agent.ClearOrphanedConflictAsync(row.Game);
+                    Info("Server-Stand übernommen – das Spiel ist jetzt synchronisiert.");
+                }
+                catch (Exception ex)
+                {
+                    Info("Übernehmen fehlgeschlagen: " + ex.Message);
+                }
                 return;
             }
 

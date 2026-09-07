@@ -363,6 +363,59 @@ umschalten) — das räumt den verwaisten Status auf.
 - [ ] Regression: `NoOp`-Verhalten (Konflikt bleibt sichtbar, solange nichts
   Aktives passiert) bleibt für alle anderen Fälle unverändert.
 
+## Plan-Korrektur (2026-09-07, Nachtrag 4) — Nachtrag 3 ist über die UI nicht erreichbar
+
+**Was sich zeigte:** Der Fix aus Nachtrag 3 (Status-Reset in `ReplaceLocalContentAsync`)
+ist zwar korrekt, aber für den verwaisten Arc-Raiders-Fall **unerreichbar**: die
+Zwei-Kästen-Ansicht — der einzige Weg, `SwitchToLocalAsync`/`JoinTakeSharedAsync`
+auszulösen — wird bei `SyncStatus.Conflict` bewusst ausgeblendet
+(`DetailBoxesVisibility=Collapsed`, siehe Ist-Zustand/Oberflächen-Delta oben). Für ein
+Spiel mit verwaistem Konflikt-Status bleibt also **einzig** der „Lösen"-Knopf sichtbar
+— der aber (korrekt) keinen Server-Konflikt findet und dann nur eine Info-Meldung
+zeigt, ohne den lokalen Status zu berühren. Ein Teufelskreis ohne Ausweg über die UI.
+
+**Fix:** `OnResolveConflictClick` (`MainWindow.xaml.cs`) wird im „kein Konflikt
+gefunden"-Zweig erweitert: findet „Lösen" keinen passenden, offenen Server-Konflikt
+für ein Spiel, das lokal trotzdem als „Konflikt" markiert ist, ist das selbst das
+Signal, dass die lokale Marke verwaist ist (der Server hat nichts mehr offen). Statt
+nur einer Info-Meldung wird jetzt eine neue, kleine `ClientAgent`-Methode
+(Arbeitstitel `ClearOrphanedConflictAsync(GameKey game)`) aufgerufen. **Wichtig,
+Korrektur gegenüber dem ersten Entwurf:** bloßes Löschen der Konflikt-Marke reicht
+nicht — die eigentlich eingefrorene `SyncState` (Basis-Revision/-Manifest) bleibt
+davon unberührt, ein danach angestoßener regulärer Sync-Zyklus würde sofort wieder
+„Konflikt" erkennen. Die Methode übernimmt daher stattdessen den **aktuellen
+Server-Head des aktiven Scopes als neue, verbindliche Basis** — über dieselbe exakte
+Austausch-Funktion (`SyncEngine.ReplaceLocalContentAsync`) wie beim Umschalten
+(Nachtrag 1/2), die dank Nachtrag 3 auch den Anzeige-Status korrekt auf „Synced"
+zurücksetzt. Inhaltlich richtig, weil der Server-Konflikt ja bereits (über das
+Dashboard) aufgelöst wurde — sein aktueller Head ist die gewollte Fassung.
+
+**Ergänzung nach Rückfrage bei Tim:** Da diese Aktion den **aktiven** lokalen
+Ordnerinhalt sofort ersetzt (anders als der Kästen-Klick, wo der jeweils inaktive
+Stand als Backup erhalten bleibt), bekommt sie — analog zum Force-Upload-Knopf —
+**vorher** einen kurzen Kennzahlen-Vergleich (Lokal vs. Server-Head des aktiven
+Scopes: Größe, Dateizahl, Zeitpunkt) und eine echte Bestätigung, statt sofort ohne
+Rückfrage zu übernehmen. Keine neue Dialog-Infrastruktur nötig — ein einfacher
+`MessageBox`-artiger Ja/Nein-Hinweis mit den Zahlen reicht. Dafür braucht
+`ClientAgent` einen zusätzlichen, kleinen Abfrage-Schritt (Vorschau der beiden
+Seiten) **vor** dem bereits fertigen `ClearOrphanedConflictAsync` (das bleibt der
+Ausführungs-Schritt nach Bestätigung).
+
+**Betroffene Dateien (neu):**
+`src/SaveVault.Client/Services/ClientAgent.cs` (neue Methode),
+`src/SaveVault.Client/MainWindow.xaml.cs` (`OnResolveConflictClick` erweitert).
+
+**Akzeptanzkriterium (Nachtrag 4):**
+- [ ] Klick auf „Lösen" bei einem Spiel mit verwaistem (server-seitig nicht mehr
+  existierendem) Konflikt-Status zeigt zuerst Lokal- vs. Server-Kennzahlen und eine
+  Bestätigung; erst nach „Ja" wird der Status sichtbar zurückgesetzt (nicht mehr
+  „Konflikt"), ohne dass der Nutzer die Zwei-Kästen-Ansicht braucht.
+- [ ] „Nein"/Abbrechen ändert nichts (Ordner und Status bleiben wie sie waren).
+- [ ] Arc Raiders lässt sich darüber freischalten.
+- [ ] Ein **echter**, noch offener Server-Konflikt wird weiterhin korrekt gefunden
+  und öffnet wie bisher den `ConflictWindow`-Dialog (keine Regression am
+  eigentlichen Lösen-Weg).
+
 ## Offene Fragen
 - Phase 2 (Dashboard) wird erst nach Abschluss und Abnahme von Phase 1 im Detail
   ausgeplant und braucht eine eigene Freigabe, bevor daran gebaut wird.
