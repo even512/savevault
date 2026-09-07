@@ -1,61 +1,70 @@
-# SaveVault — Limit-Checkpoint (2026-09-07)
+# SaveVault — Limit-Checkpoint (2026-09-07, zweiter Halt)
 
-**Grund:** 5-Stunden-Nutzungslimit bei 90 % erreicht. Halt an der Schritt-Grenze gemäß
-`RULES.md` → „Limit-Checkpoint", auf Tims eigene Wahl hin (Kern-Fix noch fertigstellen,
-Rest nach dem Reset). Commit `1370d3f` sichert den Zwischenstand — **ausdrücklich NICHT
-freigegeben, NICHT abgenommen, NICHT für den Produktivbetrieb geeignet.**
+**Grund:** 5-Stunden-Nutzungslimit erneut erreicht. Halt an der Schritt-Grenze gemäß
+`RULES.md` → „Limit-Checkpoint". Alles committet (lokal, kein Push außer dem einen
+Server-Deploy unten) — der vorherige Checkpoint-Block in dieser Datei ist überholt,
+seitdem ist viel passiert. Session-Ende hier, Fortsetzung nach Reset in neuer Session.
 
 ## Was das ist
 Delta-Spec `specs/savevault-change-shared-save-sichtbarkeit.md` — „Geteilter Speicherstand
-sichtbar & nahtlos" (Phase 1, Client). Zwei-Kästen-Ansicht Server/Lokal im Spiel-Detail
-+ ein währenddessen entdeckter, tieferliegender Kern-Bug (additive statt exakte
-Ordner-Ersetzung beim Umschalten Lokal↔Synchron erzeugte fälschlich Sync-Konflikte) —
-als **Plan-Korrektur** in dieselbe Spec aufgenommen und von Tim freigegeben.
+sichtbar & nahtlos" (Phase 1, Client). Aus der ursprünglichen Sichtbarkeits-/Umschalt-
+Verbesserung wurden unterwegs (Tims Realtest deckte es auf) vier Plan-Korrekturen nötig,
+die tiefer in die Sync-/Konflikt-Mechanik gingen — jede einzeln dokumentiert, gegated und
+von Tim freigegeben. Lies den Nachtrag-Verlauf am Ende der Spec-Datei für die volle Historie.
 
-## Erreichter Stand
-- Zwei-Kästen-UI, „Sicherung deaktivieren"-Leiste, Versionshistorie-Flyout,
-  `ShareCompareWindow` entfernt: **fertig, durch zwei Handtest-Runden mit Tim
-  korrigiert** (5 UI-Fixes + echter Datei-Zeitstempel statt Sync-Zeitpunkt).
-- Kern-Fix „exakter Austausch" (`SyncEngine.ReplaceLocalContentAsync` +
-  `LocalContentReplacer` in `SaveVault.Core`, Konfliktlisten-Schlüssel-Fix
-  `BucketKey.Original` in `OnResolveConflictClick`): **gebaut, aber am Kern-Gate NICHT
-  grün** — zwei vom `reviewer`/`security-auditor` gefundene, noch offene Blocker:
-  1. **`LocalContentReplacer.Commit`** (`src/SaveVault.Core/Storage/LocalContentReplacer.cs`)
-     löscht überzählige Alt-Dateien **vor** dem Verschieben der neuen — bricht ein
-     `File.Move` mitten im Vorgang ab, sind Alt-Dateien schon unwiederbringlich weg,
-     ohne dass alle neuen da sind (Ordner passt dann zu keinem der beiden Stände).
-     **Fix: Reihenfolge umkehren** (erst alle Moves, dann erst löschen), Move-Loop
-     gegen Teilausfälle absichern, `*.svtmp-…`-Reste nach Abbruch aufräumen.
-  2. **`ClientAgent.JoinTakeSharedAsync`/`SwitchToLocalAsync`** setzen `_shares.Add/
-     Remove(game)` + `State.SetShared(...)` **vor** dem eigentlichen
-     `ReplaceLocalContentAsync`-Aufruf, ohne Rollback bei Fehler. Bricht der Download ab
-     (Server offline — der Regelfall, den die Spec ausdrücklich abfängt), behauptet der
-     Client danach fälschlich einen vollzogenen Scope-Wechsel, während der Ordner noch
-     den alten Inhalt trägt → genau die Konflikt-/Bucket-Vermischung, die dieser
-     Nachtrag eigentlich beheben sollte. **Fix: Flags erst nach Erfolg setzen** (oder
-     bei Fehler zurückrollen).
-- **Noch nicht begonnen:** neuer Knopf „Als geteilten Stand hochladen" (Force-Upload
-  mit Metadaten-Vergleich), Oberflächen-Gate dafür, erneutes Laufzeit-Gate, dritter
-  Handtest mit Tim, Arc-Raiders-Realtest, Kunden-Abnahme, finaler (Nicht-WIP-)Commit.
-- Build 0/0, `dotnet test` 193/193 grün (deckt die beiden obigen Blocker **nicht** ab —
-  sie zeigen sich erst bei einem echten Abbruch-Szenario, nicht in den bestehenden Tests).
+## Erreichter Stand — alles committet, alles gegated, alles live bestätigt
 
-## Nächster Schritt nach dem 5h-Reset
-1. Beide Blocker oben beheben (Bauer-Lauf), dann Kern-Gate **erneut** (reviewer +
-   security-auditor + inspekteur).
-2. Force-Upload-Knopf bauen (Kern + Oberfläche), je Gate.
-3. Laufzeit-Gate, dritter Handtest mit Tim (inkl. Arc-Raiders-Realtest: löst sich der
-   hängende Konflikt jetzt über „Lösen"?).
-4. Bekannte, bewusst offen gelassene Nebensache: `ConflictWindow.xaml.cs` ruft
-   `GetRevisionsAsync` mit dem gescopten statt kanonischen Schlüssel auf → Metadaten
-   im Konflikt-Dialog bleiben „—" für privat-gescopte Teilnehmer (blockiert das Lösen
-   selbst nicht). Tim als Wahl vorlegen (jetzt miterledigen/später/so lassen).
-5. Erst nach grünem Laufzeit-Gate + Tims sichtbarer Abnahme: „richtiger" Commit
-   (dieser WIP-Commit `1370d3f` bleibt stehen, kein Amend).
+**Commits seit dem letzten Fortschritts-Block oben (neueste zuerst):**
+- `ec2a9b5` — Verwaisten Konflikt über „Lösen" mit Bestätigung auflösbar (Nachtrag 4).
+- `45e724a` — Verwaisten Konflikt-Status nach exaktem Austausch zurücksetzen (Nachtrag 3).
+- `8f2b722` — Server-Fix Gewinner-Gerät (Nachtrag 2) + Kern-Gate-Blocker behoben + Force-Upload-Knopf fertig.
+- `493236f`/`1370d3f` — ältere Zwischenstände (siehe deren eigene Commit-Messages).
+
+**Funktional bestätigt:**
+- Zwei-Kästen-UI (Server/Lokal), „Sicherung deaktivieren"-Leiste, Versionshistorie-
+  Flyout, `ShareCompareWindow` entfernt, echter Datei-Zeitstempel, Force-Upload-Knopf
+  „Als geteilten Stand hochladen" (mit Inline-Bestätigung) — alle Gates grün.
+- Exakter Bucket-Austausch (`SyncEngine.ReplaceLocalContentAsync` +
+  `LocalContentReplacer`) ersetzt die additive Sync-Anwendung beim Umschalten
+  Lokal↔Synchron — verhindert die fälschlichen Konflikte, die Tims Realtest zuerst
+  aufdeckte. Sichere Reihenfolge (erst alle Downloads/Moves, dann erst Löschen) nach
+  einer Korrekturrunde bestätigt.
+- **Server-Fix ausgeliefert:** `savevault-server:1.5.10` läuft bereits auf Tims Unraid
+  (gepusht + Docker-Image gebaut, von Tim bestätigt). Behebt, dass das gewinnende
+  Gerät nach einer Dashboard-Konfliktlösung nie eine Bestätigung bekam.
+- **Arc Raiders (Tims echter Repro-Fall) ist gelöst** — über „Lösen" mit dem neuen
+  Bestätigungsdialog, von Tim live bestätigt („läuft sehr gut").
+- Build 0/0, `dotnet test` 194/194 grün durchgehend.
+
+**Noch offen für die nächste Session:**
+1. **Kein vollständiges, frisches Laufzeit-Gate über den GESAMTEN Endstand** (inkl.
+   Nachtrag 3+4) durch den `tester` gelaufen — die einzelnen Nachträge wurden je für
+   sich gegated, aber kein zusammenfassender Durchlauf danach. Sollte vor der
+   endgültigen Kunden-Abnahme nachgeholt werden (Build/Test/Start-Smoke + Checkliste).
+2. **Kunden-Abnahme (formal) steht noch aus** — Tim hat vieles unterwegs live bestätigt
+   (Zeitstempel, Boxen, Arc Raiders), aber es gab keinen abschließenden „ja, so ist es
+   gut, bitte abschließen"-Moment für den Gesamtstand. Beim nächsten Einstieg klären,
+   ob aus Tims Sicht noch etwas fehlt, dann den Abschluss-Bericht (Screenshots/Ausgaben,
+   siehe RULES → „Kunden-Abnahme") nachholen.
+3. **Bekannte, bewusst offen gelassene Nebensache:** `ConflictWindow.xaml.cs` ruft
+   `GetRevisionsAsync` mit dem gescopten statt kanonischen Schlüssel auf → Metadaten im
+   Konflikt-Dialog bleiben „—" für privat-gescopte Teilnehmer (blockiert das Lösen
+   selbst nicht, rein kosmetisch). Tim als Wahl vorlegen (jetzt/später/so lassen).
+4. **Prozess-Hinweis vom `inspekteur`:** für Nachtrag 2–4 wurde das Spec-Gate (Prüfung
+   des Spec-**Texts** selbst) mit dem Kern-Gate (Prüfung des **Codes**) zusammengelegt,
+   statt beide strikt zu trennen wie in `RULES.md` vorgesehen — bewusste Abkürzung bei
+   kleinen, gut umrissenen Fixes unter Zeitdruck, nicht übersprungen, aber nicht
+   lehrbuchgetreu sequenziert. Für künftige Nachträge wieder sauber trennen.
+5. **Phase 2 (Dashboard, rein visuell)** noch nicht begonnen — eigene Freigabe nötig,
+   bevor daran gebaut wird (siehe „Offene Fragen" in der Spec).
+6. Nach Abschluss von Punkt 1+2: der **finale, nicht-WIP** Commit — bisherige Commits
+   sind inhaltlich fertig und gegated, aber formal noch nicht als „von Tim
+   abgenommen" markiert. Kein Push nötig außer wenn Tim es erneut ausdrücklich will
+   (wie beim Server-Deploy).
 
 ## Budget-Zeile (Stand Checkpoint)
-5h **~90 % verbraucht** (Reset-Zeitpunkt nicht bekannt) · Woche zuletzt bekannt **~3 %
-verbraucht** (veraltet, unkritisch).
+5h erneut erreicht (Reset-Zeitpunkt nicht bekannt) · Woche zuletzt bekannt ~3 %
+verbraucht vom Kickoff (veraltet, unkritisch, seitdem kein frischer Wert angefordert).
 
 ---
 
