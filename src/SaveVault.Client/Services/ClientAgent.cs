@@ -405,12 +405,18 @@ public sealed class ClientAgent : IAsyncDisposable
         }
 
         var token = LinkedToken(ct);
-        // Mark + Download atomar unter dem Spiel-Lock (kein paralleler Zyklus mit falschem Scope/Base).
+        // Download atomar unter dem Spiel-Lock (kein paralleler Zyklus mit falschem Scope/Base).
+        // Die Scope-Flags werden ERST NACH erfolgreichem Austausch gesetzt (siehe
+        // savevault-change-shared-save-sichtbarkeit.md, „Plan-Korrektur"): scheitert
+        // ReplaceLocalContentAsync (z. B. Server offline mitten im Download – der Regelfall, den
+        // dieser Pfad sauber abfangen muss), bleibt der Zustand unverändert „Lokal", statt
+        // fälschlich einen vollzogenen Scope-Wechsel zu behaupten, während der Ordner noch den
+        // alten Inhalt trägt.
         await _serializer.RunExclusiveAsync(game, async c =>
         {
+            await engine.ReplaceLocalContentAsync(game, entry.Roots, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
             _shares.Add(game);
             State.SetShared(game, true);
-            await engine.ReplaceLocalContentAsync(game, entry.Roots, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
         }, token).ConfigureAwait(false);
 
         State.SetStatus(game, SyncStatus.Synced,
@@ -487,13 +493,25 @@ public sealed class ClientAgent : IAsyncDisposable
         }
 
         var token = LinkedToken(ct);
+        // Die Scope-Flags (_shares.Remove/State.SetShared) werden je Zweig ERST NACH der
+        // jeweiligen (sicheren oder erfolgreich abgeschlossenen) Aktion gesetzt (siehe
+        // savevault-change-shared-save-sichtbarkeit.md, „Plan-Korrektur"): scheitert insbesondere
+        // ReplaceLocalContentAsync (z. B. Server offline mitten im Download – der Regelfall, den
+        // dieser Pfad sauber abfangen muss), bleibt der Zustand unverändert „Synchron", statt
+        // fälschlich einen vollzogenen Scope-Wechsel zu behaupten, während der Ordner noch den
+        // geteilten Inhalt trägt.
         await _serializer.RunExclusiveAsync(game, async c =>
         {
-            _shares.Remove(game);
-            State.SetShared(game, false);
             var engine = _engine;
             if (engine is null || !IsRunning)
+            {
+                // Dienst läuft nicht: es wird kein Ordner angefasst, der Zustand kann gefahrlos
+                // sofort persistiert werden – der nächste Start synct automatisch gegen den
+                // privaten Bucket.
+                _shares.Remove(game);
+                State.SetShared(game, false);
                 return;
+            }
 
             // Der eingefrorene private Basis-Stand ist die einzig verlässliche Quelle für „der
             // Ordner, wie er beim Teilen war" – der aktuelle Ordnerinhalt taugt dafür nicht (er
@@ -508,11 +526,53 @@ public sealed class ClientAgent : IAsyncDisposable
                 // private Basis (kein Datenverlust-Risiko, kein Restdatei-Bug möglich, da noch kein
                 // alter privater Stand existiert, der eine Differenz erzeugen könnte).
                 await engine.RunCycleAsync(game, entry.Roots, BucketScope.Private, c).ConfigureAwait(false);
+                _shares.Remove(game);
+                State.SetShared(game, false);
                 return;
             }
 
             await engine.ReplaceLocalContentAsync(game, entry.Roots, privateState.BaseManifest, privateState.BaseRevision, BucketScope.Private, c).ConfigureAwait(false);
+            _shares.Remove(game);
+            State.SetShared(game, false);
         }, token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Expliziter „Als geteilten Stand hochladen"-Knopf (siehe
+    /// <c>specs/savevault-change-shared-save-sichtbarkeit.md</c>, „Plan-Korrektur" → Nachtrag): der
+    /// Nutzer ist gerade „Lokal" aktiv, es existiert (üblicherweise) bereits ein geteilter Stand,
+    /// und er will bewusst seinen lokalen Stand als neue geteilte Revision veröffentlichen – z. B.
+    /// weil sein lokaler Stand weiter fortgeschritten ist als der geteilte. Anders als
+    /// <see cref="SeedShareAsync"/>/<see cref="JoinTakeLocalAsync"/>/<see cref="ShareAndSyncAsync"/>
+    /// macht dieser Aufruf das Gerät <b>nicht</b> „Synchron": <c>_shares</c>/<see cref="State"/>
+    /// (<see cref="AgentState.SetShared"/>) bleiben unangetastet, der Nutzer bleibt „Lokal" und
+    /// synct danach weiterhin gegen seinen privaten Bucket. Nutzt dafür bewusst
+    /// <see cref="SyncEngine.UploadAsNewRevisionAsync"/> statt des regulären
+    /// <see cref="SyncEngine.RunCycleAsync"/>-Zyklus: dieser würde den lokalen SyncState des
+    /// GETEILTEN Scopes dauerhaft überschreiben und eine Sync-Beziehung zu diesem Scope
+    /// vortäuschen, der der Nutzer hier ausdrücklich nicht beitreten will.
+    ///
+    /// <para>Keine erzwungene Aktualitätsprüfung – der Nutzer entscheidet selbst, ob sein lokaler
+    /// Stand hochgeladen werden soll, unabhängig davon, ob er tatsächlich neuer als der aktuelle
+    /// geteilte Stand ist. Ist der Dienst nicht verbunden oder kein Ordner zugeordnet, wird eine
+    /// <see cref="InvalidOperationException"/> geworfen (kein stiller Erfolg vortäuschen) – der
+    /// Aufrufer in der Oberfläche fängt sie ab und zeigt sie an, wie bei den Nachbarmethoden.</para>
+    /// </summary>
+    public async Task ForceUploadLocalAsSharedAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var entry = _registry.TryGet(game);
+        var engine = _engine;
+        if (entry is null || engine is null)
+            throw new InvalidOperationException("Nicht verbunden oder kein Ordner zugeordnet – Hochladen erst möglich, wenn der Dienst läuft.");
+
+        var token = LinkedToken(ct);
+        // Exklusiv unter dem Spiel-Lock (gleiches Gate wie jeder andere Schreib-/Sync-Zugriff auf
+        // dieses Spiel), damit kein paralleler Sync-Zyklus währenddessen denselben Ordner liest.
+        await _serializer.RunExclusiveAsync(
+            game,
+            c => engine.UploadAsNewRevisionAsync(game, entry.Roots, BucketScope.Shared, c),
+            token).ConfigureAwait(false);
     }
 
     /// <summary>Verknüpft das übergebene Token mit dem Lebenszyklus-Token (falls der Dienst läuft).</summary>

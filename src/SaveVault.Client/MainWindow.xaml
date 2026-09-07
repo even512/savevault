@@ -839,6 +839,20 @@
                                     <Button Content="Jetzt sichern" Click="OnGameSyncNowClick" Tag="{Binding}"
                                             Style="{StaticResource PrimaryButton}" FontSize="11.5" Padding="11,7"
                                             Margin="0,0,6,6" IsEnabled="{Binding CanSyncNow}" />
+                                    <!-- „Als geteilten Stand hochladen": nur sichtbar, wenn Lokal aktiv ist UND
+                                         bereits ein geteilter Stand existiert (sonst ist der Server-Kasten-Klick
+                                         selbst der Seed-Weg). Inline-Bestätigung direkt am Knopf statt Dialog –
+                                         erster Klick zeigt Kennzahlen beider Seiten, zweiter Klick lädt hoch. -->
+                                    <Button Click="OnForceUploadClick" Tag="{Binding}"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Visibility="{Binding ForceUploadVisibility}" IsEnabled="{Binding CanSyncNow}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding ForceUploadLabel}" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding ForceUploadHint}" Visibility="{Binding ForceUploadHintVisibility}"
+                                                       FontSize="9.5" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0"
+                                                       TextWrapping="Wrap" MaxWidth="190" HorizontalAlignment="Center" TextAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
                                     <Button Content="Ordner öffnen" Click="OnOpenFolderClick"
                                             Style="{StaticResource ChipButton}" Margin="0,0,6,6"
                                             Visibility="{Binding OpenFolderVisibility}" IsEnabled="{Binding CanOpenFolder}" />

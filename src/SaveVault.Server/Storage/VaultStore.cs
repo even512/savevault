@@ -906,14 +906,21 @@ public sealed class VaultStore
         g.CurrentFileCount = winning.Manifest.FileCount;
         g.CurrentTotalBytes = winning.Manifest.TotalBytes;
 
-        // Allen beteiligten Geräten (außer dem Gewinner) den Download der Lösung als Befehl geben.
+        // Allen beteiligten Geräten – EINSCHLIESSLICH des Gewinners – den ApplyResolution-Befehl
+        // geben: der Gewinner braucht ihn genauso, damit sein lokaler SyncState (Base-Revision/
+        // -Manifest) auf die neue Head-Revision nachgezogen und seine Konflikt-Marke gelöscht wird.
+        // Ohne diesen Befehl vergleicht sein SyncDecider bei jedem folgenden Zyklus weiter gegen den
+        // eingefrorenen Vor-Konflikt-Stand und liefert dauerhaft Conflict (siehe Nachtrag 2 der Spec).
+        // Der Gewinner ist hier immer Teil von conflict.Participants (winnerDevice wird oben aus
+        // conflict.Participants ermittelt bzw. wirft sonst eine VaultException) – daher genügt es,
+        // die Sonderbehandlung in der Schleife zu entfernen.
         foreach (var p in conflict.Participants)
         {
-            if (p.DeviceId == winnerDevice) continue;
             EnqueueCommand(new Command(
                 Secrets.NewId(), CommandType.ApplyResolution, p.DeviceId, ToGameKey(g),
                 DateTime.UtcNow, TargetRevision: number, Resolution: ConflictResolutionKind.KeepDevice,
                 ConflictId: conflict.Id));
+            if (p.DeviceId == winnerDevice) continue;
             SetDeviceGameState(p.DeviceId, g.KeyValue, g.CurrentRevision, SyncStatus.Pending);
         }
         SetDeviceGameState(winnerDevice, g.KeyValue, number, SyncStatus.Synced);
@@ -1000,20 +1007,38 @@ public sealed class VaultStore
         g.CurrentFileCount = winner.Manifest.FileCount;
         g.CurrentTotalBytes = winner.Manifest.TotalBytes;
 
-        // Befehle einreihen: jedes Nicht-Gewinner-Gerät lädt die neue Head-Revision des Originals –
-        // so bleibt KEIN beteiligtes Gerät divergent. Der Gewinner hat die Fassung bereits lokal.
+        // Befehle einreihen: JEDES beteiligte Gerät – auch der Gewinner – bekommt den
+        // ApplyResolution-Befehl. Der Gewinner hat den Dateiinhalt zwar bereits lokal, aber ohne den
+        // Befehl bliebe sein SyncState (Base-Revision/-Manifest) auf dem eingefrorenen
+        // Vor-Konflikt-Stand stehen und sein SyncDecider würde bei jedem folgenden Zyklus weiter
+        // fälschlich Conflict liefern (siehe Nachtrag 2 der Spec). Der Befehl ist idempotent, da der
+        // Inhalt beim Gewinner bereits identisch ist.
         foreach (var p in conflict.Participants)
         {
+            EnqueueCommand(new Command(
+                Secrets.NewId(), CommandType.ApplyResolution, p.DeviceId, ToGameKey(g),
+                DateTime.UtcNow, TargetRevision: headNumber, Resolution: ConflictResolutionKind.KeepBoth,
+                ConflictId: conflict.Id));
             if (string.Equals(p.DeviceId, winnerDevice, StringComparison.Ordinal))
             {
                 SetDeviceGameState(p.DeviceId, g.KeyValue, headNumber, SyncStatus.Synced);
                 continue;
             }
+            SetDeviceGameState(p.DeviceId, g.KeyValue, g.CurrentRevision, SyncStatus.Pending);
+        }
+
+        // Sonderfall: winnerDevice stammt aus der aktuellen Head-Revision (LoadRevision(g,
+        // g.CurrentRevision).DeviceId) und ist – anders als in ResolveKeepDevice – NICHT zwingend
+        // Teil von conflict.Participants (z.B. wenn ein drittes, am Konflikt unbeteiligtes Gerät
+        // zwischenzeitlich unabhängig eine neue Head-Revision hochgeladen hat). In diesem Fall reiht
+        // die obige Schleife für den Gewinner keinen Befehl ein – hier explizit nachholen.
+        if (conflict.Participants.All(p => !string.Equals(p.DeviceId, winnerDevice, StringComparison.Ordinal)))
+        {
             EnqueueCommand(new Command(
-                Secrets.NewId(), CommandType.ApplyResolution, p.DeviceId, ToGameKey(g),
+                Secrets.NewId(), CommandType.ApplyResolution, winnerDevice, ToGameKey(g),
                 DateTime.UtcNow, TargetRevision: headNumber, Resolution: ConflictResolutionKind.KeepBoth,
                 ConflictId: conflict.Id));
-            SetDeviceGameState(p.DeviceId, g.KeyValue, g.CurrentRevision, SyncStatus.Pending);
+            SetDeviceGameState(winnerDevice, g.KeyValue, headNumber, SyncStatus.Synced);
         }
 
         AddActivity(new ActivityEntry

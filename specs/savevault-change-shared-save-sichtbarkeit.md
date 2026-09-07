@@ -279,6 +279,46 @@ im Kern-Gate kurz begründet bestätigt statt übersprungen.
 - [ ] Kein API-/DTO-Vertragsbruch — Server unverändert lauffähig mit dem neuen
   Client, alte Clients bleiben mit dem unveränderten Server kompatibel.
 
+## Plan-Korrektur (2026-09-07, Nachtrag 2) — Gewinner-Gerät bleibt nach Konfliktlösung fälschlich „Konflikt"
+
+**Was sich am echten Test zeigte:** Tim löste den Arc-Raiders-Konflikt über das
+Dashboard („Gerät behalten"). Danach zeigte sein Client weiterhin „Konflikt" für Arc
+Raiders — weder Warten noch „Jetzt sichern" änderte etwas.
+
+**Ursache (vorbestehender Bug, nicht durch die heutigen Änderungen verursacht):**
+`VaultStore.ResolveKeepDevice` und `ResolveKeepBoth`
+(`src/SaveVault.Server/Storage/VaultStore.cs`) reihen einen `ApplyResolution`-Befehl
+nur für die **verlierenden** Geräte in die Warteschlange ein
+(`if (p.DeviceId == winnerDevice) continue;` bzw. das Pendant in `ResolveKeepBoth`).
+Das **gewinnende** Gerät bekommt nie einen Befehl — nur eine reine Server-Buchhaltung
+(`SetDeviceGameState(winnerDevice, ...)`). Sein lokaler `SyncStateStore`
+(Base-Revision/-Manifest) und die Konflikt-Marke (`ConflictHash`) bleiben auf dem
+Stand von vor dem Konflikt eingefroren. Jeder folgende Sync-Zyklus vergleicht den
+aktuellen lokalen Inhalt weiterhin gegen diesen alten, eingefrorenen Stand und die
+neue (höhere) Server-Revision — `SyncDecider` liefert dadurch dauerhaft `Conflict`,
+obwohl Server und alle anderen Geräte längst konvergiert sind.
+
+**Fix (klein, gezielt, serverseitig):** In beiden Methoden auch dem **Gewinner-Gerät**
+einen `ApplyResolution`-Befehl einreihen (gleicher Befehlstyp, den die Verlierer schon
+bekommen; `CommandPoller.cs` verarbeitet ihn bereits korrekt: lädt die aktuelle
+Head-Revision, schreibt sie über `SyncEngine.ApplyRevisionAsync` — idempotent, da
+Inhalt beim Gewinner bereits identisch ist —, zieht `SyncState` nach und löscht die
+Konflikt-Marke). Kein neuer Befehlstyp, keine neue API, keine neue Sicherheitsfläche —
+reine Erweiterung des bestehenden, bereits genutzten Mechanismus auf den bisher
+übersehenen Teilnehmer.
+
+**Betroffene Datei (neu, nicht vorher Teil dieses Deltas):**
+`src/SaveVault.Server/Storage/VaultStore.cs` (`ResolveKeepDevice`, `ResolveKeepBoth`).
+
+**Akzeptanzkriterium (Nachtrag 2):**
+- [ ] Nach einer über das Dashboard gelösten „Gerät behalten"- oder „Beide
+  behalten"-Konfliktlösung zeigt **auch das gewinnende Gerät** nach dem nächsten Sync
+  (oder „Jetzt sichern") wieder „Synchronisiert" statt weiter „Konflikt".
+- [ ] Arc Raiders (Tims echter, aktuell hängender Fall) löst sich nach dem Fix beim
+  nächsten Sync/„Jetzt sichern" auf.
+- [ ] Regression: das Verhalten für die Verlierer-Geräte (die schon vorher korrekt
+  einen Befehl bekamen) bleibt unverändert.
+
 ## Offene Fragen
 - Phase 2 (Dashboard) wird erst nach Abschluss und Abnahme von Phase 1 im Detail
   ausgeplant und braucht eine eigene Freigabe, bevor daran gebaut wird.

@@ -7,8 +7,10 @@ namespace SaveVault.Core.Tests;
 /// <c>SyncEngine.ReplaceLocalContentAsync</c> (Client, Umschalten Lokal ↔ Synchron) für den
 /// sicherheitskritischen letzten Schritt nutzt (siehe
 /// specs/savevault-change-shared-save-sichtbarkeit.md, „Plan-Korrektur"): erst ALLE Ziel-Dateien
-/// vollständig als Temp vorliegen haben, DANACH erst überzählige Alt-Dateien löschen und die
-/// Temp-Dateien verschieben – nie umgekehrt.
+/// vollständig als Temp vorliegen haben, dann in <see cref="LocalContentReplacer.Commit"/> ERST
+/// alle Temp-Dateien an ihren Platz verschieben und ERST DANACH die überzähligen Alt-Dateien
+/// löschen – nie umgekehrt (ein zuerst gelöschter Alt-Bestand wäre bei einem mittendrin
+/// scheiternden Move unwiederbringlich weg, ohne dass der neue Stand vollständig da ist).
 /// </summary>
 public class LocalContentReplacerTests
 {
@@ -76,7 +78,7 @@ public class LocalContentReplacerTests
     }
 
     [Fact]
-    public void Commit_loescht_erst_die_Extras_und_verschiebt_dann_die_Temp_Dateien_an_ihren_Platz()
+    public void Commit_verschiebt_alle_Temp_Dateien_und_loescht_dann_die_Extras()
     {
         using var root = new TempDirectory();
         var oldTarget = root.WriteFile("save.dat", "alter Stand");
@@ -92,6 +94,38 @@ public class LocalContentReplacerTests
         Assert.False(File.Exists(extraLeftover), "Überzählige Alt-Datei muss nach Commit weg sein.");
         Assert.False(File.Exists(tmp), "Die Temp-Datei muss an ihren Zielplatz verschoben (nicht kopiert) worden sein.");
         Assert.Equal("neuer Stand", File.ReadAllText(oldTarget));
+    }
+
+    [Fact]
+    public void Commit_loescht_keine_Alt_Datei_wenn_ein_Move_mittendrin_fehlschlaegt()
+    {
+        // Der eigentliche Blocker aus dem Kern-Gate (siehe Klassendoku): Commit muss ZUERST alle
+        // Moves versuchen und darf die überzähligen Alt-Dateien erst löschen, NACHDEM alle Moves
+        // geglückt sind. Hier bricht ein Move ab (Quelle fehlt), weil ein weiterer Ziel-Eintrag nie
+        // erfolgreich heruntergeladen wurde – der Ordner darf dann nicht "kaputter" sein als vorher:
+        // keine Alt-Datei, die noch gebraucht würde, darf verschwunden sein.
+        using var root = new TempDirectory();
+        var extraLeftover = root.WriteFile("stray.dat", "überzählig – darf bei fehlschlagendem Move nicht weg sein");
+        var okTarget = root.WriteFile("ok.dat", "alter Stand (ok)");
+        var okTmp = okTarget + ".svtmp-" + Guid.NewGuid().ToString("N");
+        File.WriteAllText(okTmp, "neuer Stand (ok)");
+
+        var failTarget = Path.Combine(root.Path, "fail.dat");
+        // Bewusst KEINE Temp-Datei für failTarget angelegt – simuliert einen Move, dessen Quelle
+        // (aus welchem Grund auch immer) nicht existiert, und lässt File.Move mit einer
+        // IOException scheitern.
+        var missingTmp = failTarget + ".svtmp-" + Guid.NewGuid().ToString("N");
+
+        var tempByTarget = new Dictionary<string, string>
+        {
+            [okTarget] = okTmp,
+            [failTarget] = missingTmp,
+        };
+
+        Assert.ThrowsAny<IOException>(() => LocalContentReplacer.Commit(new[] { extraLeftover }, tempByTarget));
+
+        Assert.True(File.Exists(extraLeftover),
+            "Ein fehlschlagender Move darf keine überzählige Alt-Datei löschen – Löschen läuft erst NACH allen erfolgreichen Moves.");
     }
 
     [Fact]

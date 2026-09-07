@@ -12,10 +12,18 @@ namespace SaveVault.Core.Storage;
 /// <para><b>Sichere Reihenfolge (verbindlich, kein Ermessen des Aufrufers):</b> Der Aufrufer lädt
 /// zuerst <b>alle</b> Ziel-Dateien vollständig herunter und schreibt sie als Temp-Dateien neben
 /// ihrem Zielpfad. Erst wenn das für <b>jede</b> Ziel-Datei geglückt ist, ruft er
-/// <see cref="Commit"/> auf – den „point of no return", der überzählige Alt-Dateien löscht und
-/// danach die Temp-Dateien an ihren Platz verschiebt. Wird <see cref="Commit"/> nicht erreicht
-/// (Download bricht vorher ab), bleibt der Ordner garantiert im alten Zustand: diese Klasse fasst
-/// nie einen bestehenden Zielpfad an, bevor der Aufrufer <see cref="Commit"/> aufruft.</para>
+/// <see cref="Commit"/> auf – den „point of no return", der zuerst <b>alle</b> Temp-Dateien an
+/// ihren Platz verschiebt und <b>erst danach</b> die überzähligen Alt-Dateien löscht. Diese
+/// Reihenfolge ist bewusst so und nicht umgekehrt: Jeder <see cref="File.Move(string, string, bool)"/>
+/// betrifft nur seinen eigenen Zielpfad und zerstört nichts anderes – bricht einer davon mit einer
+/// Exception ab, sind die bis dahin bereits verschobenen Dateien schlicht die neuen, korrekten
+/// Inhalte an ihrem Platz, und noch nicht verschobene Alt-Dateien liegen unangetastet weiter (kein
+/// Datenverlust, da noch nichts gelöscht wurde). Erst wenn ALLE Moves geglückt sind, werden die
+/// überzähligen Alt-Dateien entfernt – ein Löschen vor dem letzten erfolgreichen Move könnte sonst
+/// bei einem mittendrin scheiternden Move einen Ordner hinterlassen, der weder dem alten noch dem
+/// neuen Stand entspricht. Wird <see cref="Commit"/> nicht erreicht (Download bricht vorher ab),
+/// bleibt der Ordner garantiert im alten Zustand: diese Klasse fasst nie einen bestehenden Zielpfad
+/// an, bevor der Aufrufer <see cref="Commit"/> aufruft.</para>
 /// </summary>
 public static class LocalContentReplacer
 {
@@ -58,14 +66,24 @@ public static class LocalContentReplacer
     }
 
     /// <summary>
-    /// Der „point of no return" des exakten Austauschs: löscht zuerst die überzähligen
-    /// Alt-Dateien, verschiebt DANACH alle Temp-Dateien an ihren Zielplatz
-    /// (<see cref="File.Move(string, string, bool)"/> mit <c>overwrite: true</c>). Vor diesem
-    /// Aufruf darf der Ordner nicht angefasst worden sein (siehe Klassendoku). Ein einzelner
-    /// Lösch-Fehler (Datei gerade gesperrt o. ä.) wird best-effort geschluckt, damit ein
-    /// Ausreißer den bereits vollständig validierten und heruntergeladenen Austausch nicht
-    /// insgesamt verhindert; ein Fehler beim finalen Verschieben wird weitergereicht (ein echter
-    /// IO-Fehler an dieser letzten, kurzen Stelle ist ein reales Problem, kein normaler Fall).
+    /// Der „point of no return" des exakten Austauschs: verschiebt ZUERST alle Temp-Dateien an
+    /// ihren Zielplatz (<see cref="File.Move(string, string, bool)"/> mit <c>overwrite: true</c>)
+    /// und löscht ERST DANACH die überzähligen Alt-Dateien. Diese Reihenfolge ist verbindlich
+    /// (siehe Klassendoku) und nicht umkehrbar: würde zuerst gelöscht, könnte ein mittendrin
+    /// scheiternder Move einen Ordner hinterlassen, der zu keinem der beiden Stände mehr passt
+    /// (Alt-Dateien schon weg, nicht alle neuen Dateien da) – bei echten Spielständen ein
+    /// Datenverlust-Risiko. In der jetzigen Reihenfolge ist ein Fehler mitten im Move-Durchlauf
+    /// dagegen unkritisch: jeder Move betrifft ausschließlich seinen eigenen Zielpfad, nichts
+    /// anderes wird angefasst; scheitert einer, bleiben die bereits verschobenen Dateien die
+    /// korrekten neuen Inhalte, die restlichen (noch nicht verschobenen) Alt-Dateien liegen
+    /// unangetastet weiter, und ein erneuter Versuch (z. B. beim nächsten Umschalt-Anlauf) ist
+    /// idempotent, weil jeder Move mit <c>overwrite: true</c> läuft. Ein Fehler beim Verschieben
+    /// wird deshalb weitergereicht (kein normaler Fall, aber kein unsicherer Zwischenzustand).
+    /// Vor diesem Aufruf darf der Ordner nicht angefasst worden sein (siehe Klassendoku). Das
+    /// abschließende Löschen der überzähligen Alt-Dateien läuft erst, nachdem ALLE Moves
+    /// geglückt sind; ein einzelner Lösch-Fehler (Datei gerade gesperrt o. ä.) wird dabei
+    /// best-effort geschluckt, damit ein Ausreißer den bereits vollständig validierten und
+    /// heruntergeladenen Austausch nicht insgesamt verhindert.
     /// </summary>
     public static void Commit(
         IReadOnlyList<string> extraFilesToDelete,
@@ -74,15 +92,17 @@ public static class LocalContentReplacer
         ArgumentNullException.ThrowIfNull(extraFilesToDelete);
         ArgumentNullException.ThrowIfNull(tempByTarget);
 
+        // Erst ALLE Moves – jeder betrifft nur seinen eigenen Zielpfad, kein Löschen bisher.
+        foreach (var (target, tmp) in tempByTarget)
+        {
+            File.Move(tmp, target, overwrite: true);
+        }
+
+        // Erst NACH erfolgreichem Abschluss aller Moves die überzähligen Alt-Dateien entfernen.
         foreach (var extra in extraFilesToDelete)
         {
             try { File.Delete(extra); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
-        }
-
-        foreach (var (target, tmp) in tempByTarget)
-        {
-            File.Move(tmp, target, overwrite: true);
         }
     }
 }

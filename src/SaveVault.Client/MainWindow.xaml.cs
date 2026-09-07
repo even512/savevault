@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using SaveVault.Client.Services;
 using SaveVault.Client.Ui;
 using SaveVault.Core.Api;
@@ -45,6 +46,10 @@ public partial class MainWindow : Window
     private DateTime? _historyLoadedAction;
     private RevisionRow? _restoreTarget;
     private bool _isOverview = true;
+
+    // Inline-Bestätigung des „Als geteilten Stand hochladen"-Knopfs (siehe OnForceUploadClick):
+    // nur je EIN Spiel kann gerade die Bestätigung zeigen, daher genügt ein einzelner Timer.
+    private DispatcherTimer? _forceUploadArmTimer;
 
     // Ecken-Auswahl (Index ↔ Enum) mit deutschen Labels – wie im bisherigen Einstellungs-Dialog.
     private static readonly (WatermarkCorner Corner, string Label)[] Corners =
@@ -253,6 +258,10 @@ public partial class MainWindow : Window
 
     private void SelectGame(GameRow row)
     {
+        // Ein Spielwechsel verwirft eine offene Force-Upload-Bestätigung des VORHERIGEN Spiels
+        // (sonst bliebe der Knopf eines nicht mehr sichtbaren Spiels "scharf").
+        DisarmForceUpload(_selectedRow);
+
         _selectedRow = row;
         _selectedKey = row.Game.Value;
 
@@ -495,6 +504,10 @@ public partial class MainWindow : Window
         if (sender is not Button { Tag: GameRow row } || row.IsShared || row.IsExcluded || _switchInFlight)
             return;
 
+        // Der Force-Upload-Knopf ist ohnehin nur bei "Lokal aktiv" sichtbar – ein Wechsel weg von
+        // "Lokal" macht seine Bestätigung ungültig (defensiv, auch falls sie gerade offen war).
+        DisarmForceUpload(row);
+
         _switchInFlight = true;
         try
         {
@@ -514,6 +527,11 @@ public partial class MainWindow : Window
                 await _agent.SeedShareAsync(row.Game);
             else
                 await _agent.JoinTakeSharedAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
+
+            // Nach jeder mutierenden Aktion die Zwei-Kästen-Anzeige sofort neu abfragen (siehe
+            // savevault-change-shared-save-sichtbarkeit.md, Nachtrag "Probe-Refresh nach jeder
+            // mutierenden Aktion") – behebt die zuvor stehen bleibende CTA-Meldung.
+            await ProbeShareStatusAsync(row);
         }
         catch (Exception ex)
         {
@@ -540,6 +558,11 @@ public partial class MainWindow : Window
         try
         {
             await _agent.SwitchToLocalAsync(row.Game);
+
+            // Nach jeder mutierenden Aktion die Zwei-Kästen-Anzeige sofort neu abfragen (siehe
+            // savevault-change-shared-save-sichtbarkeit.md, Nachtrag "Probe-Refresh nach jeder
+            // mutierenden Aktion") – behebt die zuvor stehen bleibende CTA-Meldung.
+            await ProbeShareStatusAsync(row);
         }
         catch (Exception ex)
         {
@@ -549,6 +572,73 @@ public partial class MainWindow : Window
         {
             _switchInFlight = false;
         }
+    }
+
+    // --- „Als geteilten Stand hochladen" (expliziter Force-Upload-Knopf) --------------
+
+    /// <summary>
+    /// Klick auf „Als geteilten Stand hochladen": erster Klick zeigt die Inline-Bestätigung mit den
+    /// Kennzahlen beider Seiten direkt am Knopf (kein neuer Dialog-Typ), der zweite Klick löst den
+    /// Upload aus (siehe savevault-change-shared-save-sichtbarkeit.md, Nachtrag „Neuer expliziter
+    /// Knopf"). Der Knopf ist nur sichtbar, wenn „Lokal" aktiv ist und bereits ein geteilter Stand
+    /// existiert (Bindung <see cref="GameRow.ForceUploadVisibility"/>).
+    /// </summary>
+    private async void OnForceUploadClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: GameRow row })
+            return;
+
+        if (!row.ForceUploadArmed)
+        {
+            ArmForceUpload(row);
+            return;
+        }
+
+        DisarmForceUpload(row);
+        if (_switchInFlight)
+            return;
+
+        _switchInFlight = true;
+        try
+        {
+            await _agent.ForceUploadLocalAsSharedAsync(row.Game);
+
+            // Nach jeder mutierenden Aktion die Zwei-Kästen-Anzeige sofort neu abfragen (siehe
+            // savevault-change-shared-save-sichtbarkeit.md, Nachtrag "Probe-Refresh nach jeder
+            // mutierenden Aktion").
+            await ProbeShareStatusAsync(row);
+        }
+        catch (Exception ex)
+        {
+            Info("Hochladen fehlgeschlagen: " + ex.Message);
+        }
+        finally
+        {
+            _switchInFlight = false;
+        }
+    }
+
+    /// <summary>Schaltet die Inline-Bestätigung eines Force-Upload-Knopfs scharf (mit Auto-Timeout).</summary>
+    private void ArmForceUpload(GameRow row)
+    {
+        // Nur eine Bestätigung gleichzeitig – ein zuvor scharf geschaltetes anderes Spiel (Randfall,
+        // z. B. schnelles Umschalten) wird zuerst entwaffnet.
+        if (_selectedRow is { } previous && !ReferenceEquals(previous, row))
+            DisarmForceUpload(previous);
+
+        row.SetForceUploadArmed(true);
+        _forceUploadArmTimer?.Stop();
+        _forceUploadArmTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _forceUploadArmTimer.Tick += (_, _) => DisarmForceUpload(row);
+        _forceUploadArmTimer.Start();
+    }
+
+    /// <summary>Nimmt die Inline-Bestätigung eines Force-Upload-Knopfs zurück und stoppt den Timeout-Timer.</summary>
+    private void DisarmForceUpload(GameRow? row)
+    {
+        _forceUploadArmTimer?.Stop();
+        _forceUploadArmTimer = null;
+        row?.SetForceUploadArmed(false);
     }
 
     private void OnOpenFolderClick(object sender, RoutedEventArgs e)

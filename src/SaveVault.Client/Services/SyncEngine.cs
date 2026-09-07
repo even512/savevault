@@ -318,11 +318,14 @@ public sealed class SyncEngine
     ///     Datenverlust-Risiko für ein Backup-Tool, siehe CLAUDE.md → „Fehlerzustände
     ///     abfangen").</item>
     ///   <item>Erst wenn ALLE Ziel-Dateien sicher als Temp vorliegen, der „point of no return"
-    ///     (<see cref="LocalContentReplacer.Commit"/>): die überzähligen lokalen Dateien (in den
-    ///     bekannten Wurzeln vorhanden, aber in KEINEM Ziel-Eintrag referenziert, ermittelt über
-    ///     <see cref="LocalContentReplacer.FindExtraFiles"/>) werden gelöscht, danach werden alle
-    ///     Temp-Dateien per <see cref="File.Move(string, string, bool)"/> (<c>overwrite: true</c>)
-    ///     an ihren Platz verschoben. NIE zuerst löschen und danach laden.</item>
+    ///     (<see cref="LocalContentReplacer.Commit"/>): zuerst werden ALLE Temp-Dateien per
+    ///     <see cref="File.Move(string, string, bool)"/> (<c>overwrite: true</c>) an ihren Platz
+    ///     verschoben – scheitert ein Move mittendrin, ist bis dahin NOCH KEINE Alt-Datei gelöscht,
+    ///     bereits verschobene Dateien tragen einfach schon den korrekten neuen Inhalt. Erst wenn
+    ///     alle Moves geglückt sind, werden die überzähligen lokalen Dateien (in den bekannten
+    ///     Wurzeln vorhanden, aber in KEINEM Ziel-Eintrag referenziert, ermittelt über
+    ///     <see cref="LocalContentReplacer.FindExtraFiles"/>) gelöscht. NIE zuerst löschen und
+    ///     danach verschieben.</item>
     ///   <item>Danach wird der <see cref="SyncState"/> des Ziel-Scopes exakt wie in
     ///     <see cref="ApplyRevisionAsync"/> auf die neue Revision/das neue Manifest gesetzt und
     ///     die Konflikt-Marke gelöscht.</item>
@@ -397,6 +400,50 @@ public sealed class SyncEngine
 
         _stateStore.Save(new SyncState(game, revisionNumber, manifest), scope);
         _stateStore.ClearConflictHash(game, scope);
+    }
+
+    // --- Direkter Upload ohne SyncState-Bindung (expliziter Force-Upload-Knopf) ----
+
+    /// <summary>
+    /// Lädt den aktuellen lokalen Ordnerinhalt bewusst als NEUE Revision in <paramref name="scope"/>
+    /// hoch – anders als der Upload-Zweig von <see cref="RunCycleAsync"/> wird dabei <b>kein</b>
+    /// <see cref="SyncState"/> für <paramref name="scope"/> persistiert. Für den expliziten
+    /// „Als geteilten Stand hochladen"-Knopf gedacht (siehe
+    /// <c>specs/savevault-change-shared-save-sichtbarkeit.md</c>, „Plan-Korrektur" → Nachtrag):
+    /// der Aufrufer ist NICHT dauerhaft gegen diesen Scope synchronisiert (er bleibt z. B.
+    /// „Lokal") und will nur einmalig, bewusst den Bestand von <paramref name="scope"/>
+    /// aktualisieren, ohne diesem Scope beizutreten. Würde hier – wie im regulären Zyklus – der
+    /// SyncState des Ziel-Scopes auf den neuen Stand gesetzt, entstünde eine „ich bin auf Stand X"-
+    /// Markierung für einen Scope, dem der Aufrufer nie beigetreten ist; das hätte in diesem Modell
+    /// keine Bedeutung und ist deshalb bewusst weggelassen.
+    ///
+    /// <para>Basiert auf dem aktuellen Server-<c>Head</c> (<c>BasedOnRevision</c>), nicht auf einer
+    /// lokal gespeicherten Basis – funktioniert daher unabhängig davon, ob der lokale Stand
+    /// tatsächlich neuer als der aktuelle Stand von <paramref name="scope"/> ist; der Aufrufer
+    /// entscheidet bewusst, es gibt keine erzwungene Aktualitätsprüfung.</para>
+    ///
+    /// <para>Liefert die neu angelegte Revisionsnummer.</para>
+    /// </summary>
+    public async Task<long> UploadAsNewRevisionAsync(GameKey game, IReadOnlyList<SaveRoot> roots, BucketScope scope, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(roots);
+        if (roots.Count == 0)
+            throw new InvalidOperationException("Kein lokaler Ordner zugeordnet – Hochladen nicht möglich.");
+
+        var folder = PrimaryFolder(roots);
+        // Voller Scan ohne Baseline (kein eigener SyncState für diesen Scope vorhanden/relevant) –
+        // wie ProbeShareAsync in ClientAgent verfährt.
+        var local = _manifestBuilder.BuildCombined(roots, null, ct);
+        var head = await _api.GetHeadAsync(game, scope, ct).ConfigureAwait(false);
+
+        var request = new UploadRevisionRequest(_deviceInfo(), local, IsConflict: false, BasedOnRevision: head.CurrentRevision, SaveRoot: folder);
+        var response = await _api.UploadRevisionAsync(game, request, scope, ct).ConfigureAwait(false);
+        await UploadMissingContentsAsync(game, roots, local, response.MissingHashes, scope, ct).ConfigureAwait(false);
+
+        // Echte Übertragung abgeschlossen → meldenswert (Toast „gesichert"), wie beim regulären Upload.
+        _state.NotifySyncActivity(game, SyncActivityKind.Uploaded);
+        return response.Revision;
     }
 
     // --- Hochladen fehlender Inhalte -----------------------------------------------

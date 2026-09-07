@@ -115,6 +115,7 @@ public sealed class GameRow : INotifyPropertyChanged
                 OnChanged(nameof(LocalBadgeText));
                 OnChanged(nameof(ServerBoxActive));
                 OnChanged(nameof(LocalBoxActive));
+                OnChanged(nameof(ForceUploadVisibility));
             }
         }
     }
@@ -189,9 +190,56 @@ public sealed class GameRow : INotifyPropertyChanged
             {
                 OnChanged(nameof(ShareCtaVisibility));
                 OnChanged(nameof(ShareMetricsVisibility));
+                OnChanged(nameof(ForceUploadVisibility));
             }
         }
     }
+
+    // --- „Als geteilten Stand hochladen" (expliziter Force-Upload-Knopf) ---------------
+    // Siehe savevault-change-shared-save-sichtbarkeit.md, Nachtrag „Neuer expliziter Knopf":
+    // nur sichtbar, wenn der Lokal-Kasten aktiv ist UND bereits ein geteilter Stand existiert
+    // (sonst ist der Server-Kasten-Klick selbst der Seed-Weg). Kein neuer Dialog-Typ – die
+    // Bestätigung passiert inline am Knopf selbst (Zwei-Klick-Zustand, siehe MainWindow.xaml.cs).
+
+    private bool _forceUploadArmed;
+    /// <summary>
+    /// Ob der Knopf gerade seine Inline-Bestätigung zeigt (zweiter Klick löst den Upload aus).
+    /// Reine UI-Zustandsfläche – wird vom Code-Behind gesetzt/zurückgesetzt (Spielwechsel, Timeout,
+    /// nach dem eigentlichen Upload), siehe <see cref="SetForceUploadArmed"/>.
+    /// </summary>
+    public bool ForceUploadArmed
+    {
+        get => _forceUploadArmed;
+        private set
+        {
+            if (Set(ref _forceUploadArmed, value))
+            {
+                OnChanged(nameof(ForceUploadLabel));
+                OnChanged(nameof(ForceUploadHint));
+                OnChanged(nameof(ForceUploadHintVisibility));
+            }
+        }
+    }
+
+    /// <summary>Setzt/löscht den Bestätigungszustand des Force-Upload-Knopfs (siehe <see cref="ForceUploadArmed"/>).</summary>
+    public void SetForceUploadArmed(bool armed) => ForceUploadArmed = armed;
+
+    /// <summary>
+    /// Sichtbarkeit des expliziten „Als geteilten Stand hochladen"-Knopfs: nur wenn der Lokal-Kasten
+    /// aktiv ist UND bereits ein geteilter Stand existiert (der leere CTA-Zustand des Server-Kastens
+    /// ist ja bereits der Seed-Weg für „noch kein geteilter Stand").
+    /// </summary>
+    public Visibility ForceUploadVisibility => !IsShared && SharedBucketExists ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Beschriftung des Force-Upload-Knopfs, wechselt im Bestätigungszustand.</summary>
+    public string ForceUploadLabel => ForceUploadArmed ? "Wirklich hochladen?" : "Als geteilten Stand hochladen";
+
+    /// <summary>Inline-Bestätigungstext mit den Kennzahlen beider Seiten (nur im Bestätigungszustand sichtbar).</summary>
+    public string ForceUploadHint =>
+        $"Lokal {LocalSizeText} · {LocalFilesText} Dat. · {LocalTimestampRelative} — ersetzt Geteilt {ShareSizeText} · {ShareFilesText} Dat. · {ShareTimestampRelative}";
+
+    /// <summary>Sichtbarkeit von <see cref="ForceUploadHint"/> (nur im Bestätigungszustand).</summary>
+    public Visibility ForceUploadHintVisibility => ForceUploadArmed ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// Leer-/CTA-Zustand des Server-Kastens („Noch kein geteilter Stand") – nur sichtbar, wenn eine
@@ -291,6 +339,11 @@ public sealed class GameRow : INotifyPropertyChanged
         LocalFilesText = probe.Local.FileCount.ToString();
         LocalTimestampAbsolute = probe.Local.WhenUtc is { } localWhen ? localWhen.ToLocalTime().ToString("dd.MM.yyyy, HH:mm:ss") : "—";
         LocalTimestampRelative = RelativeTime.Format(probe.Local.WhenUtc);
+
+        // ForceUploadHint verwendet Local-/ShareSizeText/-FilesText, die oben gerade neu gesetzt
+        // wurden – deren eigene Set()-Aufrufe lösen aber keine Benachrichtigung für den davon
+        // ABGELEITETEN Hint-Text aus. Explizit nachziehen, falls die Bestätigung gerade offen ist.
+        OnChanged(nameof(ForceUploadHint));
     }
 
     /// <summary>
