@@ -400,6 +400,14 @@ public sealed class SyncEngine
 
         _stateStore.Save(new SyncState(game, revisionNumber, manifest), scope);
         _stateStore.ClearConflictHash(game, scope);
+
+        // Ein erfolgreicher, exakter Austausch ist per Definition ein garantiert sauberer,
+        // bekannter Zustand – unabhängig davon, ob vorher „Konflikt" angezeigt wurde (siehe
+        // specs/savevault-change-shared-save-sichtbarkeit.md, Nachtrag 3: ohne dieses explizite
+        // Zurücksetzen bleibt ein verwaister Konflikt-Status sonst nur über einen serverseitigen
+        // ApplyResolution-Befehl auflösbar). NoOp selbst bleibt davon unberührt.
+        _state.SetStatus(game, SyncStatus.Synced,
+            action: $"Ordner ersetzt ← Revision {revisionNumber}", folder: PrimaryFolder(roots), baseRevision: revisionNumber);
     }
 
     // --- Direkter Upload ohne SyncState-Bindung (expliziter Force-Upload-Knopf) ----

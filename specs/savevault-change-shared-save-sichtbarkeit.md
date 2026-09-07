@@ -319,6 +319,50 @@ reine Erweiterung des bestehenden, bereits genutzten Mechanismus auf den bisher
 - [ ] Regression: das Verhalten für die Verlierer-Geräte (die schon vorher korrekt
   einen Befehl bekamen) bleibt unverändert.
 
+## Plan-Korrektur (2026-09-07, Nachtrag 3) — Verwaister Konflikt-Status bei Arc Raiders lässt sich nicht mehr lösen
+
+**Was sich zeigte:** Nachtrag 2 ist deployt (Server 1.5.10), aber Arc Raiders zeigt
+weiterhin „Konflikt", auch nach Client-Neustart und „Jetzt sichern". Ursache: der
+Konflikt wurde von Tim **vor** dem Deploy des Nachtrag-2-Fixes über das Dashboard
+aufgelöst — für dieses eine, bereits vergangene Ereignis wurde nie ein
+`ApplyResolution`-Befehl für das Gewinner-Gerät erzeugt (der Fix wirkt erst auf
+**künftige** Auflösungen). Der Konflikt-Datensatz selbst ist server-seitig bereits
+`Resolved=true` — „Lösen" findet ihn deshalb korrekterweise nicht mehr.
+
+**Zusätzlich gefunden:** `SyncEngine.NoOp` (Zeile ~210-216) hält den Anzeige-Status
+absichtlich auf `Conflict`, solange `_state.GetStatus(game) == SyncStatus.Conflict`
+ist — unabhängig davon, was die aktuelle `SyncDecider`-Entscheidung sagt. Der
+**einzige** Ort im gesamten Client, der diesen Status je explizit auf `Synced`
+zurücksetzt, ist `CommandPoller.ApplyResolution` (Zeile 161-162). Weder
+`SwitchToLocalAsync` noch `JoinTakeSharedAsync`/`ReplaceLocalContentAsync` setzen
+nach einem erfolgreichen, garantiert exakten Ordner-Austausch den Anzeige-Status
+explizit zurück — ein Nutzer hat also **keinen** eigenständigen Weg, einen
+verwaisten Konflikt-Status loszuwerden, außer über einen (u.U. nie kommenden)
+Server-Befehl.
+
+**Fix:** `ReplaceLocalContentAsync` (`SyncEngine.cs`) ruft nach erfolgreichem
+Austausch zusätzlich `_state.SetStatus(game, SyncStatus.Synced, ...)` auf — ein
+erfolgreicher, exakter Austausch ist per Definition ein garantiert sauberer,
+bekannter Zustand, unabhängig davon, ob vorher „Konflikt" angezeigt wurde. Das gibt
+dem Nutzer über die neue Lokal/Synchron-Umschaltung einen sofortigen,
+selbstständigen Weg aus einem verwaisten Konflikt-Status heraus — ohne die
+bestehende `NoOp`-Absicht zu ändern (ein bloßer No-Op-Zyklus soll weiterhin nichts
+verschweigen).
+
+**Für Arc Raiders konkret:** nach diesem Fix (+ Neustart des Clients mit dem
+aktualisierten Build) einmal auf den inaktiven Kasten klicken (Lokal↔Synchron
+umschalten) — das räumt den verwaisten Status auf.
+
+**Betroffene Datei:** `src/SaveVault.Client/Services/SyncEngine.cs`
+(`ReplaceLocalContentAsync`).
+
+**Akzeptanzkriterium (Nachtrag 3):**
+- [ ] Nach einem erfolgreichen Umschalten (Lokal↔Synchron) zeigt das Spiel
+  „Synchronisiert", auch wenn vorher „Konflikt" angezeigt wurde.
+- [ ] Arc Raiders lässt sich darüber freischalten.
+- [ ] Regression: `NoOp`-Verhalten (Konflikt bleibt sichtbar, solange nichts
+  Aktives passiert) bleibt für alle anderen Fälle unverändert.
+
 ## Offene Fragen
 - Phase 2 (Dashboard) wird erst nach Abschluss und Abnahme von Phase 1 im Detail
   ausgeplant und braucht eine eigene Freigabe, bevor daran gebaut wird.
