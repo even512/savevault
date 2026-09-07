@@ -76,7 +76,24 @@ public sealed class GameRow : INotifyPropertyChanged
 
     private bool _isExcluded;
     /// <summary>Ob dieses Spiel dauerhaft vom Sync ausgeschlossen ist („Sync pausieren").</summary>
-    public bool IsExcluded { get => _isExcluded; private set => Set(ref _isExcluded, value); }
+    public bool IsExcluded
+    {
+        get => _isExcluded;
+        private set
+        {
+            if (Set(ref _isExcluded, value))
+            {
+                OnChanged(nameof(CanSyncNow));
+                OnChanged(nameof(ServerBoxActive));
+                OnChanged(nameof(LocalBoxActive));
+                OnChanged(nameof(ServerBadgeText));
+                OnChanged(nameof(LocalBadgeText));
+            }
+        }
+    }
+
+    /// <summary>Ob „Jetzt sichern" angeboten werden kann (gesperrt, solange die Sicherung deaktiviert ist).</summary>
+    public bool CanSyncNow => !IsExcluded;
 
     private string _pauseLabel = "Hochladen deaktivieren";
     /// <summary>
@@ -94,25 +111,196 @@ public sealed class GameRow : INotifyPropertyChanged
         {
             if (Set(ref _isShared, value))
             {
-                OnChanged(nameof(ShareLabel));
-                OnChanged(nameof(CanShare));
+                OnChanged(nameof(ServerBadgeText));
+                OnChanged(nameof(LocalBadgeText));
+                OnChanged(nameof(ServerBoxActive));
+                OnChanged(nameof(LocalBoxActive));
             }
         }
     }
 
-    /// <summary>Beschriftung der Teilen-Aktion: Zustand „Synchron" bzw. Umschalt-Angebot.</summary>
-    public string ShareLabel => IsShared ? "Geteilt (synchron)" : "Über Geräte synchronisieren";
-
-    /// <summary>Ob der Teilen-Umschalter aktiv ist (nur solange „Lokal"; Rückschalten ist v1 nicht vorgesehen).</summary>
-    public bool CanShare => !IsShared;
-
-    private Visibility _shareVisibility = Visibility.Collapsed;
-    /// <summary>Sichtbarkeit des Teilen-Umschalters (nur bei echt verwalteten, nicht deaktivierten Spielen).</summary>
-    public Visibility ShareVisibility { get => _shareVisibility; private set => Set(ref _shareVisibility, value); }
-
     private Visibility _errorVisibility = Visibility.Collapsed;
     /// <summary>Sichtbarkeit des Fehler-Banners (nur bei Sync-Fehler).</summary>
     public Visibility ErrorVisibility { get => _errorVisibility; private set => Set(ref _errorVisibility, value); }
+
+    // --- Geteilter/Lokaler Speicherstand (Zwei-Kästen-Ansicht) -------------------------
+
+    private Visibility _detailBoxesVisibility = Visibility.Collapsed;
+    /// <summary>
+    /// Sichtbarkeit der Zwei-Kästen-Ansicht (Server/Lokal). Ausgeblendet bei offenem Konflikt
+    /// (dort übernimmt „Lösen") und bei übersprungenen Spielen (dort übernimmt die einfache
+    /// „Ordner zuordnen"-Hinweiszeile); bei deaktiviertem Hochladen bleibt sie sichtbar, da beide
+    /// Stände weiterhin existieren und einsehbar bleiben sollen.
+    /// </summary>
+    public Visibility DetailBoxesVisibility { get => _detailBoxesVisibility; private set => Set(ref _detailBoxesVisibility, value); }
+
+    /// <summary>
+    /// Ob der Server-Kasten optisch als aktiv gilt. Ist die Sicherung insgesamt deaktiviert
+    /// (<see cref="IsExcluded"/>), gilt KEINER der beiden Kästen als aktiv – Tims Korrektur:
+    /// „Sicherung deaktivieren" soll beide Kästen sichtbar ausgrauen, unabhängig davon, welcher
+    /// Stand zuletzt aktiv war.
+    /// </summary>
+    public bool ServerBoxActive => !IsExcluded && IsShared;
+
+    /// <summary>Gegenstück zu <see cref="ServerBoxActive"/> für den Lokal-Kasten.</summary>
+    public bool LocalBoxActive => !IsExcluded && !IsShared;
+
+    /// <summary>Badge-Text des Server-Kastens („✓ Aktiv" bzw. „Inaktiv").</summary>
+    public string ServerBadgeText => ServerBoxActive ? "✓ Aktiv" : "Inaktiv";
+
+    /// <summary>Badge-Text des Lokal-Kastens („✓ Aktiv" bzw. „Inaktiv").</summary>
+    public string LocalBadgeText => LocalBoxActive ? "✓ Aktiv" : "Inaktiv";
+
+    private bool _shareProbeLoading;
+    /// <summary>Ob gerade eine Abfrage des geteilten Standes läuft (ausgelöst bei Spielauswahl).</summary>
+    public bool ShareProbeLoading { get => _shareProbeLoading; private set => Set(ref _shareProbeLoading, value); }
+
+    private bool _shareProbeFailed;
+    /// <summary>
+    /// Ob die letzte Abfrage fehlgeschlagen ist (z. B. Server offline). In diesem Fall bleiben die
+    /// zuletzt bekannten Kennzahlen stehen (oder „—", wenn noch nie erfolgreich abgefragt wurde) –
+    /// kein Absturz, keine Fehlermeldung an dieser Stelle (siehe <see cref="ClientAgent.TryProbeShareAsync"/>).
+    /// </summary>
+    public bool ShareProbeFailed { get => _shareProbeFailed; private set => Set(ref _shareProbeFailed, value); }
+
+    private bool _shareKnown;
+    /// <summary>Ob mindestens einmal erfolgreich abgefragt wurde, ob ein geteilter Stand existiert.</summary>
+    private bool ShareKnown
+    {
+        get => _shareKnown;
+        set
+        {
+            if (Set(ref _shareKnown, value))
+            {
+                OnChanged(nameof(ShareCtaVisibility));
+                OnChanged(nameof(ShareMetricsVisibility));
+            }
+        }
+    }
+
+    private bool _sharedBucketExists;
+    /// <summary>Ob für dieses Spiel bereits ein geteilter Bucket existiert (Ergebnis der letzten Abfrage).</summary>
+    public bool SharedBucketExists
+    {
+        get => _sharedBucketExists;
+        private set
+        {
+            if (Set(ref _sharedBucketExists, value))
+            {
+                OnChanged(nameof(ShareCtaVisibility));
+                OnChanged(nameof(ShareMetricsVisibility));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Leer-/CTA-Zustand des Server-Kastens („Noch kein geteilter Stand") – nur sichtbar, wenn eine
+    /// Abfrage bestätigt hat, dass wirklich keiner existiert (nicht schon bei bloßem „noch nicht geladen").
+    /// </summary>
+    public Visibility ShareCtaVisibility => ShareKnown && !SharedBucketExists ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Kennzahlen-Ansicht des Server-Kastens (Gegenstück zu <see cref="ShareCtaVisibility"/>).</summary>
+    public Visibility ShareMetricsVisibility => ShareCtaVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>Das zuletzt erfolgreich geladene Abfrageergebnis (Basis für die Wechsel-Aktion beim Klick).</summary>
+    public ShareProbe? LastShareProbe { get; private set; }
+
+    private string _shareOriginDevice = "—";
+    /// <summary>Herkunfts-Gerät des geteilten Standes.</summary>
+    public string ShareOriginDevice { get => _shareOriginDevice; private set => Set(ref _shareOriginDevice, value); }
+
+    private string _shareTimestampAbsolute = "—";
+    /// <summary>Zeitpunkt des geteilten Standes, absolut („dd.MM.yyyy, HH:mm:ss").</summary>
+    public string ShareTimestampAbsolute { get => _shareTimestampAbsolute; private set => Set(ref _shareTimestampAbsolute, value); }
+
+    private string _shareTimestampRelative = "";
+    /// <summary>Zeitpunkt des geteilten Standes, relativ („vor X Tagen").</summary>
+    public string ShareTimestampRelative { get => _shareTimestampRelative; private set => Set(ref _shareTimestampRelative, value); }
+
+    private string _shareSizeText = "—";
+    /// <summary>Größe des geteilten Standes.</summary>
+    public string ShareSizeText { get => _shareSizeText; private set => Set(ref _shareSizeText, value); }
+
+    private string _shareFilesText = "—";
+    /// <summary>Dateizahl des geteilten Standes.</summary>
+    public string ShareFilesText { get => _shareFilesText; private set => Set(ref _shareFilesText, value); }
+
+    private string _localTimestampAbsolute = "—";
+    /// <summary>Zeitpunkt der letzten lokalen Änderung, absolut.</summary>
+    public string LocalTimestampAbsolute { get => _localTimestampAbsolute; private set => Set(ref _localTimestampAbsolute, value); }
+
+    private string _localTimestampRelative = "";
+    /// <summary>Zeitpunkt der letzten lokalen Änderung, relativ.</summary>
+    public string LocalTimestampRelative { get => _localTimestampRelative; private set => Set(ref _localTimestampRelative, value); }
+
+    private string _localSizeText = "—";
+    /// <summary>Größe des lokalen Standes.</summary>
+    public string LocalSizeText { get => _localSizeText; private set => Set(ref _localSizeText, value); }
+
+    private string _localFilesText = "—";
+    /// <summary>Dateizahl des lokalen Standes.</summary>
+    public string LocalFilesText { get => _localFilesText; private set => Set(ref _localFilesText, value); }
+
+    /// <summary>Markiert den Beginn einer Abfrage (zeigt dezent „wird geladen" in der Oberfläche).</summary>
+    public void BeginShareProbe() => ShareProbeLoading = true;
+
+    /// <summary>
+    /// Übernimmt das Ergebnis von <see cref="ClientAgent.TryProbeShareAsync"/> in die Anzeige-
+    /// Properties. <paramref name="probe"/> ist <c>null</c>, wenn die Abfrage fehlgeschlagen ist
+    /// (z. B. Server offline) – dann bleiben die zuletzt bekannten Werte unverändert stehen. Muss
+    /// vom UI-Thread aufgerufen werden (Aufrufer erwartet direkte Property-Änderungen).
+    /// </summary>
+    public void ApplyShareProbe(ShareProbe? probe)
+    {
+        ShareProbeLoading = false;
+
+        if (probe is null)
+        {
+            ShareProbeFailed = true;
+            return;
+        }
+
+        ShareProbeFailed = false;
+        ShareKnown = true;
+        SharedBucketExists = probe.SharedExists;
+        LastShareProbe = probe;
+
+        if (probe.Shared is { } shared)
+        {
+            ShareOriginDevice = string.IsNullOrWhiteSpace(shared.DeviceLabel) ? "Unbekanntes Gerät" : ShortDevice(shared.DeviceLabel!);
+            ShareTimestampAbsolute = shared.WhenUtc is { } utc ? utc.ToLocalTime().ToString("dd.MM.yyyy, HH:mm:ss") : "—";
+            ShareTimestampRelative = RelativeTime.Format(shared.WhenUtc);
+            ShareSizeText = ByteSize.Format(shared.TotalBytes);
+            ShareFilesText = shared.FileCount.ToString();
+        }
+        else
+        {
+            ShareOriginDevice = "—";
+            ShareTimestampAbsolute = "—";
+            ShareTimestampRelative = "";
+            ShareSizeText = "—";
+            ShareFilesText = "—";
+        }
+
+        // Lokalseite: Größe/Dateizahl/Zeitpunkt liefert die Abfrage direkt. WhenUtc ist das Maximum
+        // der echten LastWriteUtc-Zeitstempel der lokalen Save-Dateien (ClientAgent.ProbeShareAsync),
+        // null bei leerem Ordner oder wenn noch nie erfolgreich abgefragt wurde – dann „—" statt
+        // eines falschen/veralteten Werts (LastActionUtc wäre nur der letzte SYNC-Zeitpunkt, nicht
+        // die letzte tatsächliche Dateiänderung).
+        LocalSizeText = ByteSize.Format(probe.Local.TotalBytes);
+        LocalFilesText = probe.Local.FileCount.ToString();
+        LocalTimestampAbsolute = probe.Local.WhenUtc is { } localWhen ? localWhen.ToLocalTime().ToString("dd.MM.yyyy, HH:mm:ss") : "—";
+        LocalTimestampRelative = RelativeTime.Format(probe.Local.WhenUtc);
+    }
+
+    /// <summary>
+    /// Kürzt eine rohe Geräte-Kennung auf „Gerät &lt;erste 8 Zeichen&gt;", falls sie länger als
+    /// 8 Zeichen ist (z. B. eine GUID) – ein fremdes Gerät kennt der Client nur über seine rohe
+    /// <c>DeviceId</c>, eine echte Namensauflösung ist nicht möglich. Kurze Labels (z. B. bereits
+    /// ein echter Gerätename) bleiben unverändert.
+    /// </summary>
+    private static string ShortDevice(string deviceLabel)
+        => deviceLabel.Length > 8 ? $"Gerät {deviceLabel[..8]}" : deviceLabel;
 
     private string _errorMessage = "";
     /// <summary>Text des Fehler-Banners (nur bei Sync-Fehler).</summary>
@@ -240,7 +428,9 @@ public sealed class GameRow : INotifyPropertyChanged
             CanOpenFolder = FolderPathRaw is not null && SafeDirectoryExists(FolderPathRaw);
             ConflictVisibility = Visibility.Collapsed;
             AssignFolderVisibility = Visibility.Collapsed;
-            ShareVisibility = Visibility.Collapsed;
+            // Deaktiviertes Hochladen ist orthogonal zu Synchron/Lokal: beide Stände bleiben
+            // bestehen und einsehbar, daher bleibt die Zwei-Kästen-Ansicht sichtbar.
+            DetailBoxesVisibility = Visibility.Visible;
             ErrorVisibility = Visibility.Collapsed;
             ErrorMessage = "";
 
@@ -261,7 +451,8 @@ public sealed class GameRow : INotifyPropertyChanged
             ConflictVisibility = Visibility.Collapsed;
             AssignFolderVisibility = Visibility.Visible;
             OpenFolderVisibility = Visibility.Collapsed;
-            ShareVisibility = Visibility.Collapsed;
+            // Übersprungene Spiele behalten die einfache Hinweiszeile statt der Zwei-Kästen-Ansicht.
+            DetailBoxesVisibility = Visibility.Collapsed;
             FolderPathRaw = null;
             CanOpenFolder = false;
             ErrorVisibility = Visibility.Collapsed;
@@ -287,9 +478,9 @@ public sealed class GameRow : INotifyPropertyChanged
 
         ConflictVisibility = view.Status == SyncStatus.Conflict ? Visibility.Visible : Visibility.Collapsed;
         AssignFolderVisibility = Visibility.Collapsed;
-        // Teilen-Umschalter nur bei echt verwalteten Spielen und NICHT bei offenem Konflikt anbieten
-        // (sonst würde man einen ungelösten/mehrdeutigen Stand teilen). Erst lösen, dann teilen.
-        ShareVisibility = view.Status == SyncStatus.Conflict ? Visibility.Collapsed : Visibility.Visible;
+        // Zwei-Kästen-Ansicht nur bei echt verwalteten Spielen und NICHT bei offenem Konflikt zeigen
+        // (sonst würde man einen ungelösten/mehrdeutigen Stand wechseln). Erst lösen, dann wechseln.
+        DetailBoxesVisibility = view.Status == SyncStatus.Conflict ? Visibility.Collapsed : Visibility.Visible;
 
         // „Ordner öffnen" nur, wenn ein Ordner zugeordnet ist; aktiviert nur, wenn er auch existiert.
         FolderPathRaw = string.IsNullOrWhiteSpace(view.FolderPath) ? null : view.FolderPath;

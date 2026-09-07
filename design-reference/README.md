@@ -11,6 +11,16 @@ Referenz, kein Liefercode.
   Clients, Verlauf, Einstellungen), beiden Detail-Drawern (Spiel/Client), dem
   Konflikt-Modal, allen Farben (oklch), Icons (inline-SVG) und Beispiel-Daten.
 - **`GameCard.dc.html`**, **`ClientRow.dc.html`** — die zwei wiederkehrenden Bausteine.
+- **`SpielstandSyncRedesign.dc.html`** — aus Tims Claude-Design-Projekt „Spielstand-
+  Sync Redesign" (claude.ai/design, Projekt-ID `10a719bc-7998-49ff-824a-4c7461d94b84`,
+  Datei `SaveVault Redesign.dc.html`), übernommen für
+  `specs/savevault-change-shared-save-sichtbarkeit.md` (Phase 1). Zeigt den
+  **Spiel-Detailbereich des Windows-Clients**: Zwei-Kästen-Auswahl „Geteilter
+  Speicherstand" vs. „Lokaler Speicherstand" (aktiv/inaktiv-Kontrast, Klick zum
+  Umschalten), die „Sicherung deaktivieren"-Leiste darunter, die Aktionsreihe und das
+  Versionshistorie-Flyout. **Verbindlich nur für Aufbau/Kästen/Verbindung/Buttons**,
+  **nicht** für die Farbwerte — der Client nutzt die Farben aus `Ui/Theme.xaml`
+  (siehe unten), nicht die Mockup-Farben wörtlich.
 
 ## So liest man die Vorlage
 Das `.dc.html`-Format ist Claude Designs Komponenten-Format: `{{ … }}` sind

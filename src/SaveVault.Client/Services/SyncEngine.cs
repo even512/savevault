@@ -289,6 +289,116 @@ public sealed class SyncEngine
         _stateStore.ClearConflictHash(game, scope); // Stand ist auf eine echte Revision nachgezogen – Konflikt-Marke hinfällig.
     }
 
+    // --- Exakter Austausch (Umschalten Lokal ↔ Synchron) — SICHERHEITS-CHOKEPOINT --
+
+    /// <summary>
+    /// Ersetzt den Inhalt der Save-Wurzeln eines Spiels EXAKT durch ein Ziel-Manifest: anders als
+    /// <see cref="ApplyRevisionAsync"/> (additiv – schreibt nur, löscht nie) entspricht der Ordner
+    /// nach diesem Aufruf bit-genau dem Ziel-Manifest, keine Restdatei des vorherigen Standes
+    /// bleibt liegen. Für das bewusste, exklusive Umschalten Lokal ↔ Synchron gedacht (siehe
+    /// <c>specs/savevault-change-shared-save-sichtbarkeit.md</c>, „Plan-Korrektur"): ein additiver
+    /// Austausch hinterlässt dort Restdifferenzen, die der reguläre <see cref="SyncDecider"/> beim
+    /// nächsten Zyklus fälschlich als echte lokale Änderung (im schlimmsten Fall als Konflikt)
+    /// interpretiert – ein Nutzer, der nur zwischen zwei vollständigen, in sich konsistenten
+    /// Ständen wechselt, darf das nie auslösen.
+    ///
+    /// <para><b>Sichere Reihenfolge (verbindlich, nicht Ermessen des Aufrufers):</b></para>
+    /// <list type="number">
+    ///   <item><b>Pass 1</b> – wie <see cref="ApplyRevisionAsync"/>: ALLE Ziel-Einträge auf ihre
+    ///     Wurzel validieren (<see cref="SaveRootLayout.TryResolve"/> +
+    ///     <see cref="PathSanitizer.TryResolveWithin"/>). Unbekannter Root-Key → Eintrag
+    ///     überspringen; Traversal → <see cref="SyncSecurityException"/>, es wurde bis hierhin
+    ///     NICHTS geschrieben.</item>
+    ///   <item><b>Pass 2</b> – ALLE Ziel-Dateien vollständig herunterladen und als
+    ///     <c>*.svtmp-…</c> NEBEN ihrem Zielpfad ablegen. In dieser Phase wird NICHTS verschoben
+    ///     und NICHTS gelöscht – der bestehende Ordnerinhalt bleibt bis hierher komplett
+    ///     unangetastet. Bricht der Download ab (Server offline, Verbindungsabbruch), werden alle
+    ///     bereits geschriebenen Temp-Dateien best-effort aufgeräumt und die Exception
+    ///     weitergereicht – der Ordner ist danach GARANTIERT im alten Zustand (kein
+    ///     Datenverlust-Risiko für ein Backup-Tool, siehe CLAUDE.md → „Fehlerzustände
+    ///     abfangen").</item>
+    ///   <item>Erst wenn ALLE Ziel-Dateien sicher als Temp vorliegen, der „point of no return"
+    ///     (<see cref="LocalContentReplacer.Commit"/>): die überzähligen lokalen Dateien (in den
+    ///     bekannten Wurzeln vorhanden, aber in KEINEM Ziel-Eintrag referenziert, ermittelt über
+    ///     <see cref="LocalContentReplacer.FindExtraFiles"/>) werden gelöscht, danach werden alle
+    ///     Temp-Dateien per <see cref="File.Move(string, string, bool)"/> (<c>overwrite: true</c>)
+    ///     an ihren Platz verschoben. NIE zuerst löschen und danach laden.</item>
+    ///   <item>Danach wird der <see cref="SyncState"/> des Ziel-Scopes exakt wie in
+    ///     <see cref="ApplyRevisionAsync"/> auf die neue Revision/das neue Manifest gesetzt und
+    ///     die Konflikt-Marke gelöscht.</item>
+    /// </list>
+    ///
+    /// <para>Der jeweils andere (inaktive) Scope wird von dieser Methode NICHT angefasst: sein
+    /// <see cref="SyncState"/> bleibt der zuletzt tatsächlich in seinem Bucket eingefrorene Stand
+    /// (der Aufrufer in <see cref="ClientAgent"/> sorgt dafür, dass dieser Stand vor dem Umschalten
+    /// bereits aktuell war).</para>
+    /// </summary>
+    public async Task ReplaceLocalContentAsync(GameKey game, IReadOnlyList<SaveRoot> roots, FileManifest manifest, long revisionNumber, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (roots.Count == 0)
+            throw new SyncSecurityException(game, "(kein Ordner)");
+
+        var resolvedRoots = ResolveRootsSafe(roots);
+        if (resolvedRoots.Count == 0)
+            throw new SyncSecurityException(game, "(kein gültiger Ordner)");
+
+        // Pass 1: ALLE Einträge auf ihre Wurzel abbilden und validieren, bevor etwas geschrieben wird.
+        // Unbekannter Root-Key → Eintrag überspringen; Traversal → gesamter Vorgang abgelehnt.
+        var plan = new List<(string FullPath, FileEntry Entry)>(manifest.Entries.Count);
+        foreach (var entry in manifest.Entries)
+        {
+            if (!SaveRootLayout.TryResolve(resolvedRoots, entry.RelativePath, out var folder, out var subPath))
+                continue; // unbekannter/nicht abbildbarer Root-Key → nicht schreiben
+            if (!PathSanitizer.TryResolveWithin(folder, subPath, out var target))
+                throw new SyncSecurityException(game, entry.RelativePath);
+            plan.Add((target, entry));
+        }
+
+        // Pass 2: ALLE Ziel-Dateien vollständig herunterladen und NUR als Temp ablegen – noch kein
+        // Move, noch kein Delete. Der bestehende Ordnerinhalt ist bis hierher komplett unangetastet.
+        var tempByTarget = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var (target, entry) in plan)
+            {
+                ct.ThrowIfCancellationRequested();
+                var dir = Path.GetDirectoryName(target);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                var tmp = target + ".svtmp-" + Guid.NewGuid().ToString("N");
+                await using (var source = await _api.DownloadContentAsync(game, entry.Sha256, scope, ct).ConfigureAwait(false))
+                await using (var dest = File.Create(tmp))
+                {
+                    await source.CopyToAsync(dest, ct).ConfigureAwait(false);
+                }
+                tempByTarget[target] = tmp;
+            }
+        }
+        catch
+        {
+            // Abbruch VOR dem "point of no return": alle bereits geschriebenen Temp-Dateien
+            // best-effort aufräumen. Kein einziger Zielpfad wurde bisher angefasst – der Ordner
+            // bleibt exakt im alten Zustand.
+            foreach (var tmp in tempByTarget.Values)
+            {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best effort */ }
+            }
+            throw;
+        }
+
+        // Point of no return: erst jetzt werden überzählige Alt-Dateien entfernt und die
+        // Temp-Dateien an ihren Platz verschoben.
+        var extras = LocalContentReplacer.FindExtraFiles(resolvedRoots, plan.Select(p => p.FullPath).ToList());
+        LocalContentReplacer.Commit(extras, tempByTarget);
+
+        _stateStore.Save(new SyncState(game, revisionNumber, manifest), scope);
+        _stateStore.ClearConflictHash(game, scope);
+    }
+
     // --- Hochladen fehlender Inhalte -----------------------------------------------
 
     private async Task UploadMissingContentsAsync(GameKey game, IReadOnlyList<SaveRoot> roots, FileManifest local, IReadOnlyList<string> missingHashes, BucketScope scope, CancellationToken ct)

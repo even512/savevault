@@ -311,7 +311,11 @@ public sealed class ClientAgent : IAsyncDisposable
         // Aufrufer awaitet hier aus dem Klick-Handler). Auf einen Threadpool-Thread auslagern.
         var roots = entry.Roots;
         var local = await Task.Run(() => new ManifestBuilder().BuildCombined(roots, null, ct), ct).ConfigureAwait(false);
-        var localSide = new ShareSide(local.FileCount, local.TotalBytes, null, CurrentDeviceName);
+        // Echter Datei-Zeitstempel statt Sync-Aktionszeit: das Maximum von LastWriteUtc über alle
+        // lokalen Save-Dateien (leeres Manifest -> null, siehe Tim-Feedback „Der ist wichtig bei
+        // Savegames").
+        var localWhenUtc = local.Entries.Count == 0 ? (DateTime?)null : local.Entries.Max(e => e.LastWriteUtc);
+        var localSide = new ShareSide(local.FileCount, local.TotalBytes, localWhenUtc, CurrentDeviceName);
 
         var head = await api.GetHeadAsync(game, BucketScope.Shared, ct).ConfigureAwait(false);
         if (head.CurrentRevision <= 0)
@@ -320,6 +324,41 @@ public sealed class ClientAgent : IAsyncDisposable
         var rev = await api.GetRevisionAsync(game, head.CurrentRevision, BucketScope.Shared, ct).ConfigureAwait(false);
         var sharedSide = new ShareSide(rev.Manifest.FileCount, rev.Manifest.TotalBytes, rev.TimestampUtc, rev.DeviceId);
         return new ShareProbe(true, rev.Number, localSide, sharedSide, rev.Manifest);
+    }
+
+    /// <summary>
+    /// Tolerante Variante von <see cref="ProbeShareAsync"/> für den dauerhaften Aufruf bei jeder
+    /// Detail-Anzeige eines Spiels (siehe savevault-change-shared-save-sichtbarkeit.md, „Probe wird
+    /// zum Dauerzustand statt Einmal-Klick"): <see cref="ProbeShareAsync"/> reicht HTTP-/Netzwerk-
+    /// Fehler des API-Clients (<see cref="SaveVaultApiException"/> bei Nicht-Erfolgsstatus wie
+    /// 401/403 im Reconnect-Fenster, <see cref="HttpRequestException"/>/<see cref="TaskCanceledException"/>
+    /// bei Server offline/Timeout) unbehandelt durch. Für den Einmal-Klick beim Umschalten
+    /// (<see cref="ProbeShareAsync"/> selbst, Aufrufer <c>OnServerBoxClick</c>/<c>OnLocalBoxClick</c>)
+    /// ist das gewollt –
+    /// dort ist ein harter Fehler beim Klick akzeptabel und wird dort schon abgefangen. Für die
+    /// künftige, potenziell sehr häufige Anzeige-Aktualisierung ist das nicht tragbar: diese
+    /// Wrapper-Methode fängt <b>jeden</b> Fehler außer Abbruch und liefert <c>null</c>, damit die
+    /// Oberfläche den Server-Kasten mit „—"/dem letzten bekannten Stand zeigt statt abzustürzen.
+    /// Bei Erfolg liefert sie dasselbe <see cref="ShareProbe"/>-Ergebnis wie <see cref="ProbeShareAsync"/>.
+    /// </summary>
+    public async Task<ShareProbe?> TryProbeShareAsync(GameKey game, CancellationToken ct = default)
+    {
+        try
+        {
+            return await ProbeShareAsync(game, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Echter, vom Aufrufer angeforderter Abbruch – weiterreichen. Ein durch HttpClient-Timeout
+            // ausgelöstes TaskCanceledException (Server offline, ct NICHT abgebrochen) fällt bewusst
+            // NICHT hierher, da es sonst denselben Typ trifft (TaskCanceledException : OperationCanceledException)
+            // und der eigentliche Zweck dieser Methode (Toleranz bei Server offline) verfehlt würde.
+            throw;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -342,8 +381,13 @@ public sealed class ClientAgent : IAsyncDisposable
     }
 
     /// <summary>
-    /// Beitritt „geteilten Stand übernehmen": lädt den geteilten Head in den Save-Ordner (der bisherige
-    /// lokale Stand bleibt als privater Bucket = Backup erhalten) und macht das Spiel „Synchron".
+    /// Beitritt „geteilten Stand übernehmen": ersetzt den Save-Ordner EXAKT durch den geteilten Head
+    /// (der bisherige lokale Stand bleibt unangetastet als privater Bucket = Backup erhalten) und
+    /// macht das Spiel „Synchron". Nutzt <see cref="SyncEngine.ReplaceLocalContentAsync"/> statt des
+    /// additiven <see cref="SyncEngine.ApplyRevisionAsync"/>, damit der Ordner hinterher bit-genau
+    /// dem geteilten Manifest entspricht (siehe savevault-change-shared-save-sichtbarkeit.md,
+    /// „Plan-Korrektur" – ein additiver Austausch hinterließe Restdateien des vorherigen lokalen
+    /// Standes, die der reguläre Sync-Zyklus später fälschlich als Konflikt werten könnte).
     /// </summary>
     public async Task JoinTakeSharedAsync(GameKey game, long sharedRevision, FileManifest sharedManifest, CancellationToken ct = default)
     {
@@ -366,7 +410,7 @@ public sealed class ClientAgent : IAsyncDisposable
         {
             _shares.Add(game);
             State.SetShared(game, true);
-            await engine.ApplyRevisionAsync(game, entry.Roots, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
+            await engine.ReplaceLocalContentAsync(game, entry.Roots, sharedManifest, sharedRevision, BucketScope.Shared, c).ConfigureAwait(false);
         }, token).ConfigureAwait(false);
 
         State.SetStatus(game, SyncStatus.Synced,
@@ -374,9 +418,19 @@ public sealed class ClientAgent : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gemeinsamer Kern für Seed und „lokalen behalten": markiert das Spiel als geteilt, setzt seinen
-    /// lokalen Basis-Stand und stößt einen Sync-Zyklus (Scope „Synchron") an – alles atomar unter dem
-    /// Spiel-Lock, sodass kein Hintergrund-Zyklus mit falschem Scope/Base dazwischenfunkt.
+    /// Gemeinsamer Kern für Seed (<see cref="SeedShareAsync"/>) und „lokalen behalten"
+    /// (<see cref="JoinTakeLocalAsync"/>): markiert das Spiel als geteilt, setzt seinen
+    /// GETEILTEN Basis-Stand und stößt einen regulären Sync-Zyklus (Scope „Synchron") an – alles
+    /// atomar unter dem Spiel-Lock, sodass kein Hintergrund-Zyklus mit falschem Scope/Base
+    /// dazwischenfunkt.
+    ///
+    /// <para><b>Bewusst weiterhin über <see cref="SyncEngine.RunCycleAsync"/> (additiv), nicht über
+    /// <see cref="SyncEngine.ReplaceLocalContentAsync"/>:</b> beide Aufrufer lassen den Save-Ordner
+    /// UNVERÄNDERT – es wird nur der lokale Ordnerinhalt als neue geteilte Revision hochgeladen,
+    /// nie fremder Inhalt in den Ordner zurückgeschrieben. Der additive-Schreiben-Bug aus der
+    /// Plan-Korrektur (Restdateien nach einem Download-Austausch) betrifft ausschließlich Pfade,
+    /// die Dateien IN den Ordner schreiben (<see cref="JoinTakeSharedAsync"/>,
+    /// <see cref="SwitchToLocalAsync"/>) – hier gibt es nichts zu ersetzen.</para>
     /// </summary>
     private async Task ShareAndSyncAsync(GameKey game, SyncState newBase, CancellationToken ct)
     {
@@ -400,6 +454,64 @@ public sealed class ClientAgent : IAsyncDisposable
             var engine = _engine;
             if (engine is not null && IsRunning)
                 await engine.RunCycleAsync(game, entry.Roots, BucketScope.Shared, c).ConfigureAwait(false);
+        }, token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Schaltet ein Spiel von „Synchron" zurück auf „Lokal" – spiegelbildlich zu
+    /// <see cref="ShareAndSyncAsync"/>: entfernt den Teilen-Zustand dieses Geräts und ersetzt den
+    /// Save-Ordner EXAKT durch den seit dem Teilen eingefrorenen privaten Bucket-Stand
+    /// (<see cref="SyncEngine.ReplaceLocalContentAsync"/>) – NICHT über den regulären
+    /// <see cref="SyncEngine.RunCycleAsync"/>-Zyklus. Das war die Hauptursache eines reproduzierbaren
+    /// Konflikt-Bugs (siehe savevault-change-shared-save-sichtbarkeit.md, „Plan-Korrektur"): der
+    /// reguläre Zyklus scannt den AKTUELLEN Ordnerinhalt (der zu diesem Zeitpunkt noch den geteilten
+    /// Stand trägt) gegen den alten privaten Basis-Stand, wertet die Differenz als „lokale Änderung"
+    /// und hätte sie – je nach Server-Revision – fälschlich als neue private Revision hochgeladen
+    /// oder sogar als Konflikt markiert, obwohl der Nutzer nur bewusst zwischen zwei vollständigen
+    /// Ständen umschaltet. <see cref="ActiveScope"/> leitet den künftigen Scope direkt aus
+    /// <see cref="IsShared"/> ab. Der geteilte Bucket selbst bleibt für alle anderen Geräte
+    /// unangetastet bestehen – nur dieses Gerät tritt aus. Läuft atomar unter dem Spiel-Lock, damit
+    /// kein paralleler Hintergrund-Zyklus mit dem alten (geteilten) Scope dazwischenfunkt.
+    /// </summary>
+    public async Task SwitchToLocalAsync(GameKey game, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        var entry = _registry.TryGet(game);
+        if (entry is null)
+        {
+            // Nicht verbunden/kein Ordner zugeordnet: Zustand trotzdem persistieren, der nächste
+            // Lauf synct dann automatisch gegen den privaten Bucket.
+            _shares.Remove(game);
+            State.SetShared(game, false);
+            return;
+        }
+
+        var token = LinkedToken(ct);
+        await _serializer.RunExclusiveAsync(game, async c =>
+        {
+            _shares.Remove(game);
+            State.SetShared(game, false);
+            var engine = _engine;
+            if (engine is null || !IsRunning)
+                return;
+
+            // Der eingefrorene private Basis-Stand ist die einzig verlässliche Quelle für „der
+            // Ordner, wie er beim Teilen war" – der aktuelle Ordnerinhalt taugt dafür nicht (er
+            // trägt bis zu diesem Zeitpunkt noch den geteilten Stand).
+            var privateState = _stateStore.Load(game, BucketScope.Private);
+            if (privateState.BaseManifest is null)
+            {
+                // Randfall: Dieses Gerät hatte noch NIE einen privaten Sync-Zyklus (z. B. geteilt,
+                // bevor der erste Hintergrund-Durchlauf lief) – es gibt keinen eingefrorenen Stand,
+                // zu dem exakt zurückgetauscht werden könnte. Statt riskant den aktuellen (geteilten)
+                // Ordnerinhalt zu löschen, übernimmt der reguläre Zyklus ihn ganz normal als neue
+                // private Basis (kein Datenverlust-Risiko, kein Restdatei-Bug möglich, da noch kein
+                // alter privater Stand existiert, der eine Differenz erzeugen könnte).
+                await engine.RunCycleAsync(game, entry.Roots, BucketScope.Private, c).ConfigureAwait(false);
+                return;
+            }
+
+            await engine.ReplaceLocalContentAsync(game, entry.Roots, privateState.BaseManifest, privateState.BaseRevision, BucketScope.Private, c).ConfigureAwait(false);
         }, token).ConfigureAwait(false);
     }
 

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @keyframes popIn { from { opacity:0; transform:translateY(-6px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @keyframes slideInRight { from { opacity:0; transform:translateX(-10px); } to { opacity:1; transform:translateX(0); } }
+    @keyframes glowPulse { 0%,100% { box-shadow:0 0 0 0 rgba(52,209,164,0.28); } 50% { box-shadow:0 0 0 6px rgba(52,209,164,0.10); } }
+    @keyframes chevBounce { 0%,100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
+    body { margin:0; background:#0f0f11; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+    a { color:#34d1a4; text-decoration:none; }
+    a:hover { color:#5fe0bb; }
+  </style>
+</helmet>
+
+<div style="position:relative;display:inline-block;">
+<div style="width:850px;height:504px;background:#161618;color:#f2f2f0;display:flex;flex-direction:column;border-radius:8px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+
+  <div style="height:34px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 12px;background:#121214;border-bottom:1px solid #232326;">
+    <div style="width:14px;height:14px;border-radius:3px;background:#34d1a4;"></div>
+    <div style="font-size:12px;font-weight:600;color:#d8d8da;">SaveVault</div>
+    <div style="flex:1;"></div>
+    <div style="width:12px;height:12px;color:#7a7a7e;font-size:14px;line-height:12px;">–</div>
+    <div style="width:12px;height:12px;color:#7a7a7e;font-size:12px;line-height:12px;">□</div>
+    <div style="width:12px;height:12px;color:#e05555;font-size:14px;line-height:12px;">×</div>
+  </div>
+
+  <div style="flex:1;display:flex;overflow:hidden;">
+
+    <div style="width:76px;flex:0 0 auto;background:#121214;display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:6px;border-right:1px solid #232326;">
+      <div style="width:60px;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;border-radius:8px;background:#1e2b27;">
+        <div style="width:20px;height:20px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;">
+          <div style="background:#34d1a4;border-radius:2px;"></div><div style="background:#34d1a4;border-radius:2px;"></div>
+          <div style="background:#34d1a4;border-radius:2px;"></div><div style="background:#34d1a4;border-radius:2px;"></div>
+        </div>
+        <div style="font-size:10px;color:#34d1a4;">Übersicht</div>
+      </div>
+      <div style="width:60px;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div style="width:18px;height:18px;border-radius:50%;border:2px solid #7a7a7e;"></div>
+        <div style="font-size:10px;color:#7a7a7e;">Optionen</div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:16px 20px 12px;flex:0 0 auto;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;">
+          <div style="font-size:20px;font-weight:700;">Übersicht</div>
+          <div style="width:26px;height:26px;border-radius:6px;background:#232326;display:flex;align-items:center;justify-content:center;font-size:12px;color:#9a9a9e;">🔔</div>
+        </div>
+        <div style="font-size:12px;color:#9a9a9e;margin-top:2px;">Dieses Gerät: EILEEN-SOPHIE</div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;">
+          <div style="color:#34d1a4;display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:#34d1a4;display:inline-block;"></span>Verbunden <span style="color:#7a7a7e;">· Server erreichbar · zuletzt gerade eben</span></div>
+          <div style="color:#c8c8ca;display:flex;gap:16px;">96 Spiele<span style="color:#34d1a4;">96 synchronisiert</span><span style="color:#7a7a7e;">Letzter Sync: —</span></div>
+        </div>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:0 20px 16px;display:flex;flex-direction:column;gap:12px;">
+
+        <div style="display:flex;gap:16px;">
+          <div style="flex:0 0 220px;padding-right:16px;border-right:1px solid #232326;">
+            <div style="height:32px;background:#1e1e21;border:1px solid #2a2a2e;border-radius:6px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:12px;font-weight:600;">
+              Spiel wechseln <span style="color:#7a7a7e;">⌄</span>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:10px;">
+              <div style="width:52px;height:52px;border-radius:4px;background:repeating-linear-gradient(45deg,#3a2a2a,#3a2a2a 4px,#2a1f1f 4px,#2a1f1f 8px);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:7px;color:#a89a9a;text-align:center;font-family:monospace;">COVER</div>
+              <div>
+                <div style="font-size:13px;font-weight:600;">Crimson Desert</div>
+                <div style="font-size:11px;color:#9a9a9e;">12,1 MB</div>
+                <div style="font-size:11px;color:#34d1a4;display:flex;align-items:center;gap:4px;"><span style="width:5px;height:5px;border-radius:50%;background:#34d1a4;display:inline-block;"></span>Synchronisiert</div>
+                <div style="font-size:11px;color:#7a7a7e;">Noch keine Aktion</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;padding-left:16px;">
+            <div style="font-size:11px;color:#7a7a7e;font-family:monospace;">C:\Users\timse\AppData\Local\Pearl Abyss\CD\save</div>
+
+            <div style="display:flex;flex-direction:column;gap:10px;padding:10px;border-radius:12px;border:1px solid #232326;background:#18181a;">
+            <div style="display:flex;gap:10px;">
+
+              <sc-if value="{{ sourceIsSync }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ selectSync }}" style="flex:1;cursor:pointer;border-radius:10px;padding:12px;background:linear-gradient(160deg,#1c2b26,#182420);border:1.5px solid #34d1a4;animation:glowPulse 2.6s ease-in-out infinite;transition:transform .15s;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:14px;">
+                      <div style="position:relative;width:32px;height:22px;">
+                        <div style="position:absolute;left:1px;bottom:1px;width:30px;height:12px;background:#34d1a4;border-radius:6px;"></div>
+                        <div style="position:absolute;left:0px;bottom:6px;width:13px;height:13px;background:#34d1a4;border-radius:50%;"></div>
+                        <div style="position:absolute;left:10px;bottom:9px;width:16px;height:16px;background:#34d1a4;border-radius:50%;"></div>
+                      </div>
+                      <div style="font-size:13px;font-weight:700;">Geteilter Speicherstand</div>
+                    </div>
+                    <div style="font-size:10px;font-weight:700;color:#0f0f11;background:#34d1a4;padding:3px 8px;border-radius:20px;white-space:nowrap;">✓ Aktiv</div>
+                  </div>
+                  <div style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;color:#c8c8ca;"><span style="color:#7fdcbf;">Herkunfts-Gerät</span><span>EILEEN-SOPHIE</span></div>
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;color:#c8c8ca;"><span style="color:#7fdcbf;">Zeitpunkt</span><span style="text-align:right;">03.09.2026, 14:22:10<br><span style="font-size:10px;color:#7a7a7e;">vor 4 Tagen</span></span></div>
+                    <div style="display:flex;justify-content:space-between;color:#c8c8ca;"><span style="color:#7fdcbf;">Größe</span><span>12,1 MB</span></div>
+                    <div style="display:flex;justify-content:space-between;color:#c8c8ca;"><span style="color:#7fdcbf;">Dateien</span><span>35</span></div>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ sourceNotSync }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ selectSync }}" style="flex:1;cursor:pointer;border-radius:10px;padding:12px;background:#1a1a1c;border:1.5px solid #2a2a2e;opacity:0.5;filter:grayscale(0.4);transition:transform .15s,opacity .2s;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:14px;">
+                      <div style="position:relative;width:32px;height:22px;">
+                        <div style="position:absolute;left:1px;bottom:1px;width:30px;height:12px;background:#8a8a8e;border-radius:6px;"></div>
+                        <div style="position:absolute;left:0px;bottom:6px;width:13px;height:13px;background:#8a8a8e;border-radius:50%;"></div>
+                        <div style="position:absolute;left:10px;bottom:9px;width:16px;height:16px;background:#8a8a8e;border-radius:50%;"></div>
+                      </div>
+                      <div style="font-size:13px;font-weight:700;color:#a8a8ac;">Geteilter Speicherstand</div>
+                    </div>
+                    <div style="font-size:10px;font-weight:700;color:#9a9a9e;background:#2a2a2e;padding:3px 8px;border-radius:20px;">Inaktiv</div>
+                  </div>
+                  <div style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:11px;color:#7a7a7e;">
+                    <div style="display:flex;justify-content:space-between;"><span>Herkunfts-Gerät</span><span>EILEEN-SOPHIE</span></div>
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;"><span>Zeitpunkt</span><span style="text-align:right;">03.09.2026, 14:22:10<br><span style="font-size:10px;color:#6a6a6e;">vor 4 Tagen</span></span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Größe</span><span>12,1 MB</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Dateien</span><span>35</span></div>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ sourceIsLocal }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ selectLocal }}" style="flex:1;cursor:pointer;border-radius:10px;padding:12px;background:linear-gradient(160deg,#1c2b26,#182420);border:1.5px solid #34d1a4;animation:glowPulse 2.6s ease-in-out infinite;transition:transform .15s;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:14px;">
+                      <div style="position:relative;width:32px;height:24px;">
+                        <div style="position:absolute;top:0;left:2px;width:28px;height:17px;border-radius:3px;border:2px solid #34d1a4;"></div>
+                        <div style="position:absolute;top:17px;left:14px;width:4px;height:4px;background:#34d1a4;"></div>
+                        <div style="position:absolute;top:21px;left:8px;width:16px;height:2px;background:#34d1a4;border-radius:2px;"></div>
+                      </div>
+                      <div style="font-size:13px;font-weight:700;">Lokaler Speicherstand</div>
+                    </div>
+                    <div style="font-size:10px;font-weight:700;color:#0f0f11;background:#34d1a4;padding:3px 8px;border-radius:20px;white-space:nowrap;">✓ Aktiv</div>
+                  </div>
+                  <div style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;color:#c8c8ca;"><span style="color:#7fdcbf;">Letzte Änderung</span><span style="text-align:right;">07.09.2026, 16:41:03<br><span style="font-size:10px;color:#7a7a7e;">vor 2 Minuten</span></span></div>
+                    <div style="display:flex;justify-content:space-between;color:#c8c8ca;"><span style="color:#7fdcbf;">Größe</span><span>12,4 MB</span></div>
+                    <div style="display:flex;justify-content:space-between;color:#c8c8ca;"><span style="color:#7fdcbf;">Dateien</span><span>35</span></div>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ sourceNotLocal }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ selectLocal }}" style="flex:1;cursor:pointer;border-radius:10px;padding:12px;background:#1a1a1c;border:1.5px solid #2a2a2e;opacity:0.5;filter:grayscale(0.4);transition:transform .15s,opacity .2s;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:14px;">
+                      <div style="position:relative;width:32px;height:24px;">
+                        <div style="position:absolute;top:0;left:2px;width:28px;height:17px;border-radius:3px;border:2px solid #8a8a8e;"></div>
+                        <div style="position:absolute;top:17px;left:14px;width:4px;height:4px;background:#8a8a8e;"></div>
+                        <div style="position:absolute;top:21px;left:8px;width:16px;height:2px;background:#8a8a8e;border-radius:2px;"></div>
+                      </div>
+                      <div style="font-size:13px;font-weight:700;color:#a8a8ac;">Lokaler Speicherstand</div>
+                    </div>
+                    <div style="font-size:10px;font-weight:700;color:#9a9a9e;background:#2a2a2e;padding:3px 8px;border-radius:20px;">Inaktiv</div>
+                  </div>
+                  <div style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:11px;color:#7a7a7e;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;"><span>Letzte Änderung</span><span style="text-align:right;">07.09.2026, 16:41:03<br><span style="font-size:10px;color:#6a6a6e;">vor 2 Minuten</span></span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Größe</span><span>12,4 MB</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Dateien</span><span>35</span></div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+
+            <sc-if value="{{ sourceNotDisabled }}" hint-placeholder-val="{{ true }}">
+              <div onClick="{{ selectDisabled }}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-radius:8px;background:#241b1c;border:1px solid rgba(224,85,85,0.3);cursor:pointer;transition:background .2s;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="position:relative;width:16px;height:16px;flex:0 0 auto;">
+                    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid #b06a6a;box-sizing:border-box;"></div>
+                    <div style="position:absolute;top:-1px;left:5px;width:6px;height:5px;background:#241b1c;"></div>
+                    <div style="position:absolute;top:-3px;left:7px;width:2px;height:8px;background:#b06a6a;border-radius:1px;"></div>
+                  </div>
+                  <div style="font-size:12px;font-weight:600;color:#b06a6a;">Sicherung deaktivieren</div>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sourceIsDisabled }}" hint-placeholder-val="{{ false }}">
+              <div onClick="{{ selectSync }}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-radius:8px;background:#3a1616;border:1.5px solid #e05555;cursor:pointer;transition:background .15s;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="position:relative;width:16px;height:16px;flex:0 0 auto;">
+                    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid #e05555;box-sizing:border-box;"></div>
+                    <div style="position:absolute;top:-1px;left:5px;width:6px;height:5px;background:#3a1616;"></div>
+                    <div style="position:absolute;top:-3px;left:7px;width:2px;height:8px;background:#e05555;border-radius:1px;"></div>
+                  </div>
+                  <div style="font-size:12px;font-weight:700;color:#f0a0a0;">Sicherung deaktivieren</div>
+                </div>
+                <div style="font-size:10px;font-weight:600;color:#e05555;">Aktiv — klicken zum Reaktivieren</div>
+              </div>
+            </sc-if>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center;position:relative;">
+              <sc-if value="{{ sourceIsSync }}" hint-placeholder-val="{{ true }}">
+                <button style="height:32px;padding:0 16px;border-radius:6px;border:none;background:#34d1a4;color:#0f0f11;font-size:12px;font-weight:700;cursor:pointer;">Jetzt sichern</button>
+              </sc-if>
+              <sc-if value="{{ sourceIsLocal }}" hint-placeholder-val="{{ false }}">
+                <button style="height:32px;padding:0 16px;border-radius:6px;border:none;background:#34d1a4;color:#0f0f11;font-size:12px;font-weight:700;cursor:pointer;">Jetzt sichern</button>
+              </sc-if>
+              <sc-if value="{{ sourceIsDisabled }}" hint-placeholder-val="{{ false }}">
+                <button disabled style="height:32px;padding:0 16px;border-radius:6px;border:none;background:#2a2a2e;color:#7a7a7e;font-size:12px;font-weight:700;cursor:not-allowed;">Sicherung deaktiviert</button>
+              </sc-if>
+              <button style="height:32px;padding:0 14px;border-radius:6px;border:1px solid #2a2a2e;background:#1e1e21;color:#e8e8ea;font-size:12px;cursor:pointer;">Ordner öffnen</button>
+
+              <div style="flex:1;"></div>
+
+              <button onClick="{{ toggleHistory }}" style="height:32px;padding:0 14px;border-radius:6px;border:1px solid #2a2a2e;background:#1e1e21;color:#e8e8ea;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+                Versionshistorie
+                <sc-if value="{{ historyOpen }}" hint-placeholder-val="{{ false }}">
+                  <span style="display:inline-block;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-right:5px solid #7a7a7e;animation:chevBounce 1s ease-in-out infinite;"></span>
+                </sc-if>
+                <sc-if value="{{ historyClosed }}" hint-placeholder-val="{{ true }}">
+                  <span style="display:inline-block;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:5px solid #7a7a7e;"></span>
+                </sc-if>
+              </button>
+
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:0 0 auto;display:flex;gap:10px;padding:10px 20px;background:#121214;border-top:1px solid #232326;">
+    <button style="height:32px;padding:0 16px;border-radius:6px;border:none;background:#34d1a4;color:#0f0f11;font-size:12px;font-weight:700;cursor:pointer;">Jetzt synchronisieren</button>
+    <button style="height:32px;padding:0 16px;border-radius:6px;border:1px solid #2a2a2e;background:#1e1e21;color:#e8e8ea;font-size:12px;cursor:pointer;">Spiele neu erkennen</button>
+    <button style="height:32px;padding:0 16px;border-radius:6px;border:1px solid #2a2a2e;background:#1e1e21;color:#e8e8ea;font-size:12px;cursor:pointer;">Ordner hinzufügen</button>
+  </div>
+
+</div>
+
+<sc-if value="{{ historyOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;left:100%;top:186px;margin-left:14px;width:340px;max-height:280px;overflow-y:auto;background:#1e1e21;border:1px solid #2a2a2e;border-radius:8px;padding:10px;box-shadow:0 12px 30px rgba(0,0,0,0.5);animation:slideInRight .18s ease-out;z-index:5;color:#f2f2f0;">
+    <div style="font-size:10px;letter-spacing:0.08em;color:#7a7a7e;font-weight:700;margin-bottom:8px;">VERSIONSHISTORIE</div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #2a2a2e;">
+      <div>
+        <div style="font-size:12px;font-weight:600;">Version 21</div>
+        <div style="font-size:10px;color:#9a9a9e;">vor 4 Tagen · 12,1 MB · 35 Dateien</div>
+        <div style="font-size:10px;color:#7a7a7e;">Herkunft: dieses Gerät</div>
+      </div>
+      <button style="height:26px;padding:0 10px;border-radius:5px;border:1px solid #2a2a2e;background:#232326;color:#e8e8ea;font-size:11px;cursor:pointer;">Wiederherstellen</button>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #2a2a2e;">
+      <div>
+        <div style="font-size:12px;font-weight:600;">Version 20</div>
+        <div style="font-size:10px;color:#9a9a9e;">vor 4 Tagen · 11,2 MB · 33 Dateien</div>
+        <div style="font-size:10px;color:#7a7a7e;">Herkunft: dieses Gerät</div>
+      </div>
+      <button style="height:26px;padding:0 10px;border-radius:5px;border:1px solid #2a2a2e;background:#232326;color:#e8e8ea;font-size:11px;cursor:pointer;">Wiederherstellen</button>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;">
+      <div>
+        <div style="font-size:12px;font-weight:600;">Version 19</div>
+        <div style="font-size:10px;color:#9a9a9e;">vor 5 Tagen · 10,8 MB · 31 Dateien</div>
+        <div style="font-size:10px;color:#7a7a7e;">Herkunft: dieses Gerät</div>
+      </div>
+      <button style="height:26px;padding:0 10px;border-radius:5px;border:1px solid #2a2a2e;background:#232326;color:#e8e8ea;font-size:11px;cursor:pointer;">Wiederherstellen</button>
+    </div>
+  </div>
+</sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 850, &quot;height&quot;: 504}, &quot;initialSource&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;sync&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;sync&quot;, &quot;local&quot;], &quot;section&quot;: &quot;Verhalten&quot;}, &quot;historyDefaultOpen&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Verhalten&quot;}}">
+class Component extends DCLogic {
+  state = { source: 'sync', historyOpen: false };
+
+  componentDidMount() {
+    const s = this.props.initialSource;
+    if (s === 'local' || s === 'sync') this.setState({ source: s });
+    if (this.props.historyDefaultOpen) this.setState({ historyOpen: true });
+  }
+
+  renderVals() {
+    const source = this.state.source;
+    return {
+      sourceIsSync: source === 'sync',
+      sourceNotSync: source !== 'sync',
+      sourceIsLocal: source === 'local',
+      sourceNotLocal: source !== 'local',
+      sourceIsDisabled: source === 'disabled',
+      sourceNotDisabled: source !== 'disabled',
+      historyOpen: this.state.historyOpen,
+      historyClosed: !this.state.historyOpen,
+      selectSync: () => this.setState({ source: 'sync' }),
+      selectLocal: () => this.setState({ source: 'local' }),
+      selectDisabled: () => this.setState({ source: 'disabled' }),
+      toggleHistory: () => this.setState(s => ({ historyOpen: !s.historyOpen })),
+    };
+  }
+}
+</script>
+</body>
+</html>

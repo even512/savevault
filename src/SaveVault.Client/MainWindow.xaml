@@ -1,4 +1,5 @@
 <Window x:Class="SaveVault.Client.MainWindow"
+        x:Name="RootWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -454,14 +455,14 @@
                         <!-- Trennlinie -->
                         <Border Grid.Column="1" Width="1" Background="#24262F" Margin="18,0" />
 
-                        <!-- Rechte Spalte: Fehler + Pfad + Aktionen + Historie -->
+                        <!-- Rechte Spalte: Fehler + Pfad + Zwei-Kästen + Sicherung-Leiste + Aktionen -->
                         <Grid Grid.Column="2" DataContext="{Binding}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <!-- Fehler-Banner -->
@@ -495,77 +496,439 @@
                             <TextBlock Grid.Row="1" Text="{Binding FolderText}" Foreground="#ACADB4"
                                        FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
-                            <!-- Aktionen -->
-                            <WrapPanel Grid.Row="2" Margin="0,0,0,10">
-                                <Button Content="Jetzt sichern" Click="OnGameSyncNowClick" Tag="{Binding}"
-                                        Style="{StaticResource PrimaryButton}" FontSize="11.5" Padding="11,7"
-                                        Margin="0,0,6,6" />
-                                <Button Content="Ordner öffnen" Click="OnOpenFolderClick"
-                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
-                                        Visibility="{Binding OpenFolderVisibility}" IsEnabled="{Binding CanOpenFolder}" />
-                                <Button Content="{Binding ShareLabel}" Click="OnToggleShareClick" Tag="{Binding}"
-                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
-                                        Visibility="{Binding ShareVisibility}" IsEnabled="{Binding CanShare}" />
-                                <Button Content="{Binding PauseLabel}" Click="OnTogglePauseClick" Tag="{Binding}"
-                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6" />
-                                <Button Content="Lösen" Click="OnResolveConflictClick" Tag="{Binding}"
-                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
-                                        Visibility="{Binding ConflictVisibility}" />
-                                <Button Content="Ordner zuordnen" Click="OnAssignFolderClick" Tag="{Binding}"
-                                        Style="{StaticResource ChipButton}" Margin="0,0,6,6"
-                                        Visibility="{Binding AssignFolderVisibility}" />
-                            </WrapPanel>
+                            <!-- ===== Zwei-Kästen-Ansicht: Server links, Lokal rechts (Tims Mockup-Vorgabe) ===== -->
+                            <Grid Grid.Row="2" Margin="0,0,0,10" Visibility="{Binding DetailBoxesVisibility}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
 
-                            <!-- Historie-Kopf -->
-                            <Border Grid.Row="3" BorderBrush="#24262F" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,0,0,2">
-                                <Grid>
-                                    <TextBlock Text="VERSIONSHISTORIE" FontSize="11.5" FontWeight="Bold"
-                                               Foreground="{StaticResource MutedBrush}" />
-                                    <TextBlock x:Name="HistoryHintText" Text="" HorizontalAlignment="Right"
-                                               Foreground="{StaticResource MutedBrush}" FontSize="11" />
-                                </Grid>
-                            </Border>
+                                <!-- Geteilter Speicherstand (Server) -->
+                                <Button x:Name="ServerBoxButton" Grid.Column="0" Margin="0,0,5,0" Cursor="Hand"
+                                        Click="OnServerBoxClick" Tag="{Binding}" HorizontalContentAlignment="Stretch">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="{x:Type Button}">
+                                            <Border x:Name="Bd" CornerRadius="10" BorderThickness="1.5" Padding="12"
+                                                    Background="#1A1A1C" BorderBrush="#2A2A2E">
+                                                <Border.Effect>
+                                                    <DropShadowEffect x:Name="Glow" Color="#5CA7A7" BlurRadius="6" ShadowDepth="0" Opacity="0" />
+                                                </Border.Effect>
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <!-- ServerBoxActive statt IsShared: berücksichtigt IsExcluded, damit bei
+                                                     „Sicherung deaktiviert" BEIDE Kästen ausgegraut sind (Tims Korrektur). -->
+                                                <DataTrigger Binding="{Binding ServerBoxActive}" Value="True">
+                                                    <Setter TargetName="Bd" Property="Opacity" Value="1" />
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    <DataTrigger.EnterActions>
+                                                        <BeginStoryboard Name="ServerGlow">
+                                                            <Storyboard>
+                                                                <DoubleAnimation Storyboard.TargetName="Bd"
+                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.BlurRadius)"
+                                                                    From="6" To="16" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
+                                                                <DoubleAnimation Storyboard.TargetName="Bd"
+                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.Opacity)"
+                                                                    From="0.22" To="0.5" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </DataTrigger.EnterActions>
+                                                    <DataTrigger.ExitActions>
+                                                        <StopStoryboard BeginStoryboardName="ServerGlow" />
+                                                    </DataTrigger.ExitActions>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding ServerBoxActive}" Value="False">
+                                                    <Setter TargetName="Bd" Property="Opacity" Value="0.55" />
+                                                </DataTrigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                    <StackPanel>
+                                        <!-- Icon+Titel als Grid statt horizontales StackPanel: eine horizontale
+                                             StackPanel misst Kinder mit unbegrenzter Breite, daher wrappt der Titel
+                                             nie und wird stattdessen an der Spaltenbreite abgeschnitten. Ein Grid
+                                             gibt der Titel-Spalte eine feste verfügbare Breite, in der TextWrapping
+                                             tatsächlich greift (Tims Korrektur: Kastenüberschrift wurde abgeschnitten). -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Viewbox Grid.Column="0" Width="20" Height="14" Margin="0,0,9,0" VerticalAlignment="Center">
+                                                <Canvas Width="32" Height="22">
+                                                    <Rectangle Canvas.Left="1" Canvas.Bottom="1" Width="30" Height="12"
+                                                               RadiusX="6" RadiusY="6" Fill="{StaticResource AccentBrush}" />
+                                                    <Ellipse Canvas.Left="0" Canvas.Bottom="6" Width="13" Height="13"
+                                                             Fill="{StaticResource AccentBrush}" />
+                                                    <Ellipse Canvas.Left="10" Canvas.Bottom="9" Width="16" Height="16"
+                                                             Fill="{StaticResource AccentBrush}" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Grid.Column="1" Text="Geteilter Speicherstand" FontSize="12.5" FontWeight="Bold"
+                                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                                            <Border Grid.Column="2" CornerRadius="10" Padding="7,3" VerticalAlignment="Top" Margin="8,0,0,0">
+                                                <Border.Style>
+                                                    <Style TargetType="{x:Type Border}">
+                                                        <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding ServerBoxActive}" Value="True">
+                                                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding ServerBadgeText}" FontSize="9.5" FontWeight="Bold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="{x:Type TextBlock}">
+                                                            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ServerBoxActive}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentTextBrush}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </Grid>
 
-                            <!-- Historie-Liste -->
-                            <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
-                                <StackPanel>
-                                    <TextBlock x:Name="HistoryEmptyText" Text="Noch keine Versionen vorhanden."
-                                               Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,9,0,0"
-                                               Visibility="Collapsed" />
-                                    <ItemsControl x:Name="HistoryList">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border BorderBrush="#202129" BorderThickness="0,0,0,1" Padding="2,7">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
-                                                                           VerticalAlignment="Center" />
-                                                                <Border Visibility="{Binding ConflictVisibility}"
-                                                                        Background="{StaticResource ConflictBrush}" CornerRadius="5"
-                                                                        Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
-                                                                    <TextBlock Text="Konflikt" Foreground="#221206" FontSize="10" FontWeight="SemiBold" />
-                                                                </Border>
-                                                            </StackPanel>
-                                                            <TextBlock Text="{Binding MetaText}" Foreground="#6F717D"
-                                                                       FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                                            <TextBlock Text="{Binding OriginText}" Foreground="#6F717D"
-                                                                       FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                                        </StackPanel>
-                                                        <Button Grid.Column="1" Content="Wiederherstellen" VerticalAlignment="Center"
-                                                                Style="{StaticResource ChipButton}" Padding="10,5" FontSize="11.5"
-                                                                Click="OnRestoreClick" Tag="{Binding}" />
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                        <TextBlock Text="Wird geladen …" FontSize="10.5" Foreground="{StaticResource MutedBrush}"
+                                                   Margin="0,8,0,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="{x:Type TextBlock}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ShareProbeLoading}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+
+                                        <!-- CTA-Leerzustand: noch kein geteilter Stand -->
+                                        <StackPanel Visibility="{Binding ShareCtaVisibility}" Margin="0,10,0,0">
+                                            <TextBlock Text="Noch kein geteilter Stand" FontSize="11.5"
+                                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
+                                            <TextBlock Text="Klicken, um den lokalen Stand zu teilen" FontSize="10.5"
+                                                       Foreground="#5A5C68" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+
+                                        <!-- Kennzahlen -->
+                                        <StackPanel Visibility="{Binding ShareMetricsVisibility}" Margin="0,10,0,0">
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Herkunfts-Gerät" FontSize="11"
+                                                           Foreground="{StaticResource MutedBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding ShareOriginDevice}" FontSize="11"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="130" />
+                                            </Grid>
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Zeitpunkt" FontSize="11"
+                                                           Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" />
+                                                <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                                    <TextBlock Text="{Binding ShareTimestampAbsolute}" FontSize="11" HorizontalAlignment="Right" />
+                                                    <TextBlock Text="{Binding ShareTimestampRelative}" FontSize="9.5"
+                                                               Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Right" />
+                                                </StackPanel>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Größe" FontSize="11" Foreground="{StaticResource MutedBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding ShareSizeText}" FontSize="11" />
+                                            </Grid>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Dateien" FontSize="11" Foreground="{StaticResource MutedBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding ShareFilesText}" FontSize="11" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Lokaler Speicherstand -->
+                                <Button x:Name="LocalBoxButton" Grid.Column="1" Margin="5,0,0,0" Cursor="Hand"
+                                        Click="OnLocalBoxClick" Tag="{Binding}" HorizontalContentAlignment="Stretch">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="{x:Type Button}">
+                                            <Border x:Name="Bd" CornerRadius="10" BorderThickness="1.5" Padding="12"
+                                                    Background="#1A1A1C" BorderBrush="#2A2A2E">
+                                                <Border.Effect>
+                                                    <DropShadowEffect x:Name="Glow" Color="#5CA7A7" BlurRadius="6" ShadowDepth="0" Opacity="0" />
+                                                </Border.Effect>
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <!-- LocalBoxActive statt IsShared: berücksichtigt IsExcluded, damit bei
+                                                     „Sicherung deaktiviert" BEIDE Kästen ausgegraut sind (Tims Korrektur). -->
+                                                <DataTrigger Binding="{Binding LocalBoxActive}" Value="True">
+                                                    <Setter TargetName="Bd" Property="Opacity" Value="1" />
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    <DataTrigger.EnterActions>
+                                                        <BeginStoryboard Name="LocalGlow">
+                                                            <Storyboard>
+                                                                <DoubleAnimation Storyboard.TargetName="Bd"
+                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.BlurRadius)"
+                                                                    From="6" To="16" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
+                                                                <DoubleAnimation Storyboard.TargetName="Bd"
+                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.Opacity)"
+                                                                    From="0.22" To="0.5" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </DataTrigger.EnterActions>
+                                                    <DataTrigger.ExitActions>
+                                                        <StopStoryboard BeginStoryboardName="LocalGlow" />
+                                                    </DataTrigger.ExitActions>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding LocalBoxActive}" Value="False">
+                                                    <Setter TargetName="Bd" Property="Opacity" Value="0.55" />
+                                                </DataTrigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                    <StackPanel>
+                                        <!-- Icon+Titel als Grid statt horizontales StackPanel (siehe Server-Kasten):
+                                             gibt der Titel-Spalte eine feste Breite, in der TextWrapping greift. -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Viewbox Grid.Column="0" Width="18" Height="14" Margin="0,0,9,0" VerticalAlignment="Center">
+                                                <Canvas Width="32" Height="24">
+                                                    <Rectangle Canvas.Left="2" Canvas.Top="0" Width="28" Height="17"
+                                                               RadiusX="3" RadiusY="3" Stroke="{StaticResource AccentBrush}"
+                                                               StrokeThickness="2" Fill="Transparent" />
+                                                    <Rectangle Canvas.Left="14" Canvas.Top="17" Width="4" Height="4"
+                                                               Fill="{StaticResource AccentBrush}" />
+                                                    <Rectangle Canvas.Left="8" Canvas.Top="21" Width="16" Height="2"
+                                                               RadiusX="1" RadiusY="1" Fill="{StaticResource AccentBrush}" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Grid.Column="1" Text="Lokaler Speicherstand" FontSize="12.5" FontWeight="Bold"
+                                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                                            <Border Grid.Column="2" CornerRadius="10" Padding="7,3" VerticalAlignment="Top" Margin="8,0,0,0">
+                                                <Border.Style>
+                                                    <Style TargetType="{x:Type Border}">
+                                                        <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding LocalBoxActive}" Value="True">
+                                                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding LocalBadgeText}" FontSize="9.5" FontWeight="Bold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="{x:Type TextBlock}">
+                                                            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding LocalBoxActive}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentTextBrush}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </Grid>
+
+                                        <StackPanel Margin="0,10,0,0">
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Letzte Änderung" FontSize="11"
+                                                           Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" />
+                                                <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                                    <TextBlock Text="{Binding LocalTimestampAbsolute}" FontSize="11" HorizontalAlignment="Right" />
+                                                    <TextBlock Text="{Binding LocalTimestampRelative}" FontSize="9.5"
+                                                               Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Right" />
+                                                </StackPanel>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Größe" FontSize="11" Foreground="{StaticResource MutedBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding LocalSizeText}" FontSize="11" />
+                                            </Grid>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Dateien" FontSize="11" Foreground="{StaticResource MutedBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding LocalFilesText}" FontSize="11" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <!-- ===== „Sicherung deaktivieren"-Leiste (ersetzt den früheren Chip-Button) ===== -->
+                            <Button Grid.Row="3" Margin="0,0,0,10" Cursor="Hand" Click="OnTogglePauseClick" Tag="{Binding}"
+                                    HorizontalContentAlignment="Stretch">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="{x:Type Button}">
+                                        <Border x:Name="Bar" CornerRadius="8" Padding="12,9" BorderThickness="1"
+                                                Background="#1A1A1C" BorderBrush="#4D3A2A2A">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <Viewbox Grid.Column="0" Width="15" Height="15" Margin="0,0,9,0">
+                                                    <Canvas Width="24" Height="24">
+                                                        <Ellipse x:Name="BarRing" Canvas.Left="3" Canvas.Top="3" Width="18" Height="18"
+                                                                 Stroke="#B06A6A" StrokeThickness="2.2" />
+                                                        <Line x:Name="BarSlash" X1="7" Y1="7" X2="17" Y2="17"
+                                                              Stroke="#B06A6A" StrokeThickness="2.2" StrokeStartLineCap="Round" />
+                                                    </Canvas>
+                                                </Viewbox>
+                                                <TextBlock x:Name="BarLabel" Grid.Column="1" Text="Sicherung deaktivieren"
+                                                           FontSize="12" FontWeight="SemiBold" Foreground="#B06A6A" VerticalAlignment="Center" />
+                                                <TextBlock x:Name="BarHint" Grid.Column="2" Text="Aktiv — klicken zum Reaktivieren"
+                                                           FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource ErrorBrush}"
+                                                           VerticalAlignment="Center" Visibility="Collapsed" />
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsExcluded}" Value="True">
+                                                <Setter TargetName="Bar" Property="Background" Value="#3A1616" />
+                                                <Setter TargetName="Bar" Property="BorderBrush" Value="{StaticResource ErrorBrush}" />
+                                                <Setter TargetName="Bar" Property="BorderThickness" Value="1.5" />
+                                                <Setter TargetName="BarRing" Property="Stroke" Value="{StaticResource ErrorBrush}" />
+                                                <Setter TargetName="BarSlash" Property="Stroke" Value="{StaticResource ErrorBrush}" />
+                                                <Setter TargetName="BarLabel" Property="Foreground" Value="#F0A0A0" />
+                                                <Setter TargetName="BarLabel" Property="FontWeight" Value="Bold" />
+                                                <Setter TargetName="BarHint" Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+
+                            <!-- Aktionen: feste rechtsbündige Spalte für „Versionshistorie" statt WrapPanel-Fluss,
+                                 damit der Button IMMER ganz rechts steht, egal wie viele der anderen Buttons
+                                 (Ordner öffnen/Lösen/Ordner zuordnen) gerade sichtbar sind. -->
+                            <Grid Grid.Row="4" Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                    <Button Content="Jetzt sichern" Click="OnGameSyncNowClick" Tag="{Binding}"
+                                            Style="{StaticResource PrimaryButton}" FontSize="11.5" Padding="11,7"
+                                            Margin="0,0,6,6" IsEnabled="{Binding CanSyncNow}" />
+                                    <Button Content="Ordner öffnen" Click="OnOpenFolderClick"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Visibility="{Binding OpenFolderVisibility}" IsEnabled="{Binding CanOpenFolder}" />
+                                    <Button Content="Lösen" Click="OnResolveConflictClick" Tag="{Binding}"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Visibility="{Binding ConflictVisibility}" />
+                                    <Button Content="Ordner zuordnen" Click="OnAssignFolderClick" Tag="{Binding}"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Visibility="{Binding AssignFolderVisibility}" />
                                 </StackPanel>
-                            </ScrollViewer>
+                                <Button x:Name="HistoryToggleButton" Grid.Column="1" Click="OnToggleHistoryClick"
+                                        Style="{StaticResource ChipButton}" Margin="6,0,0,6">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Versionshistorie" VerticalAlignment="Center" />
+                                        <Viewbox Width="8" Height="8" Margin="8,0,0,0">
+                                            <Path x:Name="HistoryChevron" Data="M1,1 L5,4 L1,7" Stroke="{StaticResource MutedBrush}"
+                                                  StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                  StrokeLineJoin="Round" RenderTransformOrigin="0.5,0.5">
+                                                <Path.RenderTransform>
+                                                    <RotateTransform x:Name="HistoryChevronRotate" Angle="0" />
+                                                </Path.RenderTransform>
+                                            </Path>
+                                        </Viewbox>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <!-- Versionshistorie-Flyout (statt fest sichtbarer Liste) -->
+                            <!-- PlacementTarget ist das Hauptfenster (nicht der Button): so fährt das Flyout
+                                 zuverlässig rechts neben dem GESAMTEN Fenster aus statt mittig über den
+                                 Button zu überlappen. VerticalOffset wird beim Öffnen in OnToggleHistoryClick
+                                 anhand der Button-Position gesetzt. -->
+                            <Popup x:Name="HistoryPopup" PlacementTarget="{Binding ElementName=RootWindow}"
+                                   Placement="Right" StaysOpen="False" AllowsTransparency="True"
+                                   HorizontalOffset="10"
+                                   Opened="OnHistoryPopupOpened" Closed="OnHistoryPopupClosed">
+                                <Border x:Name="HistoryFlyoutBorder" Width="320" MaxHeight="320" Background="#191A22"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="12">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform x:Name="HistoryFlyoutTransform" X="0" />
+                                    </Border.RenderTransform>
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,8">
+                                            <TextBlock Text="VERSIONSHISTORIE" FontSize="11.5" FontWeight="Bold"
+                                                       Foreground="{StaticResource MutedBrush}" />
+                                            <TextBlock x:Name="HistoryHintText" Text="" HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource MutedBrush}" FontSize="11" />
+                                        </Grid>
+                                        <ScrollViewer MaxHeight="270" VerticalScrollBarVisibility="Auto">
+                                            <StackPanel>
+                                                <TextBlock x:Name="HistoryEmptyText" Text="Noch keine Versionen vorhanden."
+                                                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,9,0,0"
+                                                           Visibility="Collapsed" />
+                                                <ItemsControl x:Name="HistoryList">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border BorderBrush="#202129" BorderThickness="0,0,0,1" Padding="2,7">
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                                                        <StackPanel Orientation="Horizontal">
+                                                                            <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
+                                                                                       VerticalAlignment="Center" />
+                                                                            <Border Visibility="{Binding ConflictVisibility}"
+                                                                                    Background="{StaticResource ConflictBrush}" CornerRadius="5"
+                                                                                    Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                                                <TextBlock Text="Konflikt" Foreground="#221206" FontSize="10" FontWeight="SemiBold" />
+                                                                            </Border>
+                                                                        </StackPanel>
+                                                                        <TextBlock Text="{Binding MetaText}" Foreground="#6F717D"
+                                                                                   FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                                                        <TextBlock Text="{Binding OriginText}" Foreground="#6F717D"
+                                                                                   FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                                                    </StackPanel>
+                                                                    <Button Grid.Column="1" Content="Wiederherstellen" VerticalAlignment="Center"
+                                                                            Style="{StaticResource ChipButton}" Padding="10,5" FontSize="11.5"
+                                                                            Click="OnRestoreClick" Tag="{Binding}" />
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
                         </Grid>
                     </Grid>
 

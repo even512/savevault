@@ -6,8 +6,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using SaveVault.Client.Services;
 using SaveVault.Client.Ui;
+using SaveVault.Core.Api;
 using SaveVault.Core.Models;
 
 namespace SaveVault.Client;
@@ -256,11 +258,30 @@ public partial class MainWindow : Window
 
         DetailArea.DataContext = row;
         DetailArea.Visibility = Visibility.Visible;
+        HistoryPopup.IsOpen = false; // Spielwechsel schließt eine offene Historie sauber
 
         // Cover lazy anfordern (UI-Thread → Fortsetzung setzt die Property hier).
         _ = row.EnsureCoverAsync(_agent.Covers);
 
         _ = LoadHistoryAsync(row);
+        _ = ProbeShareStatusAsync(row);
+    }
+
+    /// <summary>
+    /// Fragt den geteilten Stand für die aktuelle Auswahl ab, sobald ihr Detail-Bereich sichtbar
+    /// wird (siehe savevault-change-shared-save-sichtbarkeit.md, „Probe wird zum Dauerzustand statt
+    /// Einmal-Klick"). Nutzt <see cref="ClientAgent.TryProbeShareAsync"/> (wirft nie außer bei
+    /// echtem Abbruch); ein Fehlschlag lässt den Server-Kasten schlicht bei „—"/dem letzten
+    /// bekannten Stand.
+    /// </summary>
+    private async Task ProbeShareStatusAsync(GameRow row)
+    {
+        var key = row.Game.Value;
+        row.BeginShareProbe();
+        var probe = await _agent.TryProbeShareAsync(row.Game);
+        if (_selectedKey != key)
+            return; // Nutzer hat inzwischen ein anderes Spiel gewählt
+        row.ApplyShareProbe(probe);
     }
 
     private void RefreshDetailIfNeeded()
@@ -459,52 +480,74 @@ public partial class MainWindow : Window
         // Der Rest läuft über State.Changed → Refresh.
     }
 
-    // Verhindert paralleles/mehrfaches Teilen (Doppelklick), ohne die IsEnabled={Binding CanShare}-
-    // Bindung des Buttons zu zerstören (ein direktes Setzen von IsEnabled würde sie überschreiben).
-    private bool _shareInFlight;
+    // Verhindert paralleles/mehrfaches Umschalten (Doppelklick auf einen der beiden Kästen).
+    private bool _switchInFlight;
 
-    private async void OnToggleShareClick(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Klick auf den (inaktiven) Server-Kasten: existiert schon ein geteilter Stand, wird er
+    /// übernommen (bestehender Übernehmen-Pfad); existiert noch keiner, wird der lokale Stand ohne
+    /// Rückfrage zum Seed. Klick auf den bereits aktiven Kasten ist ein No-Op.
+    /// </summary>
+    private async void OnServerBoxClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: GameRow row })
+        // Bei deaktivierter Sicherung gelten beide Kästen als inaktiv (Tims Korrektur) – ein Klick
+        // löst dann bewusst nichts aus, statt einen Wechsel auf einen bereits ausgegrauten Kasten.
+        if (sender is not Button { Tag: GameRow row } || row.IsShared || row.IsExcluded || _switchInFlight)
             return;
-        if (row.IsShared || _shareInFlight)
-            return; // bereits geteilt (Rückschalten ist in v1 nicht vorgesehen) oder gerade laufend.
 
-        _shareInFlight = true;
+        _switchInFlight = true;
         try
         {
-            var probe = await _agent.ProbeShareAsync(row.Game);
+            var probe = row.LastShareProbe;
             if (probe is null)
             {
-                Info("Nicht mit dem Server verbunden – Teilen ist gerade nicht möglich.");
+                probe = await _agent.TryProbeShareAsync(row.Game);
+                row.ApplyShareProbe(probe);
+            }
+            if (probe is null)
+            {
+                Info("Nicht mit dem Server verbunden – Wechsel ist gerade nicht möglich.");
                 return;
             }
 
             if (!probe.SharedExists)
-            {
-                // Kein geteilter Stand vorhanden → lokalen Stand als Seed teilen (ohne Rückfrage).
                 await _agent.SeedShareAsync(row.Game);
-                Info($"„{row.DisplayName}“ wird jetzt über Geräte synchronisiert.");
-                return;
-            }
-
-            // Es gibt bereits einen geteilten Stand → Vergleichsdialog: übernehmen oder lokalen teilen.
-            var dialog = new ShareCompareWindow(row.DisplayName, probe) { Owner = this };
-            if (dialog.ShowDialog() != true)
-                return;
-
-            if (dialog.Choice == ShareChoice.TakeShared)
+            else
                 await _agent.JoinTakeSharedAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
-            else if (dialog.Choice == ShareChoice.TakeLocal)
-                await _agent.JoinTakeLocalAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
         }
         catch (Exception ex)
         {
-            Info("Teilen fehlgeschlagen: " + ex.Message);
+            Info("Wechsel fehlgeschlagen: " + ex.Message);
         }
         finally
         {
-            _shareInFlight = false;
+            _switchInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Klick auf den (inaktiven) Lokal-Kasten: schaltet zurück auf den eigenen, seit dem Teilen
+    /// eingefrorenen privaten Bucket. Klick auf den bereits aktiven Kasten ist ein No-Op.
+    /// </summary>
+    private async void OnLocalBoxClick(object sender, RoutedEventArgs e)
+    {
+        // Siehe OnServerBoxClick: bei deaktivierter Sicherung ist auch der Lokal-Kasten inaktiv
+        // ausgegraut und ein Klick darauf ist bewusst ein No-Op.
+        if (sender is not Button { Tag: GameRow row } || !row.IsShared || row.IsExcluded || _switchInFlight)
+            return;
+
+        _switchInFlight = true;
+        try
+        {
+            await _agent.SwitchToLocalAsync(row.Game);
+        }
+        catch (Exception ex)
+        {
+            Info("Wechsel fehlgeschlagen: " + ex.Message);
+        }
+        finally
+        {
+            _switchInFlight = false;
         }
     }
 
@@ -542,7 +585,11 @@ public partial class MainWindow : Window
         try
         {
             var conflicts = await _agent.GetConflictsAsync();
-            var conflict = conflicts.FirstOrDefault(c => c.Game.Equals(row.Game) && !c.Resolved);
+            // c.Game trägt seit der Bucket-Umstellung den GESCOPTEN Schlüssel (z. B. "dev|{owner}|{value}"
+            // oder "shared|{value}"), row.Game dagegen den kanonischen Wert – ein direkter Equals-Vergleich
+            // schlägt daher praktisch immer fehl ("kein Konflikt" trotz sichtbarem Konflikt-Status). Über
+            // BucketKey.Original() auf die kanonische Identität zurückführen, bevor verglichen wird.
+            var conflict = conflicts.FirstOrDefault(c => BucketKey.Original(c.Game).Equals(row.Game) && !c.Resolved);
             if (conflict is null)
             {
                 Info("Für dieses Spiel liegt aktuell kein offener Konflikt vor.");
@@ -643,6 +690,39 @@ public partial class MainWindow : Window
             RestoreConfirmButton.IsEnabled = true;
         }
     }
+
+    // --- Versionshistorie (Flyout) --------------------------------------------------
+
+    private void OnToggleHistoryClick(object sender, RoutedEventArgs e)
+    {
+        if (!HistoryPopup.IsOpen)
+        {
+            // Der Popup hängt jetzt am Hauptfenster statt am Button (Tims Korrektur: das Flyout
+            // soll direkt rechts neben dem GESAMTEN Fenster ausfahren, nicht mittig über dem
+            // Button überlappen). Vertikal am Button ausrichten, damit es trotzdem sichtbar neben
+            // der Aktionsreihe erscheint, unabhängig davon, wie hoch der Detail-Bereich gerade ist.
+            var buttonTop = HistoryToggleButton.TransformToAncestor(this).Transform(new Point(0, 0)).Y;
+            HistoryPopup.VerticalOffset = buttonTop - HistoryToggleButton.ActualHeight;
+        }
+        HistoryPopup.IsOpen = !HistoryPopup.IsOpen;
+    }
+
+    /// <summary>Kurze Fade+Slide-Öffnen-Transition (~180 ms) und Chevron-Richtung, analog dem
+    /// bestehenden kurzen UI-Übergangs-Stil des Clients.</summary>
+    private void OnHistoryPopupOpened(object sender, EventArgs e)
+    {
+        HistoryChevronRotate.Angle = 90;
+
+        var duration = TimeSpan.FromMilliseconds(180);
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        HistoryFlyoutTransform.X = -10;
+        HistoryFlyoutBorder.Opacity = 0;
+        HistoryFlyoutBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = ease });
+        HistoryFlyoutTransform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-10, 0, duration) { EasingFunction = ease });
+    }
+
+    private void OnHistoryPopupClosed(object sender, EventArgs e)
+        => HistoryChevronRotate.Angle = 0;
 
     // --- Fußleiste (Übersicht) -----------------------------------------------------
 
