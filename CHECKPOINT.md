@@ -1,3 +1,64 @@
+# SaveVault — Limit-Checkpoint (2026-09-07)
+
+**Grund:** 5-Stunden-Nutzungslimit bei 90 % erreicht. Halt an der Schritt-Grenze gemäß
+`RULES.md` → „Limit-Checkpoint", auf Tims eigene Wahl hin (Kern-Fix noch fertigstellen,
+Rest nach dem Reset). Commit `1370d3f` sichert den Zwischenstand — **ausdrücklich NICHT
+freigegeben, NICHT abgenommen, NICHT für den Produktivbetrieb geeignet.**
+
+## Was das ist
+Delta-Spec `specs/savevault-change-shared-save-sichtbarkeit.md` — „Geteilter Speicherstand
+sichtbar & nahtlos" (Phase 1, Client). Zwei-Kästen-Ansicht Server/Lokal im Spiel-Detail
++ ein währenddessen entdeckter, tieferliegender Kern-Bug (additive statt exakte
+Ordner-Ersetzung beim Umschalten Lokal↔Synchron erzeugte fälschlich Sync-Konflikte) —
+als **Plan-Korrektur** in dieselbe Spec aufgenommen und von Tim freigegeben.
+
+## Erreichter Stand
+- Zwei-Kästen-UI, „Sicherung deaktivieren"-Leiste, Versionshistorie-Flyout,
+  `ShareCompareWindow` entfernt: **fertig, durch zwei Handtest-Runden mit Tim
+  korrigiert** (5 UI-Fixes + echter Datei-Zeitstempel statt Sync-Zeitpunkt).
+- Kern-Fix „exakter Austausch" (`SyncEngine.ReplaceLocalContentAsync` +
+  `LocalContentReplacer` in `SaveVault.Core`, Konfliktlisten-Schlüssel-Fix
+  `BucketKey.Original` in `OnResolveConflictClick`): **gebaut, aber am Kern-Gate NICHT
+  grün** — zwei vom `reviewer`/`security-auditor` gefundene, noch offene Blocker:
+  1. **`LocalContentReplacer.Commit`** (`src/SaveVault.Core/Storage/LocalContentReplacer.cs`)
+     löscht überzählige Alt-Dateien **vor** dem Verschieben der neuen — bricht ein
+     `File.Move` mitten im Vorgang ab, sind Alt-Dateien schon unwiederbringlich weg,
+     ohne dass alle neuen da sind (Ordner passt dann zu keinem der beiden Stände).
+     **Fix: Reihenfolge umkehren** (erst alle Moves, dann erst löschen), Move-Loop
+     gegen Teilausfälle absichern, `*.svtmp-…`-Reste nach Abbruch aufräumen.
+  2. **`ClientAgent.JoinTakeSharedAsync`/`SwitchToLocalAsync`** setzen `_shares.Add/
+     Remove(game)` + `State.SetShared(...)` **vor** dem eigentlichen
+     `ReplaceLocalContentAsync`-Aufruf, ohne Rollback bei Fehler. Bricht der Download ab
+     (Server offline — der Regelfall, den die Spec ausdrücklich abfängt), behauptet der
+     Client danach fälschlich einen vollzogenen Scope-Wechsel, während der Ordner noch
+     den alten Inhalt trägt → genau die Konflikt-/Bucket-Vermischung, die dieser
+     Nachtrag eigentlich beheben sollte. **Fix: Flags erst nach Erfolg setzen** (oder
+     bei Fehler zurückrollen).
+- **Noch nicht begonnen:** neuer Knopf „Als geteilten Stand hochladen" (Force-Upload
+  mit Metadaten-Vergleich), Oberflächen-Gate dafür, erneutes Laufzeit-Gate, dritter
+  Handtest mit Tim, Arc-Raiders-Realtest, Kunden-Abnahme, finaler (Nicht-WIP-)Commit.
+- Build 0/0, `dotnet test` 193/193 grün (deckt die beiden obigen Blocker **nicht** ab —
+  sie zeigen sich erst bei einem echten Abbruch-Szenario, nicht in den bestehenden Tests).
+
+## Nächster Schritt nach dem 5h-Reset
+1. Beide Blocker oben beheben (Bauer-Lauf), dann Kern-Gate **erneut** (reviewer +
+   security-auditor + inspekteur).
+2. Force-Upload-Knopf bauen (Kern + Oberfläche), je Gate.
+3. Laufzeit-Gate, dritter Handtest mit Tim (inkl. Arc-Raiders-Realtest: löst sich der
+   hängende Konflikt jetzt über „Lösen"?).
+4. Bekannte, bewusst offen gelassene Nebensache: `ConflictWindow.xaml.cs` ruft
+   `GetRevisionsAsync` mit dem gescopten statt kanonischen Schlüssel auf → Metadaten
+   im Konflikt-Dialog bleiben „—" für privat-gescopte Teilnehmer (blockiert das Lösen
+   selbst nicht). Tim als Wahl vorlegen (jetzt miterledigen/später/so lassen).
+5. Erst nach grünem Laufzeit-Gate + Tims sichtbarer Abnahme: „richtiger" Commit
+   (dieser WIP-Commit `1370d3f` bleibt stehen, kein Amend).
+
+## Budget-Zeile (Stand Checkpoint)
+5h **~90 % verbraucht** (Reset-Zeitpunkt nicht bekannt) · Woche zuletzt bekannt **~3 %
+verbraucht** (veraltet, unkritisch).
+
+---
+
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-03)
 
 **Client-Selbst-Updater (Client 1.6.0) — Update im laufenden Betrieb aus GitHub-Releases.**
