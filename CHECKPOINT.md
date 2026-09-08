@@ -1,8 +1,10 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-08)
 
-**Delta `savevault-change-shared-save-sichtbarkeit.md` (Phase 1) — Laufzeit-Gate über den
-Gesamtstand gelaufen, wartet auf Tims formale Abnahme.** Der vorherige Checkpoint-Block
-(zweiter Limit-Halt, 2026-09-07) ist damit abgearbeitet.
+**Delta `savevault-change-shared-save-sichtbarkeit.md` (Phase 1) — ABGENOMMEN (2026-09-08).**
+Tim: „Ja, abgeschlossen" nach Vorlage des Gesamt-Gate-Ergebnisses. Der vorherige Checkpoint-
+Block (zweiter Limit-Halt, 2026-09-07) ist damit abgearbeitet. **Phase 2 (Dashboard) steht
+als eigener, noch nicht freigegebener Schritt aus** — nicht in dieser Session weiterverfolgen,
+Tim entscheidet gesondert, wann das beginnt.
 
 ## Was das ist
 „Geteilter Speicherstand sichtbar & nahtlos" (Phase 1, Client). Aus der ursprünglichen
@@ -13,6 +15,7 @@ dokumentiert, gegated und von Tim freigegeben. Nachtrag-Verlauf am Ende der Spec
 ## Erreichter Stand — alles committet, alles gegated, Gesamt-Laufzeit-Gate grün
 
 **Commits (neueste zuerst):**
+- `f147612` — NoOp haelt den Konflikt-Status jetzt wirklich noch (war strukturell tot, s.u.).
 - `cc1015e` — ConflictWindow-Metadaten mit korrektem (kanonischem) Bucket-Schlüssel abgefragt.
 - `ec2a9b5` — Verwaisten Konflikt über „Lösen" mit Bestätigung auflösbar (Nachtrag 4).
 - `45e724a` — Verwaisten Konflikt-Status nach exaktem Austausch zurücksetzen (Nachtrag 3).
@@ -47,27 +50,23 @@ dokumentiert, gegated und von Tim freigegeben. Nachtrag-Verlauf am Ende der Spec
 - Server-Smoke (echter `dotnet run`): Konflikt-Endpunkte sauber (401/404/400/503 je nach
   Fall, keine 500er, kein Log-Fehler).
 
-**Ein nicht-blockierender Befund aus dem Gate (Backlog, nicht Teil dieses Deltas):**
-`SyncEngine.cs` — der `NoOp`-Schutz („Konflikt-Anzeige bleibt bei reinem No-Op-Zyklus
-bestehen", Zeile ~210-216) ist strukturell tot: `RunCycleAsync` (Zeile 80) setzt den
-Status unbedingt auf `Syncing`, bevor `NoOp()` seine Prüfung `GetStatus==Conflict`
-überhaupt lesen kann. Vorbestehend seit dem allerersten Commit (`282fba4`), **nicht**
-durch Nachtrag 1–4 verursacht. Laut Code-Analyse aktuell durch keinen realen Ablauf
-auslösbar (jeder Pfad, der eine spätere NoOp-Entscheidung ermöglicht, setzt den Status
-selbst explizit) — also kein akuter Praxis-Impact, aber der dokumentierte Schutz greift
-nicht mehr, falls künftig ein Pfad entsteht, der sich darauf verlässt. Tim vorlegen
-(jetzt beheben / als Alt-Last vormerken).
+**Befund aus dem Gate, noch selbiger Session behoben:** `SyncEngine.cs` — der `NoOp`-
+Schutz („Konflikt-Anzeige bleibt bei reinem No-Op-Zyklus bestehen", Zeile ~210-216) war
+strukturell tot: `RunCycleAsync` (Zeile 80) setzt den Status unbedingt auf `Syncing`,
+bevor `NoOp()` seine Prüfung `GetStatus==Conflict` überhaupt lesen kann. Vorbestehend
+seit dem allerersten Commit (`282fba4`), **nicht** durch Nachtrag 1–4 verursacht. Fix
+(`f147612`): der Status **vor** dem Zyklus wird gemerkt und an `NoOp()` durchgereicht,
+statt den zwischenzeitlich überschriebenen Live-Zustand zu lesen. Build 0/0, Tests
+194/194 weiterhin grün; per Wegwerf-Harness (Konflikt-Status + NoOp-Entscheidung
+künstlich herbeigeführt) bestätigt: Status bleibt jetzt tatsächlich „Konflikt" statt auf
+„Synced" zu kippen.
 
 ## Noch offen
-1. **Kunden-Abnahme (formal)** — Tim hat vieles unterwegs live bestätigt (Zeitstempel,
-   Boxen, Arc Raiders), Gesamt-Gate ist jetzt grün. Fehlt noch: Tims „ja, abgeschlossen"
-   für den Gesamtstand (dieser Checkpoint dient als Abschluss-Bericht dafür).
-2. **Prozess-Hinweis vom `inspekteur`:** für Nachtrag 2–4 wurde das Spec-Gate mit dem
+1. **Prozess-Hinweis vom `inspekteur`:** für Nachtrag 2–4 wurde das Spec-Gate mit dem
    Kern-Gate zusammengelegt statt strikt getrennt (Zeitdruck bei kleinen, gut umrissenen
    Fixes) — für künftige Nachträge wieder sauber trennen.
-3. **Phase 2 (Dashboard, rein visuell)** noch nicht begonnen — eigene Freigabe nötig
-   (Tim hat sich für „Phase 1 erst abschließen, dann Pause" entschieden, 2026-09-08).
-4. **NoOp-Dead-Code-Befund** (siehe oben) — Tims Entscheidung: jetzt fixen oder Backlog.
+2. **Phase 2 (Dashboard, rein visuell)** — eigener, noch nicht freigegebener Schritt.
+   Erst nach Tims ausdrücklicher Freigabe angehen (siehe „Offene Fragen" in der Spec).
 
 ## Budget-Zeile (Stand Checkpoint)
 Frischer Wert seit dem letzten Limit-Halt nicht neu erhoben — beim nächsten Einstieg
