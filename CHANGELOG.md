@@ -3,6 +3,15 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.3 — 2026-09-08
+
+- **Nachbesserung zu v1.8.2:** Der Umbruch allein reichte noch nicht aus, die Zeile blieb
+  bei mehreren gleichzeitig sichtbaren Buttons eng. Die Aktions-Buttons im Spiel-Detail
+  (Jetzt sichern, Als geteilten Stand hochladen, Ordner öffnen, Lösen, Ordner zuordnen)
+  sind jetzt insgesamt kompakter (kleinere Schrift/Abstände) und brechen bei Platzmangel
+  in eine zweite Zeile um, statt sich zu überlappen. „Versionshistorie" bleibt weiterhin
+  fest am rechten Rand.
+
 ## v1.8.2 — 2026-09-08
 
 - **Fix: Layout im Spiel-Detail.** Der Knopf „Als geteilten Stand hochladen" konnte durch seinen
