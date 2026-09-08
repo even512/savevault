@@ -2,9 +2,14 @@
 
 **Delta `savevault-change-shared-save-sichtbarkeit.md` (Phase 1) — ABGENOMMEN (2026-09-08).**
 Tim: „Ja, abgeschlossen" nach Vorlage des Gesamt-Gate-Ergebnisses. Der vorherige Checkpoint-
-Block (zweiter Limit-Halt, 2026-09-07) ist damit abgearbeitet. **Phase 2 (Dashboard) steht
-als eigener, noch nicht freigegebener Schritt aus** — nicht in dieser Session weiterverfolgen,
-Tim entscheidet gesondert, wann das beginnt.
+Block (zweiter Limit-Halt, 2026-09-07) ist damit abgearbeitet.
+
+**Phase 2 (Dashboard) — Anlauf am 2026-09-08 pausiert:** beim Versuch loszulegen zeigte
+sich, dass es noch kein Mockup für die Drawer-Karten-Optik gibt und das „aktiv/inaktiv"-
+Kriterium für den Dashboard-Fall (mehrere Buckets gleichzeitig sichtbar, anders als die
+zwei klaren Kästen im Client) nicht eindeutig aus der Spec ableitbar ist. Tim erstellt
+selbst noch ein detailliertes Mockup. **Nicht von selbst weiterbauen/-planen** — auf das
+neue Mockup warten, siehe „Offene Fragen" am Ende der Spec-Datei.
 
 ## Was das ist
 „Geteilter Speicherstand sichtbar & nahtlos" (Phase 1, Client). Aus der ursprünglichen

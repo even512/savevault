@@ -419,6 +419,13 @@ Ausführungs-Schritt nach Bestätigung).
 ## Offene Fragen
 - Phase 2 (Dashboard) wird erst nach Abschluss und Abnahme von Phase 1 im Detail
   ausgeplant und braucht eine eigene Freigabe, bevor daran gebaut wird.
+- **Stand 2026-09-08:** Beim Anlauf von Phase 2 zeigte sich, dass es noch kein
+  Mockup für die Drawer-Karten-Optik gibt (das vorhandene `SpielstandSyncRedesign`-
+  Mockup deckt nur den Client ab) und das „aktiv/inaktiv"-Kriterium im Drawer nicht
+  eindeutig ist, da ein Spiel dort mehrere Buckets gleichzeitig zeigen kann (Geteilt +
+  je Gerät ein Lokal-Bucket + ggf. Konflikt-Kopie) — anders als die klaren zwei Kästen
+  im Client. Tim erstellt dafür noch ein eigenes, detailliertes Mockup. **Phase 2 ruht
+  bis dahin** — nicht von selbst weiterplanen/bauen, auf Tims neues Mockup warten.
 
 ## Plan-Korrektur (2026-09-07) — Umschalten muss ein exakter Austausch sein, nicht additiver Sync
 
