@@ -1,20 +1,19 @@
-# SaveVault — Limit-Checkpoint (2026-09-07, zweiter Halt)
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-08)
 
-**Grund:** 5-Stunden-Nutzungslimit erneut erreicht. Halt an der Schritt-Grenze gemäß
-`RULES.md` → „Limit-Checkpoint". Alles committet (lokal, kein Push außer dem einen
-Server-Deploy unten) — der vorherige Checkpoint-Block in dieser Datei ist überholt,
-seitdem ist viel passiert. Session-Ende hier, Fortsetzung nach Reset in neuer Session.
+**Delta `savevault-change-shared-save-sichtbarkeit.md` (Phase 1) — Laufzeit-Gate über den
+Gesamtstand gelaufen, wartet auf Tims formale Abnahme.** Der vorherige Checkpoint-Block
+(zweiter Limit-Halt, 2026-09-07) ist damit abgearbeitet.
 
 ## Was das ist
-Delta-Spec `specs/savevault-change-shared-save-sichtbarkeit.md` — „Geteilter Speicherstand
-sichtbar & nahtlos" (Phase 1, Client). Aus der ursprünglichen Sichtbarkeits-/Umschalt-
-Verbesserung wurden unterwegs (Tims Realtest deckte es auf) vier Plan-Korrekturen nötig,
-die tiefer in die Sync-/Konflikt-Mechanik gingen — jede einzeln dokumentiert, gegated und
-von Tim freigegeben. Lies den Nachtrag-Verlauf am Ende der Spec-Datei für die volle Historie.
+„Geteilter Speicherstand sichtbar & nahtlos" (Phase 1, Client). Aus der ursprünglichen
+Sichtbarkeits-/Umschalt-Verbesserung wurden unterwegs (Tims Realtest deckte es auf) vier
+Plan-Korrekturen nötig, die tiefer in die Sync-/Konflikt-Mechanik gingen — jede einzeln
+dokumentiert, gegated und von Tim freigegeben. Nachtrag-Verlauf am Ende der Spec-Datei.
 
-## Erreichter Stand — alles committet, alles gegated, alles live bestätigt
+## Erreichter Stand — alles committet, alles gegated, Gesamt-Laufzeit-Gate grün
 
-**Commits seit dem letzten Fortschritts-Block oben (neueste zuerst):**
+**Commits (neueste zuerst):**
+- `cc1015e` — ConflictWindow-Metadaten mit korrektem (kanonischem) Bucket-Schlüssel abgefragt.
 - `ec2a9b5` — Verwaisten Konflikt über „Lösen" mit Bestätigung auflösbar (Nachtrag 4).
 - `45e724a` — Verwaisten Konflikt-Status nach exaktem Austausch zurücksetzen (Nachtrag 3).
 - `8f2b722` — Server-Fix Gewinner-Gerät (Nachtrag 2) + Kern-Gate-Blocker behoben + Force-Upload-Knopf fertig.
@@ -24,47 +23,55 @@ von Tim freigegeben. Lies den Nachtrag-Verlauf am Ende der Spec-Datei für die v
 - Zwei-Kästen-UI (Server/Lokal), „Sicherung deaktivieren"-Leiste, Versionshistorie-
   Flyout, `ShareCompareWindow` entfernt, echter Datei-Zeitstempel, Force-Upload-Knopf
   „Als geteilten Stand hochladen" (mit Inline-Bestätigung) — alle Gates grün.
-- Exakter Bucket-Austausch (`SyncEngine.ReplaceLocalContentAsync` +
-  `LocalContentReplacer`) ersetzt die additive Sync-Anwendung beim Umschalten
-  Lokal↔Synchron — verhindert die fälschlichen Konflikte, die Tims Realtest zuerst
-  aufdeckte. Sichere Reihenfolge (erst alle Downloads/Moves, dann erst Löschen) nach
-  einer Korrekturrunde bestätigt.
+- Exakter Bucket-Austausch (`SyncEngine.ReplaceLocalContentAsync` + `LocalContentReplacer`)
+  ersetzt die additive Sync-Anwendung beim Umschalten Lokal↔Synchron — verhindert die
+  fälschlichen Konflikte, die Tims Realtest zuerst aufdeckte. Sichere Reihenfolge (erst
+  alle Downloads/Moves, dann erst Löschen).
 - **Server-Fix ausgeliefert:** `savevault-server:1.5.10` läuft bereits auf Tims Unraid
-  (gepusht + Docker-Image gebaut, von Tim bestätigt). Behebt, dass das gewinnende
-  Gerät nach einer Dashboard-Konfliktlösung nie eine Bestätigung bekam.
+  (gepusht + Docker-Image gebaut, von Tim bestätigt). Behebt, dass das gewinnende Gerät
+  nach einer Dashboard-Konfliktlösung nie eine Bestätigung bekam.
 - **Arc Raiders (Tims echter Repro-Fall) ist gelöst** — über „Lösen" mit dem neuen
   Bestätigungsdialog, von Tim live bestätigt („läuft sehr gut").
-- Build 0/0, `dotnet test` 194/194 grün durchgehend.
+- **ConflictWindow-Metadaten-Fix (`cc1015e`):** kanonischer Schlüssel + echter Scope statt
+  Doppel-Scoping — Zeit/Größe/Gerät im Konflikt-Dialog zeigen jetzt echte Werte statt „—".
 
-**Noch offen für die nächste Session:**
-1. **Kein vollständiges, frisches Laufzeit-Gate über den GESAMTEN Endstand** (inkl.
-   Nachtrag 3+4) durch den `tester` gelaufen — die einzelnen Nachträge wurden je für
-   sich gegated, aber kein zusammenfassender Durchlauf danach. Sollte vor der
-   endgültigen Kunden-Abnahme nachgeholt werden (Build/Test/Start-Smoke + Checkliste).
-2. **Kunden-Abnahme (formal) steht noch aus** — Tim hat vieles unterwegs live bestätigt
-   (Zeitstempel, Boxen, Arc Raiders), aber es gab keinen abschließenden „ja, so ist es
-   gut, bitte abschließen"-Moment für den Gesamtstand. Beim nächsten Einstieg klären,
-   ob aus Tims Sicht noch etwas fehlt, dann den Abschluss-Bericht (Screenshots/Ausgaben,
-   siehe RULES → „Kunden-Abnahme") nachholen.
-3. **Bekannte, bewusst offen gelassene Nebensache:** `ConflictWindow.xaml.cs` ruft
-   `GetRevisionsAsync` mit dem gescopten statt kanonischen Schlüssel auf → Metadaten im
-   Konflikt-Dialog bleiben „—" für privat-gescopte Teilnehmer (blockiert das Lösen
-   selbst nicht, rein kosmetisch). Tim als Wahl vorlegen (jetzt/später/so lassen).
-4. **Prozess-Hinweis vom `inspekteur`:** für Nachtrag 2–4 wurde das Spec-Gate (Prüfung
-   des Spec-**Texts** selbst) mit dem Kern-Gate (Prüfung des **Codes**) zusammengelegt,
-   statt beide strikt zu trennen wie in `RULES.md` vorgesehen — bewusste Abkürzung bei
-   kleinen, gut umrissenen Fixes unter Zeitdruck, nicht übersprungen, aber nicht
-   lehrbuchgetreu sequenziert. Für künftige Nachträge wieder sauber trennen.
-5. **Phase 2 (Dashboard, rein visuell)** noch nicht begonnen — eigene Freigabe nötig,
-   bevor daran gebaut wird (siehe „Offene Fragen" in der Spec).
-6. Nach Abschluss von Punkt 1+2: der **finale, nicht-WIP** Commit — bisherige Commits
-   sind inhaltlich fertig und gegated, aber formal noch nicht als „von Tim
-   abgenommen" markiert. Kein Push nötig außer wenn Tim es erneut ausdrücklich will
-   (wie beim Server-Deploy).
+**Gesamt-Laufzeit-Gate (2026-09-08, `tester`) — bestanden:**
+- Build 0/0, `dotnet test` 194/194.
+- Exakter Bucket-Austausch: Erfolgsfall UND erzwungener Abbruch mitten im Austausch
+  real geprüft (Wegwerf-Harness) — sichere Reihenfolge bestätigt, keine Reste, Status
+  korrekt (Nachtrag 3 bestätigt: Konflikt→Synced nach Austausch).
+- Server-Fix Gewinner-Gerät: In-Process gegen echte `VaultStore`-Klasse — beide Geräte
+  (Gewinner + Verlierer) bekommen `ApplyResolution`-Befehl.
+- Nachtrag 4 (Lösen mit Bestätigung bei verwaistem Konflikt): Code-Kette geprüft,
+  Bestätigung/Abbruch/echter-Konflikt-Regression alle korrekt.
+- Server-Smoke (echter `dotnet run`): Konflikt-Endpunkte sauber (401/404/400/503 je nach
+  Fall, keine 500er, kein Log-Fehler).
+
+**Ein nicht-blockierender Befund aus dem Gate (Backlog, nicht Teil dieses Deltas):**
+`SyncEngine.cs` — der `NoOp`-Schutz („Konflikt-Anzeige bleibt bei reinem No-Op-Zyklus
+bestehen", Zeile ~210-216) ist strukturell tot: `RunCycleAsync` (Zeile 80) setzt den
+Status unbedingt auf `Syncing`, bevor `NoOp()` seine Prüfung `GetStatus==Conflict`
+überhaupt lesen kann. Vorbestehend seit dem allerersten Commit (`282fba4`), **nicht**
+durch Nachtrag 1–4 verursacht. Laut Code-Analyse aktuell durch keinen realen Ablauf
+auslösbar (jeder Pfad, der eine spätere NoOp-Entscheidung ermöglicht, setzt den Status
+selbst explizit) — also kein akuter Praxis-Impact, aber der dokumentierte Schutz greift
+nicht mehr, falls künftig ein Pfad entsteht, der sich darauf verlässt. Tim vorlegen
+(jetzt beheben / als Alt-Last vormerken).
+
+## Noch offen
+1. **Kunden-Abnahme (formal)** — Tim hat vieles unterwegs live bestätigt (Zeitstempel,
+   Boxen, Arc Raiders), Gesamt-Gate ist jetzt grün. Fehlt noch: Tims „ja, abgeschlossen"
+   für den Gesamtstand (dieser Checkpoint dient als Abschluss-Bericht dafür).
+2. **Prozess-Hinweis vom `inspekteur`:** für Nachtrag 2–4 wurde das Spec-Gate mit dem
+   Kern-Gate zusammengelegt statt strikt getrennt (Zeitdruck bei kleinen, gut umrissenen
+   Fixes) — für künftige Nachträge wieder sauber trennen.
+3. **Phase 2 (Dashboard, rein visuell)** noch nicht begonnen — eigene Freigabe nötig
+   (Tim hat sich für „Phase 1 erst abschließen, dann Pause" entschieden, 2026-09-08).
+4. **NoOp-Dead-Code-Befund** (siehe oben) — Tims Entscheidung: jetzt fixen oder Backlog.
 
 ## Budget-Zeile (Stand Checkpoint)
-5h erneut erreicht (Reset-Zeitpunkt nicht bekannt) · Woche zuletzt bekannt ~3 %
-verbraucht vom Kickoff (veraltet, unkritisch, seitdem kein frischer Wert angefordert).
+Frischer Wert seit dem letzten Limit-Halt nicht neu erhoben — beim nächsten Einstieg
+`/usage` neu ziehen, falls relevant.
 
 ---
 
