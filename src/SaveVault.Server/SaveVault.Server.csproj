@@ -10,9 +10,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Server-Version (wird in den Einstellungen des Dashboards angezeigt → zeigt, welches
          Image tatsächlich läuft). -->
-    <Version>1.5.3</Version>
-    <AssemblyVersion>1.5.3</AssemblyVersion>
-    <FileVersion>1.5.3</FileVersion>
+    <Version>1.5.4</Version>
+    <AssemblyVersion>1.5.4</AssemblyVersion>
+    <FileVersion>1.5.4</FileVersion>
   </PropertyGroup>
 
 </Project>

@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body{margin:0;background:#0a0c0e;}
+  @keyframes sv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+  @keyframes sv-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+  .sv-scroll{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.18) transparent;}
+  .sv-scroll::-webkit-scrollbar{width:5px;}
+  .sv-scroll::-webkit-scrollbar-track{background:transparent;}
+  .sv-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.18);borderRadius:99px;}
+  .sv-scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.3);}
+  a{color:{{accentColor}};text-decoration:none}
+  a:hover{color:#ffffff}
+</style>
+</helmet>
+
+<div style="display:flex;width:100%;height:100vh;background:#0a0c0e;color:#f2f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden">
+
+  <div style="flex:1;padding:32px;opacity:0.35;filter:blur(0.3px);pointer-events:none;min-width:0">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:28px">
+      <div style="width:28px;height:28px;borderRadius:8px;background:{{accentColor}};display:flex;align-items:center;justify-content:center;font-weight:700;color:#0a0c0e;font-size:14px">S</div>
+      <div style="font-size:18px;font-weight:700">SaveVault</div>
+    </div>
+    <div style="font-size:26px;font-weight:700;margin-bottom:6px">Spiele</div>
+    <div style="font-size:13px;color:#8b9298;margin-bottom:20px">Alle erfassten Spielstände im Heimnetzwerk</div>
+    <sc-for list="{{ fakeRows }}" as="row" hint-placeholder-count="6">
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <div style="width:36px;height:36px;borderRadius:6px;background:#1c2024"></div>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:600">{{ row.name }}</div>
+          <div style="font-size:12px;color:#8b9298">{{ row.meta }}</div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="width:460px;flex-shrink:0;background:#141719;border-left:1px solid rgba(255,255,255,0.08);height:100%;overflow-y:auto;box-shadow:-24px 0 48px rgba(0,0,0,0.35)">
+    <div style="padding:24px 24px 32px 24px;display:flex;flex-direction:column;gap:22px">
+
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:56px;height:56px;borderRadius:10px;background:linear-gradient(150deg,#3a2a1e,#7a3b2e);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#f2d9c8">{{ game.initials }}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:19px;font-weight:700;line-height:1.2">{{ game.title }}</div>
+          <div style="font-size:12.5px;color:#8b9298;margin-top:4px">{{ game.metaLine }}</div>
+        </div>
+        <div style="width:30px;height:30px;borderRadius:8px;display:flex;align-items:center;justify-content:center;color:#8b9298;cursor:pointer;flex-shrink:0" style-hover="background:rgba(255,255,255,0.08);color:#f2f4f5">✕</div>
+      </div>
+
+      <div style="borderRadius:16px;padding:18px;background:{{ shared.cardBg }};border:1.5px solid {{ shared.borderColor }};boxShadow:{{ shared.cardShadow }};opacity:{{ shared.cardOpacity }}">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:34px;height:34px;borderRadius:10px;background:{{ shared.iconBg }};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="animation:{{ shared.spinAnim }}">
+              <path d="M17.65 6.35A8 8 0 1 0 19.8 13" stroke="{{ shared.iconColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M17.65 2.35v4h-4" stroke="{{ shared.iconColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6.35 17.65A8 8 0 1 0 4.2 11" stroke="{{ shared.iconColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6.35 21.65v-4h4" stroke="{{ shared.iconColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:700">Geteilter Speicherstand</div>
+            <div style="font-size:11.5px;color:#9aa1a8">{{ shared.subLabel }}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 10px;borderRadius:999px;background:{{ shared.pillBg }};flex-shrink:0">
+            <div style="width:6px;height:6px;borderRadius:50%;background:{{ shared.iconColor }};animation:{{ shared.dotAnim }}"></div>
+            <span style="font-size:11.5px;font-weight:600;color:{{ shared.iconColor }}">{{ shared.statusText }}</span>
+          </div>
+        </div>
+
+        <sc-if value="{{ shared.exists }}" hint-placeholder-val="{{ true }}">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:16px">
+            <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Herkunfts-Gerät</div><div style="font-size:13px;font-weight:600">{{ shared.origin }}</div></div>
+            <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Zeitpunkt</div><div style="font-size:13px;font-weight:600">{{ shared.time }}</div></div>
+            <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Größe</div><div style="font-size:13px;font-weight:600">{{ shared.size }}</div></div>
+            <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Dateien</div><div style="font-size:13px;font-weight:600">{{ shared.files }}</div></div>
+          </div>
+
+          <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:12px">
+            <div onClick="{{ shared.toggleOlder }}" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+              <div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em">Versionsverlauf</div>
+              <div style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:{{ accentColor }}">
+                {{ shared.historyButtonLabel }}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style="transform:{{ shared.historyChevron }};transition:transform .15s"><path d="M6 9l6 6 6-6" stroke="{{ accentColor }}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+            <sc-if value="{{ shared.olderOpen }}" hint-placeholder-val="{{ false }}">
+              <div class="sv-scroll" style="max-height:210px;overflow-y:auto;padding-right:10px;margin-top:8px">
+                <div style="position:relative;display:flex;align-items:center;gap:10px;padding:7px 0" onMouseEnter="{{ shared.latest.onEnter }}" onMouseLeave="{{ shared.latest.onLeave }}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;opacity:.7"><path d="M4 4h12l4 4v12H4z" stroke="#9aa1a8" stroke-width="1.6"/></svg>
+                  <div style="flex:1;font-size:12.5px;color:#dfe2e4">{{ shared.latest.label }} · {{ shared.latest.time }}</div>
+                  <div style="font-size:12px;color:#8b9298;opacity:{{ shared.latest.metaOpacity }}">{{ shared.latest.size }}</div>
+                  <div style="position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;gap:6px;opacity:{{ shared.latest.pillOpacity }};pointer-events:{{ shared.latest.pillPointer }};transition:opacity .12s;background:#191d1f">
+                    <div style="padding:3px 9px;borderRadius:999px;background:rgba(255,255,255,0.1);font-size:11px;font-weight:600;color:#dfe2e4;cursor:pointer" style-hover="background:rgba(255,255,255,0.18)">Export</div>
+                    <div style="padding:3px 9px;borderRadius:999px;background:{{ accentColor }}2e;font-size:11px;font-weight:600;color:{{ accentColor }};cursor:pointer" style-hover="background:{{ accentColor }}45">Wiederherstellen</div>
+                  </div>
+                </div>
+                <sc-for list="{{ shared.older }}" as="v" hint-placeholder-count="3">
+                  <div style="position:relative;display:flex;align-items:center;gap:10px;padding:7px 0 7px 24px" onMouseEnter="{{ v.onEnter }}" onMouseLeave="{{ v.onLeave }}">
+                    <div style="flex:1;font-size:12px;color:#9aa1a8">{{ v.label }} · {{ v.time }}</div>
+                    <div style="font-size:11.5px;color:#71787e;opacity:{{ v.metaOpacity }}">{{ v.size }}</div>
+                    <div style="position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;gap:6px;opacity:{{ v.pillOpacity }};pointer-events:{{ v.pillPointer }};transition:opacity .12s;background:#191d1f">
+                      <div style="padding:3px 9px;borderRadius:999px;background:rgba(255,255,255,0.1);font-size:11px;font-weight:600;color:#dfe2e4;cursor:pointer" style-hover="background:rgba(255,255,255,0.18)">Export</div>
+                      <div style="padding:3px 9px;borderRadius:999px;background:{{ accentColor }}2e;font-size:11px;font-weight:600;color:{{ accentColor }};cursor:pointer" style-hover="background:{{ accentColor }}45">Wiederherstellen</div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ shared.showEmptyState }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:12.5px;color:#71787e;line-height:1.5;padding-top:2px">Für dieses Spiel wurde noch kein geteilter Stand angelegt. Sobald ein Client synchronisiert, erscheint er hier.</div>
+        </sc-if>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
+        <div style="font-size:11px;font-weight:700;color:#8b9298;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap">Clients · {{ clientCountLabel }}</div>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <sc-for list="{{ clients }}" as="client" hint-placeholder-count="3">
+          <div style="position:relative">
+            <div onClick="{{ client.toggleExpand }}" style="position:relative;borderRadius:14px;padding:14px 16px;background:{{ client.cardBg }};border:1px solid {{ client.cardBorder }};cursor:pointer;boxShadow:{{ client.glowShadow }};transition:border-color .3s,background .3s,box-shadow .3s" style-hover="border-color:rgba(255,255,255,0.14)">
+
+              <div style="display:flex;align-items:center;gap:10px">
+                <sc-if value="{{ client.showSyncIcon }}" hint-placeholder-val="{{ false }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;animation:sv-spin 2.2s linear infinite">
+                    <path d="M17.65 6.35A8 8 0 1 0 19.8 13" stroke="{{ client.statusColor }}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M17.65 2.35v4h-4" stroke="{{ client.statusColor }}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M6.35 17.65A8 8 0 1 0 4.2 11" stroke="{{ client.statusColor }}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M6.35 21.65v-4h4" stroke="{{ client.statusColor }}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </sc-if>
+                <sc-if value="{{ client.showDot }}" hint-placeholder-val="{{ true }}">
+                  <div style="width:8px;height:8px;borderRadius:50%;background:{{ client.statusColor }};flex-shrink:0;animation:{{ client.dotAnim }}"></div>
+                </sc-if>
+
+                <sc-if value="{{ client.isPc }}" hint-placeholder-val="{{ true }}">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;opacity:.6"><rect x="3" y="4" width="18" height="12" rx="1.5" stroke="#9aa1a8" stroke-width="1.6"/><path d="M8 20h8" stroke="#9aa1a8" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </sc-if>
+                <sc-if value="{{ client.isConsole }}" hint-placeholder-val="{{ false }}">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;opacity:.6"><rect x="2" y="8" width="20" height="9" rx="4" stroke="#9aa1a8" stroke-width="1.6"/><circle cx="17" cy="12.5" r="1.3" fill="#9aa1a8"/></svg>
+                </sc-if>
+
+                <div style="font-size:13.5px;font-weight:700;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ client.name }}</div>
+
+                <sc-if value="{{ client.hasConflict }}" hint-placeholder-val="{{ false }}">
+                  <div title="Konflikt mit geteiltem Stand" style="display:flex;align-items:center;gap:3px;padding:2px 7px;borderRadius:999px;background:#f5a62322;flex-shrink:0">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#f5a623"/><path d="M12 7v6" stroke="#1a1e20" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.2" r="1.1" fill="#1a1e20"/></svg>
+                    <span style="font-size:10.5px;font-weight:700;color:#f5a623">Konflikt</span>
+                  </div>
+                </sc-if>
+
+                <div style="flex:1"></div>
+                <div style="font-size:12px;color:#9aa1a8;text-align:right;flex-shrink:0">{{ client.lastActivity }}</div>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;transform:{{ client.chevronRotate }};transition:transform .15s"><path d="M6 9l6 6 6-6" stroke="#71787e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+
+              <div style="overflow:hidden;transition:max-height .32s cubic-bezier(.4,0,.2,1),opacity .28s ease;max-height:{{ client.expandMaxHeight }};opacity:{{ client.expandOpacity }}">
+                <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.07)">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:14px">
+                    <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Status</div><div style="font-size:13px;font-weight:600;color:{{ client.statusColor }}">{{ client.statusText }}</div></div>
+                    <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Letzte Änderung</div><div style="font-size:13px;font-weight:600">{{ client.lastActivity }}</div></div>
+                    <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Größe</div><div style="font-size:13px;font-weight:600">{{ client.size }}</div></div>
+                    <div><div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Dateien</div><div style="font-size:13px;font-weight:600">{{ client.files }}</div></div>
+                  </div>
+
+                  <sc-if value="{{ client.hasConflict }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;borderRadius:10px;background:#f5a62314;margin-bottom:14px">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10" fill="#f5a623"/><path d="M12 7v6" stroke="#1a1e20" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.2" r="1.1" fill="#1a1e20"/></svg>
+                      <div style="font-size:12px;color:#f5c876;line-height:1.4">Unterscheidet sich vom geteilten Stand. Bitte prüfen, bevor synchronisiert wird.</div>
+                    </div>
+                  </sc-if>
+
+                  <div onClick="{{ client.toggleOlder }}" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+                    <div style="font-size:10.5px;color:#8b9298;text-transform:uppercase;letter-spacing:.04em">Versionsverlauf</div>
+                    <div style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:{{ accentColor }}">
+                      {{ client.historyButtonLabel }}
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style="transform:{{ client.historyChevron }};transition:transform .15s"><path d="M6 9l6 6 6-6" stroke="{{ accentColor }}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </div>
+                  </div>
+                  <sc-if value="{{ client.olderOpen }}" hint-placeholder-val="{{ false }}">
+                    <div class="sv-scroll" style="max-height:180px;overflow-y:auto;padding-right:10px;margin-top:8px">
+                      <div style="position:relative;display:flex;align-items:center;gap:10px;padding:6px 0" onMouseEnter="{{ client.latest.onEnter }}" onMouseLeave="{{ client.latest.onLeave }}">
+                        <div style="flex:1;font-size:12.5px;color:#dfe2e4">{{ client.latest.label }} · {{ client.latest.time }}</div>
+                        <div style="font-size:12px;color:#8b9298;opacity:{{ client.latest.metaOpacity }}">{{ client.latest.size }}</div>
+                        <div style="position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;gap:6px;opacity:{{ client.latest.pillOpacity }};pointer-events:{{ client.latest.pillPointer }};transition:opacity .12s;background:#1a1e20">
+                          <div style="padding:3px 9px;borderRadius:999px;background:rgba(255,255,255,0.1);font-size:11px;font-weight:600;color:#dfe2e4;cursor:pointer" style-hover="background:rgba(255,255,255,0.18)">Export</div>
+                          <div style="padding:3px 9px;borderRadius:999px;background:{{ accentColor }}2e;font-size:11px;font-weight:600;color:{{ accentColor }};cursor:pointer" style-hover="background:{{ accentColor }}45">Wiederherstellen</div>
+                        </div>
+                      </div>
+                      <sc-for list="{{ client.older }}" as="v" hint-placeholder-count="2">
+                        <div style="position:relative;display:flex;align-items:center;gap:10px;padding:6px 0 6px 4px" onMouseEnter="{{ v.onEnter }}" onMouseLeave="{{ v.onLeave }}">
+                          <div style="flex:1;font-size:12px;color:#9aa1a8">{{ v.label }} · {{ v.time }}</div>
+                          <div style="font-size:11.5px;color:#71787e;opacity:{{ v.metaOpacity }}">{{ v.size }}</div>
+                          <div style="position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;gap:6px;opacity:{{ v.pillOpacity }};pointer-events:{{ v.pillPointer }};transition:opacity .12s;background:#1a1e20">
+                            <div style="padding:3px 9px;borderRadius:999px;background:rgba(255,255,255,0.1);font-size:11px;font-weight:600;color:#dfe2e4;cursor:pointer" style-hover="background:rgba(255,255,255,0.18)">Export</div>
+                            <div style="padding:3px 9px;borderRadius:999px;background:{{ accentColor }}2e;font-size:11px;font-weight:600;color:{{ accentColor }};cursor:pointer" style-hover="background:{{ accentColor }}45">Wiederherstellen</div>
+                          </div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:900},&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#4fd1c5&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#4fd1c5&quot;,&quot;#7dd3fc&quot;,&quot;#a78bfa&quot;,&quot;#f5a623&quot;],&quot;section&quot;:&quot;Optik&quot;},&quot;sharedState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;aktiv&quot;,&quot;options&quot;:[&quot;aktiv&quot;,&quot;inaktiv&quot;,&quot;keiner&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Verhalten&quot;},&quot;forceConflict&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Verhalten&quot;},&quot;clientCount&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;4&quot;,&quot;options&quot;:[&quot;2&quot;,&quot;3&quot;,&quot;4&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Verhalten&quot;}}">
+class Component extends DCLogic {
+  state = {
+    sharedOlderOpen: false,
+    expanded: { 'EILEEN-SOPHIE': true },
+    olderOpen: {},
+    hoverKey: null
+  };
+
+  setHover(key) { this.setState({ hoverKey: key }); }
+  clearHover(key) { this.setState(s => (s.hoverKey === key ? { hoverKey: null } : s)); }
+
+  versionRow(key, v) {
+    const hovered = this.state.hoverKey === key;
+    return {
+      ...v,
+      onEnter: () => this.setHover(key),
+      onLeave: () => this.clearHover(key),
+      metaOpacity: hovered ? 0 : 1,
+      pillOpacity: hovered ? 1 : 0,
+      pillPointer: hovered ? 'auto' : 'none'
+    };
+  }
+
+  genOlder(n, latestNum) {
+    const arr = [];
+    let size = 12;
+    for (let i = 1; i <= n; i++) {
+      size = Math.max(8, size - (i % 3 === 0 ? 0.2 : 0));
+      const days = i * 1 + Math.floor(i / 3);
+      arr.push({ label: '#' + (latestNum - i), time: `vor ${days} Tagen`, size: size.toFixed(1).replace('.', ',') + ' MB', files: String(35 - Math.floor(i / 4)) });
+    }
+    return arr;
+  }
+
+  clientDefs() {
+    const all = [
+      { name: 'EILEEN-SOPHIE', device: 'pc', status: 'synced', lastActivity: 'vor 2 Min.', size: '12,1 MB', files: '35', syncPercent: 100, matchesShared: true,
+        latest: { label: '#21', time: '02.09., 23:52', size: '12 MB', files: '35' },
+        older: this.genOlder(20, 21) },
+      { name: 'EVENCONSOLE', device: 'console', status: 'synced', lastActivity: 'vor 2 Tagen', size: '10 MB', files: '25', syncPercent: 100, matchesShared: true,
+        latest: { label: '#20', time: '05.09., 17:20', size: '10 MB', files: '25' },
+        older: this.genOlder(19, 20) },
+      { name: 'EVEN_NB', device: 'pc', status: 'conflict', lastActivity: 'vor 5 Min.', size: '12,4 MB', files: '36', syncPercent: 68, hasConflict: true, matchesShared: false,
+        latest: { label: '#12', time: '08.09., 12:53', size: '12,4 MB', files: '36' },
+        older: this.genOlder(11, 12) },
+      { name: 'OLD-LAPTOP', device: 'pc', status: 'offline', lastActivity: 'vor 12 Tagen', size: '9,4 MB', files: '30', syncPercent: 0, matchesShared: false,
+        latest: { label: '#8', time: '27.08., 08:11', size: '9,4 MB', files: '30' },
+        older: this.genOlder(7, 8) }
+    ];
+    const n = { '2': 2, '3': 3, '4': 4 }[this.props.clientCount ?? '4'] ?? 4;
+    return all.slice(0, n);
+  }
+
+  statusColor(status, accent) {
+    if (status === 'synced') return accent;
+    if (status === 'conflict') return '#f5a623';
+    if (status === 'offline') return '#5b6166';
+    return '#5b6166';
+  }
+  statusText(status) {
+    return { synced: 'Synchronisiert', conflict: 'Konflikt', offline: 'Offline' }[status] || status;
+  }
+
+  toggleExpand(name) {
+    this.setState(s => {
+      const willOpen = !s.expanded[name];
+      const expanded = {};
+      if (willOpen) expanded[name] = true;
+      return { expanded };
+    });
+  }
+  toggleOlder(name) {
+    this.setState(s => ({ olderOpen: { ...s.olderOpen, [name]: !s.olderOpen[name] } }));
+  }
+
+  renderVals() {
+    const accent = this.props.accentColor ?? '#4fd1c5';
+    const sharedState = this.props.sharedState ?? 'aktiv';
+    const sharedSyncing = sharedState === 'aktiv';
+    const forceConflict = this.props.forceConflict ?? true;
+
+    const defs = this.clientDefs().map(c => forceConflict ? c : { ...c, hasConflict: false, status: c.status === 'conflict' ? 'synced' : c.status });
+
+    const clients = defs.map(c => {
+      const expanded = !!this.state.expanded[c.name];
+      const olderOpen = !!this.state.olderOpen[c.name];
+      return {
+        name: c.name,
+        isPc: c.device === 'pc',
+        isConsole: c.device === 'console',
+        statusColor: this.statusColor(c.status, accent),
+        statusText: this.statusText(c.status),
+        lastActivity: c.lastActivity,
+        size: c.size,
+        files: c.files,
+        syncPercentStr: c.syncPercent + '%',
+        collapsedBarVisible: !expanded && c.syncPercent < 100,
+        hasConflict: !!c.hasConflict,
+        showGlow: sharedState === 'aktiv' && !c.hasConflict && !!c.matchesShared,
+        showSyncIcon: sharedState === 'aktiv' && !c.hasConflict && !!c.matchesShared,
+        showDot: !(sharedState === 'aktiv' && !c.hasConflict && !!c.matchesShared),
+        glowShadow: (sharedState === 'aktiv' && !c.hasConflict && !!c.matchesShared) ? `0 0 0 1px ${accent}70, 0 0 18px 1px ${accent}40` : 'none',
+        cardBg: sharedState === 'aktiv' && !c.hasConflict && c.matchesShared ? `linear-gradient(160deg, ${accent}12, #1a1e20)` : '#1a1e20',
+        cardBorder: sharedState === 'aktiv' && !c.hasConflict && c.matchesShared ? accent + '70' : 'rgba(255,255,255,0.07)',
+        expanded,
+        chevronRotate: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        expandMaxHeight: expanded ? '600px' : '0px',
+        expandOpacity: expanded ? 1 : 0,
+        toggleExpand: () => this.toggleExpand(c.name),
+        latest: this.versionRow(`client-${c.name}-latest`, c.latest),
+        older: c.older.map((v, i) => this.versionRow(`client-${c.name}-older-${i}`, v)),
+        olderOpen,
+        historyButtonLabel: olderOpen ? 'Ausblenden' : `Anzeigen (${c.older.length + 1})`,
+        historyChevron: olderOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+        toggleOlder: (e) => { e.stopPropagation(); this.toggleOlder(c.name); },
+        dotAnim: c.status === 'conflict' ? 'sv-pulse 1.6s ease-in-out infinite' : (c.status === 'synced' ? 'sv-spin 2.2s linear infinite' : 'none')
+      };
+    });
+
+    const result = {
+      accentColor: accent,
+      accentSoftBg: accent + '14',
+      game: {
+        initials: 'CD',
+        title: 'Crimson Desert',
+        metaLine: `auf ${clients.length} Geräten · 45 MB · 120 Dateien`
+      },
+      fakeRows: [
+        { name: 'A Short Hike', meta: 'Synchronisiert · vor 4 Min.' },
+        { name: 'Against the Storm', meta: 'Synchronisiert · vor 19 Std.' },
+        { name: 'Assassin\'s Creed Valhalla', meta: 'Synchronisiert · vor 3 Tagen' },
+        { name: 'Battlefield 6', meta: 'Synchronisiert · vor 19 Min.' },
+        { name: 'Cyberpunk 2077', meta: 'Synchronisiert · vor 3 Tagen' },
+        { name: 'Days Gone', meta: 'Synchronisiert · vor 1 Tag' }
+      ],
+      shared: (() => {
+        const exists = sharedState !== 'keiner';
+        const active = sharedState === 'aktiv';
+        const grayColor = '#5b6166';
+        const iconColor = !exists ? grayColor : (active ? accent : grayColor);
+        return {
+          exists,
+          showEmptyState: !exists,
+          iconColor,
+          iconBg: iconColor + '22',
+          pillBg: iconColor + '1f',
+          subLabel: !exists ? 'nicht vorhanden' : (active ? 'synchron über alle Geräte' : 'wird derzeit nicht genutzt'),
+          statusText: !exists ? 'Kein Stand' : (active ? 'Synced' : 'Inaktiv'),
+          cardBg: exists && active ? `linear-gradient(160deg, ${accent}14, #191d1f)` : '#191d1f',
+          borderColor: exists && active ? accent + '55' : 'rgba(255,255,255,0.08)',
+          cardShadow: exists && active ? `0 0 0 1px ${accent}22, 0 12px 28px -12px ${accent}44` : 'none',
+          cardOpacity: exists && active ? 1 : 0.55,
+          origin: 'EILEEN-SOPHIE',
+          time: '05.09., 18:34',
+          size: '12,1 MB',
+          files: '35',
+          latest: this.versionRow('shared-latest', { label: '#91', time: '05.09., 18:34', size: '12 MB', files: '35' }),
+          older: this.genOlder(90, 91).map((v, i) => this.versionRow(`shared-older-${i}`, v)),
+          olderOpen: this.state.sharedOlderOpen,
+          historyButtonLabel: this.state.sharedOlderOpen ? 'Ausblenden' : 'Anzeigen (91)',
+          historyChevron: this.state.sharedOlderOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+          toggleOlder: () => this.setState(s => ({ sharedOlderOpen: !s.sharedOlderOpen })),
+          spinAnim: sharedSyncing ? 'sv-spin 2.2s linear infinite' : 'none',
+          dotAnim: sharedSyncing ? 'sv-pulse 1.4s ease-in-out infinite' : 'none'
+        };
+      })(),
+      clientCountLabel: clients.length,
+      clients
+    };
+    this._lastNames = clients.map(c => c.name);
+    return result;
+  }
+}
+</script>
+</body>
+</html>

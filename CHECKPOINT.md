@@ -1,5 +1,46 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-08)
 
+**Spiel-Detailpanel neu gestaltet (Server 1.5.4).** Delta-Spec
+`specs/savevault-change-detailpanel-redesign.md`, Weg über `/projekt-edit`. Reine
+**Server-Dashboard-Änderung** (`app.js`/`styles.css`, kein Backend-/Client-Code) —
+das ausfahrbare Spiel-Detailpanel folgt jetzt der Optik aus dem importierten
+Claude-Design-Projekt `design-reference/Spiele Detailpanel.dc.html`.
+- **Neue Struktur statt gestapelter Bucket-Abschnitte:** eine Karte „Geteilter
+  Speicherstand" oben (Status-Pille, Herkunfts-Gerät/Zeitpunkt/Größe/Dateien,
+  Standard-Pfad, eigener Versionsverlauf hinter einem Umschalter, Konflikt-Banner
+  mit „Lösen") + darunter eine Liste ausklappbarer Geräte-Karten („Clients", ein
+  Bucket = ein Gerät, Akkordeon — nur eine Karte gleichzeitig offen; Sync-Icon +
+  dezenter Grün-Glow bei „Synced", Konflikt-Badge/-Banner+„Lösen" je Gerät).
+  Leerzustand ohne geteilten Stand zeigt Hinweistext + „Über Geräte teilen".
+  Drawer-Kopf (echtes Cover-Art, Titel) unverändert.
+- **Konflikt-Zuordnung über Teilnehmerliste:** ein `Conflict`-Datensatz hängt am
+  (geteilten) Bucket, nicht an den privaten Buckets der beteiligten Geräte — das
+  Konflikt-Badge je Client-Karte matcht daher `conflict.participants[].deviceId`
+  gegen `bucket.ownerDeviceId`, nicht den Bucket-Schlüssel direkt (sonst leer).
+- **Konflikt-Kopien (Fork-Buckets) bekommen eine eigene, einfache Karte**
+  (`forkCard`): eigener kanonischer Schlüssel server-seitig (`{key}#conflict-N`)
+  → eigene Kachel/eigenes Drawer, nie Teil des Eltern-Spiels. Bewusst NICHT die
+  „Geteilter Speicherstand"-Optik (kein Status-Pill/Glow/„Clients"-Abschnitt),
+  sonst sähe ein eingefrorener Verlierer-Stand wie ein live synchroner Stand aus.
+- **Gate grün:** Build **0/0**, `dotnet test` **195/0/0** (unverändert, reine
+  Frontend-Änderung). `/code-review high`: **3 Befunde → 2 behoben** (Fork-Buckets
+  öffneten anfangs fälschlich die „Geteilter Speicherstand"-Karte, weil `isFork`
+  nicht geprüft wurde; der Standard-Save-Pfad ging beim Umbau zunächst verloren),
+  **1 begründet abgelehnt** (neuer `kvCell()`-Helfer dupliziere `kv()` — unterschiedliche
+  Optik/Aufrufer/Rückgabewert, Zusammenlegen hätte 3 bestehende Call-Sites riskiert
+  für rein kosmetischen Gewinn). **Laufzeit real belegt** (lokaler Server, echte
+  HTTP-API-Seed-Daten: 2 Geräte + geteilter Bucket + echter Konflikt via
+  `isConflict:true`-Upload): Karte/Client-Karten zeigen korrekten Status, Akkordeon
+  funktioniert, „Lösen" öffnet den bestehenden Konflikt-Dialog und löst real auf
+  („Beide behalten" getestet), Standard-Pfad erscheint, Konflikt-Kopie-Karte nach
+  Auflösung korrekt (nicht als „geteilt" missverstanden), Export/Wiederherstellen
+  funktionieren. Kein `/security-review` (keine sensible Fläche berührt).
+- **Rollout:** nur Server-Image neu bauen/deployen (kein Client-Update nötig).
+- **Offen:** keine Blocker. Visuelle Abnahme im echten Dashboard mit echten Daten
+  bei Tim ausständig (Notebook-Testdaten waren synthetisch über die HTTP-API geseedet).
+
+---
+
 **Release v1.8.0 (Client) / Server 1.5.2 — Zwei-Kästen-Ansicht Geteilt/Lokal fertig + Kern-Fixes,
 Version-Bump nachgeholt.** Der Limit-Checkpoint direkt unten (2026-09-07) ist erledigt: beide dort
 genannten Kern-Gate-Blocker wurden bereits mit Commit `8f2b722` behoben (Reihenfolge in

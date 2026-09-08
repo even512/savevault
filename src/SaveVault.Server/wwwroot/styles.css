@@ -44,6 +44,11 @@ html, body {
 ::-webkit-scrollbar-thumb { background: oklch(0.32 0.02 280); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* Schmale Scrollbar für kleine, verschachtelte Listen (z. B. Versionsverlauf im Drawer). */
+.sv-scroll { scrollbar-width: thin; scrollbar-color: oklch(0.4 0.02 280) transparent; }
+.sv-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+.sv-scroll::-webkit-scrollbar-thumb { background: oklch(0.4 0.02 280); border-radius: 99px; }
+
 button { font-family: inherit; }
 
 /* ---- Keyframes -------------------------------------------------------- */
@@ -354,29 +359,12 @@ button { font-family: inherit; }
   font-size: 12.5px; font-weight: 650; color: var(--muted);
   text-transform: uppercase; letter-spacing: .4px; margin: 0 0 10px;
 }
-/* Ein Abschnitt je Bucket (Gerät/Geteilt/Konflikt-Kopie) innerhalb eines Spiels. */
-.bucket-section { margin-top: 4px; }
-.bucket-section + .bucket-section {
-  margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);
-}
-.bucket-section__head {
-  font-size: 13.5px; font-weight: 650; color: var(--text);
-  margin: 0 0 8px; letter-spacing: .2px;
-}
 .close-btn {
   width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
   cursor: pointer; color: var(--muted); background: none; border: none; flex: 0 0 auto;
 }
 .close-btn:hover { background: var(--card-3); color: white; }
 .close-btn__glyph { width: 14px; height: 14px; }
-
-.drawer-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
-.drawer-item {
-  display: flex; align-items: center; justify-content: space-between;
-  background: var(--card-2); border-radius: 10px; padding: 11px 14px; gap: 10px;
-}
-.drawer-item__name { font-size: 13px; font-weight: 600; }
-.drawer-item__sub { font-size: 11.5px; color: var(--muted-2); margin-top: 2px; }
 
 .version-list { display: flex; flex-direction: column; gap: 2px; }
 .version-row {
@@ -388,17 +376,22 @@ button { font-family: inherit; }
 .version-row__actions { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
 .btn-inline:disabled { opacity: 0.6; cursor: default; text-decoration: none; }
 
-/* Ältere Versionen im Bucket-Abschnitt: standardmäßig eingeklappt hinter einem Toggle. */
-.version-toggle {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  width: 100%; margin-top: 2px; padding: 9px 4px; border: none; background: none;
-  color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600;
-  text-align: left; cursor: pointer; border-radius: 8px; transition: background .15s, color .15s;
+/* Versionsverlauf-Umschalter (geteilte Karte + je Client-Karte + Konflikt-Kopien):
+   Kopfzeile klappt die komplette Liste (inkl. neuester Version) auf/zu. */
+.version-history { border-top: 1px solid var(--border); padding-top: 12px; }
+.version-history__head {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  border: none; background: none; padding: 0; cursor: pointer; font: inherit; color: inherit;
 }
-.version-toggle:hover { background: var(--card-2); color: var(--text); }
-.version-toggle__chevron { width: 12px; height: 12px; color: oklch(0.5 0.02 280); transition: transform .2s; flex: 0 0 auto; }
-.version-toggle.is-open .version-toggle__chevron { transform: rotate(90deg); }
-.version-older { display: flex; flex-direction: column; gap: 2px; }
+.version-history__label {
+  font-size: 10.5px; font-weight: 650; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.version-history__toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--accent); }
+.version-history__chevron { width: 11px; height: 11px; color: var(--accent); transition: transform .15s; flex: 0 0 auto; }
+.version-history__chevron.is-open { transform: rotate(180deg); }
+.version-history__body { display: none; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; margin-top: 8px; padding-right: 6px; }
+.version-history__body.is-open { display: flex; }
 
 .conflict-banner {
   background: oklch(0.75 0.18 55 / 0.12); border: 1px solid oklch(0.75 0.18 55 / 0.4);
@@ -406,6 +399,84 @@ button { font-family: inherit; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
 .conflict-banner__text { font-size: 13px; color: oklch(0.85 0.14 55); }
+.conflict-banner--tight { padding: 10px 12px; margin: 0 0 14px; gap: 10px; }
+
+/* ---- Geteilter-Speicherstand-Karte + Client-Karten (Spiel-Detailpanel) ---- */
+.shared-card {
+  border-radius: 16px; padding: 18px; background: var(--card-2);
+  border: 1.5px solid var(--border); margin-bottom: 4px;
+}
+.shared-card.is-active {
+  background: linear-gradient(160deg, oklch(0.75 0.16 150 / 0.1), var(--card-2));
+  border-color: oklch(0.75 0.16 150 / 0.4);
+  box-shadow: 0 12px 28px -18px oklch(0.75 0.16 150 / 0.5);
+}
+.shared-card__head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.shared-card__icon {
+  width: 34px; height: 34px; border-radius: 10px; background: var(--card-3);
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+}
+.shared-card__icon-glyph { width: 18px; height: 18px; color: var(--muted-2); }
+.shared-card__icon-glyph.spin { animation: sv-spin 2.2s linear infinite; }
+.shared-card.is-active .shared-card__icon { background: oklch(0.75 0.16 150 / 0.16); }
+.shared-card.is-active .shared-card__icon-glyph { color: var(--synced); }
+.shared-card__title-wrap { flex: 1 1 auto; min-width: 0; }
+.shared-card__title { font-size: 15px; font-weight: 700; }
+.shared-card__sub { font-size: 11.5px; color: var(--muted-2); margin-top: 1px; }
+.shared-card__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 14px; }
+.shared-card__empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.shared-card__empty-text { font-size: 12.5px; color: var(--muted-2); line-height: 1.5; }
+
+/* Standard-Save-Pfad (falls von einer Revision bekannt) – leer, solange nichts geladen/gefunden. */
+.bucket-path { font-size: 11.5px; color: var(--muted-2); opacity: .85; word-break: break-all; }
+.bucket-path:empty { display: none; }
+
+.kv-cell__label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+.kv-cell__value { font-size: 13px; font-weight: 600; }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border-radius: 999px; background: var(--card-3); flex: 0 0 auto;
+}
+.status-pill__label { font-size: 11.5px; font-weight: 600; }
+
+.clients-divider { display: flex; align-items: center; gap: 10px; margin: 4px 0; }
+.clients-divider__line { flex: 1 1 auto; height: 1px; background: var(--border); }
+.clients-divider__label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+
+.client-cards { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+.client-card2 {
+  border-radius: 14px; background: var(--card-2); border: 1px solid var(--border);
+  transition: border-color .2s, background .2s, box-shadow .2s;
+}
+.client-card2.is-glow {
+  border-color: oklch(0.75 0.16 150 / 0.5);
+  background: linear-gradient(160deg, oklch(0.75 0.16 150 / 0.08), var(--card-2));
+  box-shadow: 0 0 0 1px oklch(0.75 0.16 150 / 0.3);
+}
+.client-card2__head {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 15px;
+  background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.client-card2__sync-icon { width: 13px; height: 13px; flex: 0 0 auto; color: var(--synced); }
+.client-card2__sync-icon.spin { animation: sv-spin 2.2s linear infinite; }
+.client-card2__device-icon { width: 15px; height: 15px; flex: 0 0 auto; color: var(--muted-2); opacity: .7; }
+.client-card2__name { font-size: 13.5px; font-weight: 700; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-card2__conflict-badge {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px;
+  background: oklch(0.75 0.18 55 / 0.14); color: var(--conflict); font-size: 10.5px; font-weight: 700; flex: 0 0 auto;
+}
+.client-card2__conflict-badge-icon { width: 10px; height: 10px; }
+.client-card2__spacer { flex: 1 1 auto; }
+.client-card2__activity { font-size: 12px; color: var(--muted-2); flex: 0 0 auto; white-space: nowrap; }
+.client-card2__chevron { width: 12px; height: 12px; color: var(--muted-2); transition: transform .15s; flex: 0 0 auto; }
+.client-card2.is-open .client-card2__chevron { transform: rotate(90deg); }
+.client-card2__body { display: none; padding: 0 15px 16px; }
+.client-card2.is-open .client-card2__body { display: block; animation: sv-fadeUp .2s ease; }
+.client-card2__grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px;
+  padding-top: 12px; border-top: 1px solid var(--border); margin-bottom: 14px;
+}
 
 .client-info-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12.5px; color: var(--muted);
