@@ -77,6 +77,9 @@ public sealed class SyncEngine
         if (roots.Count == 0)
             return Report(game, SyncAction.NoOp, SyncStatus.Error, "Kein lokaler Ordner zugeordnet.", folder);
 
+        // Vor dem Umschalten auf "Syncing" merken - NoOp() muss wissen, ob VOR diesem Zyklus ein
+        // Konflikt anstand, denn danach liest _state.GetStatus(game) nur noch "Syncing" (s.u.).
+        var statusBeforeCycle = _state.GetStatus(game);
         _state.SetStatus(game, SyncStatus.Syncing, folder: folder);
 
         try
@@ -92,7 +95,7 @@ public sealed class SyncEngine
                 SyncAction.Upload => await UploadAsync(game, roots, local, state, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Download => await DownloadAsync(game, roots, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Conflict => await ConflictAsync(game, roots, local, state, scope, ct).ConfigureAwait(false),
-                _ => NoOp(game, folder, state.BaseRevision, decision.Reason),
+                _ => NoOp(game, folder, state.BaseRevision, decision.Reason, statusBeforeCycle),
             };
         }
         catch (OperationCanceledException)
@@ -207,10 +210,12 @@ public sealed class SyncEngine
             folder, state.BaseRevision);
     }
 
-    private SyncCycleResult NoOp(GameKey game, string folder, long baseRevision, string reason)
+    private SyncCycleResult NoOp(GameKey game, string folder, long baseRevision, string reason, SyncStatus? statusBeforeCycle)
     {
         // Nur wenn kein Konflikt aussteht auf „Synced" – ein bestehender Konflikt bleibt sichtbar.
-        var status = _state.GetStatus(game) == SyncStatus.Conflict ? SyncStatus.Conflict : SyncStatus.Synced;
+        // Prüft den Status VOR diesem Zyklus (RunCycleAsync hat ihn zwischenzeitlich auf "Syncing"
+        // gesetzt) - sonst würde dieser Schutz nie greifen.
+        var status = statusBeforeCycle == SyncStatus.Conflict ? SyncStatus.Conflict : SyncStatus.Synced;
         _state.SetStatus(game, status, folder: folder, baseRevision: baseRevision);
         return new SyncCycleResult(game, SyncAction.NoOp, status, reason, _nowUtc());
     }
