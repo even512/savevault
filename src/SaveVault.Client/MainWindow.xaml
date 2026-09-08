@@ -847,7 +847,8 @@
                                             Style="{StaticResource ChipButton}" Margin="0,0,6,6"
                                             Visibility="{Binding ForceUploadVisibility}" IsEnabled="{Binding CanSyncNow}">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding ForceUploadLabel}" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding ForceUploadLabel}" HorizontalAlignment="Center"
+                                                       TextWrapping="Wrap" MaxWidth="130" TextAlignment="Center" />
                                             <TextBlock Text="{Binding ForceUploadHint}" Visibility="{Binding ForceUploadHintVisibility}"
                                                        FontSize="9.5" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0"
                                                        TextWrapping="Wrap" MaxWidth="190" HorizontalAlignment="Center" TextAlignment="Center" />

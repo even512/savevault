@@ -3,6 +3,12 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.2 — 2026-09-08
+
+- **Fix: Layout im Spiel-Detail.** Der Knopf „Als geteilten Stand hochladen" konnte durch seinen
+  Text sehr breit werden und drängte dabei „Ordner öffnen" fast komplett aus der Zeile. Der
+  Button-Text bricht jetzt um statt in voller Breite auf einer Zeile zu stehen.
+
 ## v1.8.1 — 2026-09-08
 
 - **Fix: „Herkunftsgerät" zeigte eine Geräte-ID statt eines Namens.** Sowohl beim geteilten
