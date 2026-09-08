@@ -315,7 +315,7 @@ public sealed class GameRow : INotifyPropertyChanged
 
         if (probe.Shared is { } shared)
         {
-            ShareOriginDevice = string.IsNullOrWhiteSpace(shared.DeviceLabel) ? "Unbekanntes Gerät" : ShortDevice(shared.DeviceLabel!);
+            ShareOriginDevice = string.IsNullOrWhiteSpace(shared.DeviceLabel) ? "Unbekanntes Gerät" : shared.DeviceLabel!;
             ShareTimestampAbsolute = shared.WhenUtc is { } utc ? utc.ToLocalTime().ToString("dd.MM.yyyy, HH:mm:ss") : "—";
             ShareTimestampRelative = RelativeTime.Format(shared.WhenUtc);
             ShareSizeText = ByteSize.Format(shared.TotalBytes);
@@ -345,15 +345,6 @@ public sealed class GameRow : INotifyPropertyChanged
         // ABGELEITETEN Hint-Text aus. Explizit nachziehen, falls die Bestätigung gerade offen ist.
         OnChanged(nameof(ForceUploadHint));
     }
-
-    /// <summary>
-    /// Kürzt eine rohe Geräte-Kennung auf „Gerät &lt;erste 8 Zeichen&gt;", falls sie länger als
-    /// 8 Zeichen ist (z. B. eine GUID) – ein fremdes Gerät kennt der Client nur über seine rohe
-    /// <c>DeviceId</c>, eine echte Namensauflösung ist nicht möglich. Kurze Labels (z. B. bereits
-    /// ein echter Gerätename) bleiben unverändert.
-    /// </summary>
-    private static string ShortDevice(string deviceLabel)
-        => deviceLabel.Length > 8 ? $"Gerät {deviceLabel[..8]}" : deviceLabel;
 
     private string _errorMessage = "";
     /// <summary>Text des Fehler-Banners (nur bei Sync-Fehler).</summary>

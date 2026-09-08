@@ -3,6 +3,13 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.1 — 2026-09-08
+
+- **Fix: „Herkunftsgerät" zeigte eine Geräte-ID statt eines Namens.** Sowohl beim geteilten
+  Speicherstand (Zwei-Kästen-Ansicht) als auch in der Versionshistorie stand dort bisher die
+  rohe, kryptische Geräte-Kennung. Der Server liefert jetzt den beim Pairing vergebenen
+  Gerätenamen (standardmäßig der Rechner-Hostname) mit, der Client zeigt ihn unverkürzt an.
+
 ## v1.8.0 — 2026-09-08
 
 - **Geteilt/Lokal auf einen Blick im Spiel-Detail.** Neue Zwei-Kästen-Ansicht zeigt für jedes

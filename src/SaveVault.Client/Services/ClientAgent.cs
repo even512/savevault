@@ -322,7 +322,7 @@ public sealed class ClientAgent : IAsyncDisposable
             return new ShareProbe(false, 0, localSide, null, null);
 
         var rev = await api.GetRevisionAsync(game, head.CurrentRevision, BucketScope.Shared, ct).ConfigureAwait(false);
-        var sharedSide = new ShareSide(rev.Manifest.FileCount, rev.Manifest.TotalBytes, rev.TimestampUtc, rev.DeviceId);
+        var sharedSide = new ShareSide(rev.Manifest.FileCount, rev.Manifest.TotalBytes, rev.TimestampUtc, rev.DeviceName ?? rev.DeviceId);
         return new ShareProbe(true, rev.Number, localSide, sharedSide, rev.Manifest);
     }
 
