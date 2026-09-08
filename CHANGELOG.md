@@ -3,6 +3,21 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.0 — 2026-09-08
+
+- **Geteilt/Lokal auf einen Blick im Spiel-Detail.** Neue Zwei-Kästen-Ansicht zeigt für jedes
+  synchrone Spiel den geteilten und den lokalen Stand nebeneinander (Zeit/Größe/Herkunft), inkl.
+  „Sicherung deaktivieren"-Leiste und einem Versionshistorie-Flyout mit dem echten Datei-Zeitstempel.
+- **Neuer Knopf „Als geteilten Stand hochladen".** Lädt deinen lokalen Stand bewusst als neue
+  geteilte Revision hoch, ohne das Gerät auf Synchron umzuschalten (mit Zwei-Klick-Bestätigung und
+  Metadaten-Vergleich).
+- **Sicherer beim Umschalten Lokal ↔ Synchron.** Ein interner Fix stellt sicher, dass beim
+  Ordner-Austausch nie alte Dateien gelöscht werden, bevor die neuen vollständig da sind, und dass
+  der Client den Wechsel erst nach erfolgreichem Austausch als vollzogen meldet – schützt vor
+  Datenverlust/Fehlanzeige, falls der Vorgang mittendrin abbricht (z. B. Server offline).
+- **Konflikt-Anzeige korrigiert.** Nach einer im Dashboard gelösten Konfliktsituation zeigte das
+  gewinnende Gerät fälschlich dauerhaft weiter „Konflikt" (Server-seitiger Fix).
+
 ## v1.6.0 — 2026-09-03
 
 - **Der Client aktualisiert sich selbst.** Kein manuelles ZIP-Herunterladen und Ordner-Austauschen

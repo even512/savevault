@@ -1,3 +1,31 @@
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-08)
+
+**Release v1.8.0 (Client) / Server 1.5.2 — Zwei-Kästen-Ansicht Geteilt/Lokal fertig + Kern-Fixes,
+Version-Bump nachgeholt.** Der Limit-Checkpoint direkt unten (2026-09-07) ist erledigt: beide dort
+genannten Kern-Gate-Blocker wurden bereits mit Commit `8f2b722` behoben (Reihenfolge in
+`LocalContentReplacer.Commit` umgekehrt, Sync-Flags erst nach Erfolg gesetzt), dazu der
+Force-Upload-Knopf gebaut und ein Server-Fix ergänzt (Gewinner-Gerät zeigte nach einer
+Dashboard-Konfliktlösung fälschlich dauerhaft weiter „Konflikt", Tims Arc-Raiders-Fall) — nur die
+Version stand danach noch auf dem alten Stand.
+- **Ursache für Tims Verwirrung:** Client-`<Version>` blieb nach `8f2b722` unverändert auf `1.7.0`
+  stehen, obwohl seit dem `v1.7.0`-Tag 6 weitere Commits (~2556 Zeilen, u. a. komplett neues
+  `MainWindow.xaml`/`.cs`) dazugekommen waren. Der installierte `v1.7.0`-Client (aus dem echten
+  GitHub-Release gebaut) enthält diese Änderungen nachweislich nicht — ein Neu-Build vom
+  damaligen `master` hätte sich weiter als „1.7.0" ausgegeben.
+- **Jetzt nachgeholt:** Client **1.7.0 → 1.8.0**, Server **1.5.1 → 1.5.2**, `CHANGELOG.md` um
+  einen v1.8.0-Eintrag ergänzt.
+- **Release:** Tag `v1.8.0` gesetzt und gepusht → GitHub-Actions (`client-release.yml`) baut die
+  Client-ZIP und hängt sie ans GitHub-Release; `docker-publish.yml` baut das Server-Image als
+  `:latest` **und** `:v1.8.0` (läuft ohnehin bei jedem master-Push).
+- **Offen (Tims Schritt):** Unraid-Server-Image ziehen/neu starten, Client auf allen Geräten
+  **einmal von Hand** aktualisieren (danach greift der Selbst-Updater ab 1.6.0 automatisch für
+  künftige Releases), dritter Handtest inkl. Arc-Raiders-Realtest (löst sich der Konflikt jetzt für
+  beide Geräte sauber?), Force-Upload-Knopf einmal live ausprobieren. Bekannte, bewusst offen
+  gelassene Nebensache aus dem Checkpoint unten (Punkt 4, `ConflictWindow`-Metadaten bei
+  privat-gescopten Teilnehmern) weiterhin unverändert offen.
+
+---
+
 # SaveVault — Limit-Checkpoint (2026-09-07)
 
 **Grund:** 5-Stunden-Nutzungslimit bei 90 % erreicht. Halt an der Schritt-Grenze gemäß
