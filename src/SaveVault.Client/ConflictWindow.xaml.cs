@@ -31,10 +31,16 @@ public partial class ConflictWindow : Window
 
     private async Task LoadParticipantsAsync()
     {
+        // _conflict.Game trägt den bereits aufgelösten Bucket-Schlüssel (z. B. "shared|..."),
+        // nicht den kanonischen Spiel-Schlüssel — mit dem Default-Scope (Private) würde der Server
+        // ihn ein zweites Mal scopen und nichts finden (alle Kennzahlen blieben "—"). Kanonischen
+        // Schlüssel + tatsächlichen Scope zurückgewinnen, bevor abgefragt wird.
         IReadOnlyList<RevisionInfo> revisions;
         try
         {
-            revisions = await _agent.GetRevisionsAsync(_conflict.Game);
+            var canonicalGame = BucketKey.Original(_conflict.Game);
+            var scope = BucketKey.ScopeOf(_conflict.Game.Value);
+            revisions = await _agent.GetRevisionsAsync(canonicalGame, scope);
         }
         catch (Exception)
         {

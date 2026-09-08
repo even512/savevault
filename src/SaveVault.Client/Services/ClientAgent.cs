@@ -677,7 +677,7 @@ public sealed class ClientAgent : IAsyncDisposable
     }
 
     /// <summary>Versionsverlauf eines Spiels (leer, wenn nicht eingerichtet/erreichbar).</summary>
-    public async Task<IReadOnlyList<RevisionInfo>> GetRevisionsAsync(GameKey game, CancellationToken ct = default)
+    public async Task<IReadOnlyList<RevisionInfo>> GetRevisionsAsync(GameKey game, BucketScope scope = BucketScope.Private, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(game);
         var api = _api;
@@ -685,7 +685,7 @@ public sealed class ClientAgent : IAsyncDisposable
             return Array.Empty<RevisionInfo>();
         try
         {
-            var response = await api.GetRevisionsAsync(game, ct: ct).ConfigureAwait(false);
+            var response = await api.GetRevisionsAsync(game, scope, ct).ConfigureAwait(false);
             return response.Revisions;
         }
         catch (OperationCanceledException)
