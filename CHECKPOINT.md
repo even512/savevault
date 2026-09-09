@@ -1,5 +1,46 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-09)
 
+**Alle gepaarten Clients im Spiel-Detailpanel (Server 1.5.6), auch ohne Spielstand.** Delta-Spec
+`specs/savevault-change-clients-panel-all-devices.md`, Weg über `/projekt-edit`. Reine
+**Server-Dashboard-Änderung** (`app.js`/`styles.css`). Tims Auftrag: im seitlichen Spiel-Panel
+sollen alle mit dem Server verbundenen (= gepaarten) Clients erscheinen, nicht nur die, die für
+genau dieses Spiel bereits einen Spielstand haben — Geräte ohne Spielstand sollen das ebenfalls
+sichtbar zeigen statt einfach zu fehlen.
+- **Vorher:** `openGameDrawer()` bildete den `Clients`-Abschnitt ausschließlich aus den privaten
+  Buckets des Spiels (`state.data.games`) — ein gepaartes Gerät, das dieses Spiel nie lokal
+  erfasst hat, fehlte im Panel komplett, obwohl die volle Geräteliste (`state.data.devices`,
+  bereits für die eigenständige Clients-Ansicht genutzt) längst geladen war.
+- **Jetzt:** `openGameDrawer()` bildet aus `state.data.devices` + den privaten Buckets eine
+  gemischte, alphabetisch nach Gerätename sortierte Liste (`clientEntries`). `clientsSection()`
+  rendert sie in genau dieser Reihenfolge — Geräte mit Bucket als bekannte aufklappbare Karte
+  (unverändert), Geräte ohne Bucket als neue schlanke, nicht aufklappbare Karte
+  (Verbindungsstatus-Punkt via der bestehenden `clientDerivedStatus`-Logik + Text „Kein
+  Spielstand für dieses Spiel"). Trenner-Label „Clients · N" zählt jetzt alle angezeigten
+  Geräte. Leerzustand-Text gilt nur noch, wenn gar kein Gerät gepaart ist.
+- **Gate grün:** Build **0/0**, `dotnet test` **195/0/0** (unverändert, reine
+  Frontend-Änderung). `/code-review medium`: **1 Befund → behoben** (erster Wurf gruppierte
+  Karten-mit-Bucket vor Karten-ohne-Bucket statt sie in der gemeinsamen alphabetischen
+  Reihenfolge zu interleaven — Spec verlangte ausdrücklich reine Namenssortierung unabhängig
+  vom Bucket-Status; `clientsSection()` rendert jetzt in `clientEntries`-Reihenfolge, nur das
+  Akkordeon bleibt auf die Bucket-Karten beschränkt). **Laufzeit real belegt** (zwei isolierte
+  lokale Testserver, echte HTTP-API-Seed-Daten, kein synthetisches Mocking): 1) 3 gepaarte
+  Geräte (A+B mit privatem Bucket, A zusätzlich aktiver Teilnehmer eines geteilten Standes via
+  echtem `POST .../revisions?scope=shared`, C rein gepaart ohne je einen Spielstand zu diesem
+  Spiel) — Drawer zeigt „Clients · 3", A mit Sync-Icon+Glow, B mit normalem Status-Punkt, C mit
+  gedämpfter Karte „Kein Spielstand für dieses Spiel" ohne Chevron; Klick auf C tut nichts,
+  Akkordeon zwischen A/B funktioniert unverändert. 2) Gezielter Interleaving-Test (DeviceA/
+  DeviceB mit Bucket, DeviceAB ohne Bucket, Name bewusst alphabetisch dazwischen) bestätigt nach
+  dem Review-Fix die Reihenfolge A → AB → B statt fälschlich A → B → AB. Kein
+  `/security-review` (keine sensible Fläche berührt).
+- **Rollout:** nur Server-Image neu bauen/pushen (kein Client-Update nötig). Auf Tims
+  ausdrücklichen Wunsch **direkt auf `master` committet und gepusht** (Präzedenzfall: die
+  letzten beiden reinen Dashboard-Fixes liefen ebenso ohne Feature-Branch) — der
+  Docker-Publish-Workflow baut/pusht das Server-Image automatisch bei jedem `master`-Push.
+- **Offen:** keine Blocker. Visuelle Abnahme im echten Dashboard mit echten Daten bei Tim
+  ausständig (Notebook-Testdaten waren synthetisch über die HTTP-API geseedet).
+
+---
+
 **Sync-Icon bei Client-Karten korrigiert (Server 1.5.5) — Rotations-Schiefstand + falsche
 Sichtbarkeit.** Delta-Spec `specs/savevault-change-client-sync-icon.md`, Weg über
 `/projekt-edit`. Tims Rückmeldung zum Detailpanel-Redesign (1.5.4): das rotierende Sync-Icon

@@ -1448,9 +1448,16 @@
 
     drawer.appendChild(sharedCard(sharedBucket, canonical));
 
+    // Clients-Abschnitt zeigt JEDES mit dem Server gepaarte Gerät, nicht nur die, die für
+    // dieses Spiel bereits einen privaten Bucket haben – Geräte ohne Spielstand zu diesem
+    // Spiel bekommen eine eigene, schlanke Karte statt einfach zu fehlen (siehe clientsSection).
+    const clientEntries = state.data.devices
+      .map(device => ({ device, bucket: privateBuckets.find(b => b.ownerDeviceId === device.id) || null }))
+      .sort((a, b) => (a.device.name || "").localeCompare(b.device.name || ""));
+
     drawer.appendChild(el("div", { class: "clients-divider" }, [
       el("span", { class: "clients-divider__line" }),
-      el("span", { class: "clients-divider__label", text: "Clients · " + privateBuckets.length }),
+      el("span", { class: "clients-divider__label", text: "Clients · " + clientEntries.length }),
       el("span", { class: "clients-divider__line" })
     ]));
     // Konflikte hängen technisch am (geteilten) Bucket, betreffen aber die TEILNEHMENDEN
@@ -1468,7 +1475,7 @@
       sharedBucket
         ? state.data.gameStates.filter(s => s.game && s.game.value === sharedBucket.game.value).map(s => s.deviceId)
         : []);
-    drawer.appendChild(clientsSection(privateBuckets, canonical, canonicalConflicts, sharedParticipants));
+    drawer.appendChild(clientsSection(clientEntries, canonical, canonicalConflicts, sharedParticipants));
   }
 
   // ---- Geteilter-Speicherstand-Karte ---------------------------------------
@@ -1614,22 +1621,44 @@
     return wrap;
   }
 
-  // ---- Clients (eine ausklappbare Karte je privatem Bucket) ---------------
-  function clientsSection(privateBuckets, canonical, canonicalConflicts, sharedParticipants) {
+  // ---- Clients (ein Eintrag je gepaartem Gerät; aufklappbare Karte, falls das
+  // Gerät einen privaten Bucket für dieses Spiel hat, sonst schlanke Leer-Karte) ------------
+  function clientsSection(clientEntries, canonical, canonicalConflicts, sharedParticipants) {
     const container = el("div", { class: "client-cards" });
-    if (privateBuckets.length === 0) {
-      container.appendChild(el("div", { class: "empty", text: "Noch kein Gerät hat diesen Spielstand erfasst." }));
+    if (clientEntries.length === 0) {
+      container.appendChild(el("div", { class: "empty", text: "Noch kein Client gekoppelt." }));
       return container;
     }
-    const cards = privateBuckets.map(bucket => buildClientCard(bucket, canonical, canonicalConflicts, sharedParticipants));
+    // Reihenfolge folgt der (alphabetischen) `clientEntries`-Sortierung unverändert – Karten
+    // mit und ohne Bucket werden nicht getrennt gruppiert, sondern genau in dieser Reihenfolge
+    // gerendert. Nur die aufklappbaren Karten (mit Bucket) nehmen am Akkordeon teil.
+    const cards = clientEntries
+      .filter(entry => entry.bucket)
+      .map(entry => buildClientCard(entry.bucket, canonical, canonicalConflicts, sharedParticipants));
     for (const c of cards) {
       c.head.addEventListener("click", () => {
         const willOpen = !c.isOpen();
         for (const other of cards) other.setOpen(other === c && willOpen); // Akkordeon
       });
-      container.appendChild(c.wrap);
+    }
+    let cardIdx = 0;
+    for (const entry of clientEntries) {
+      container.appendChild(entry.bucket ? cards[cardIdx++].wrap : buildEmptyClientCard(entry.device));
     }
     return container;
+  }
+
+  // Gerät ist gepaart, hat aber (noch) keinen Spielstand zu diesem Spiel erfasst – schlanke,
+  // nicht aufklappbare Karte statt einfach zu fehlen.
+  function buildEmptyClientCard(device) {
+    const m = statusMeta(clientDerivedStatus(device));
+    const head = el("div", { class: "client-card2__head client-card2__head--static" });
+    head.appendChild(el("span", { class: "dot dot--lg dot--" + m.cls + (m.pulse ? " is-pulse" : "") }));
+    head.appendChild(iconEl("monitor", "client-card2__device-icon"));
+    head.appendChild(el("span", { class: "client-card2__name", text: device.name }));
+    head.appendChild(el("span", { class: "client-card2__spacer" }));
+    head.appendChild(el("span", { class: "client-card2__activity", text: "Kein Spielstand für dieses Spiel" }));
+    return el("div", { class: "client-card2 is-empty" }, [head]);
   }
 
   function buildClientCard(bucket, canonical, canonicalConflicts, sharedParticipants) {

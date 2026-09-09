@@ -454,6 +454,9 @@ button { font-family: inherit; }
   background: linear-gradient(160deg, oklch(0.75 0.16 150 / 0.08), var(--card-2));
   box-shadow: 0 0 0 1px oklch(0.75 0.16 150 / 0.3);
 }
+.client-card2.is-empty { opacity: .6; }
+.client-card2__head--static { cursor: default; }
+.client-card2.is-empty .client-card2__activity { font-style: italic; }
 .client-card2__head {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 15px;
   background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
