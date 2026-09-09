@@ -1458,7 +1458,17 @@
     // einen exakten Bucket-Schlüssel-Treffer (sonst bliebe das eigene Konflikt-Badge auf
     // der Geräte-Karte leer, obwohl das Gerät Teilnehmer des Konflikts ist).
     const canonicalConflicts = state.data.conflicts.filter(c => c.game && buckets.some(b => b.game && b.game.value === c.game.value));
-    drawer.appendChild(clientsSection(privateBuckets, canonical, canonicalConflicts));
+    // Ein privater Bucket existiert für JEDES Gerät, das dieses Spiel je lokal erfasst hat –
+    // unabhängig davon, ob es den geteilten Stand nutzt (rein lokale Spielstände eingeschlossen).
+    // Welche Geräte AKTUELL den geteilten Stand nutzen, steht nicht im privaten Bucket selbst,
+    // sondern in den per Heartbeat gemeldeten Geräte-Zuständen (`/api/game-states`): ein Gerät,
+    // das gegen den geteilten Bucket synct, meldet dort seinen Bucket-Schlüssel als den des
+    // sharedBucket. Ohne geteilten Stand bleibt die Menge leer (alle Karten zeigen normal).
+    const sharedParticipants = new Set(
+      sharedBucket
+        ? state.data.gameStates.filter(s => s.game && s.game.value === sharedBucket.game.value).map(s => s.deviceId)
+        : []);
+    drawer.appendChild(clientsSection(privateBuckets, canonical, canonicalConflicts, sharedParticipants));
   }
 
   // ---- Geteilter-Speicherstand-Karte ---------------------------------------
@@ -1605,13 +1615,13 @@
   }
 
   // ---- Clients (eine ausklappbare Karte je privatem Bucket) ---------------
-  function clientsSection(privateBuckets, canonical, canonicalConflicts) {
+  function clientsSection(privateBuckets, canonical, canonicalConflicts, sharedParticipants) {
     const container = el("div", { class: "client-cards" });
     if (privateBuckets.length === 0) {
       container.appendChild(el("div", { class: "empty", text: "Noch kein Gerät hat diesen Spielstand erfasst." }));
       return container;
     }
-    const cards = privateBuckets.map(bucket => buildClientCard(bucket, canonical, canonicalConflicts));
+    const cards = privateBuckets.map(bucket => buildClientCard(bucket, canonical, canonicalConflicts, sharedParticipants));
     for (const c of cards) {
       c.head.addEventListener("click", () => {
         const willOpen = !c.isOpen();
@@ -1622,10 +1632,13 @@
     return container;
   }
 
-  function buildClientCard(bucket, canonical, canonicalConflicts) {
+  function buildClientCard(bucket, canonical, canonicalConflicts, sharedParticipants) {
     const bucketValue = bucket.game.value;
     const m = statusMeta(bucket.status);
-    const isSynced = bucket.status === "Synced";
+    // Icon + Glow nur für Geräte, die den geteilten Stand tatsächlich nutzen (siehe
+    // openGameDrawer) – ein rein lokaler privater Bucket zeigt sonst fälschlich denselben
+    // "live synchron"-Look, obwohl er nie mit dem geteilten Stand abgeglichen wird.
+    const isSynced = bucket.status === "Synced" && !!sharedParticipants && sharedParticipants.has(bucket.ownerDeviceId);
     // Konflikt = dieses Gerät ist Teilnehmer, unabhängig davon, an welchem Bucket
     // (i. d. R. dem geteilten) der Konflikt technisch hängt.
     const conflict = (canonicalConflicts || []).find(c =>

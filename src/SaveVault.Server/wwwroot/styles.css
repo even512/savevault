@@ -458,7 +458,10 @@ button { font-family: inherit; }
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 15px;
   background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
-.client-card2__sync-icon { width: 13px; height: 13px; flex: 0 0 auto; color: var(--synced); }
+.client-card2__sync-icon {
+  width: 13px; height: 13px; flex: 0 0 auto; color: var(--synced);
+  display: flex; align-items: center; justify-content: center;
+}
 .client-card2__sync-icon.spin { animation: sv-spin 2.2s linear infinite; }
 .client-card2__device-icon { width: 15px; height: 15px; flex: 0 0 auto; color: var(--muted-2); opacity: .7; }
 .client-card2__name { font-size: 13.5px; font-weight: 700; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

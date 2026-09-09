@@ -1,3 +1,40 @@
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-09)
+
+**Sync-Icon bei Client-Karten korrigiert (Server 1.5.5) — Rotations-Schiefstand + falsche
+Sichtbarkeit.** Delta-Spec `specs/savevault-change-client-sync-icon.md`, Weg über
+`/projekt-edit`. Tims Rückmeldung zum Detailpanel-Redesign (1.5.4): das rotierende Sync-Icon
+bei den Geräte-Karten drehte sich schief statt sauber um die eigene Achse, und Icon +
+grüner Rahmen erschienen bei JEDEM Gerät mit privatem Bucket, nicht nur bei Geräten, die den
+geteilten Speicherstand tatsächlich nutzen. Reine **Server-Dashboard-Änderung** (`app.js`/
+`styles.css`, kein Backend-/Client-Code).
+- **Root-Cause 1 (Schiefstand):** `.client-card2__sync-icon` zentrierte das eingefügte
+  `<svg>` nicht (anders als das funktionierende Vorbild `.shared-card__icon`). Per
+  `getBoundingClientRect()`-Messung im echten Dashboard saß das SVG **4.49px vertikal /
+  1.0px horizontal** aus der Mitte seiner eigenen Box verschoben (Inline-Baseline-Lücke) –
+  die Rotation lief aber um die Box-Mitte, wodurch das sichtbare Icon exzentrisch wackelte.
+  Fix: `display:flex;align-items:center;justify-content:center` auf dem Icon-Span, wie
+  beim Vorbild.
+- **Root-Cause 2 (falsche Sichtbarkeit):** `isSynced` prüfte bisher nur den generischen
+  `bucket.status === "Synced"` des PRIVATEN Buckets – der ist auch bei einem rein lokalen,
+  nie geteilten Spielstand "Synced", sobald nichts mehr aussteht. Fix: zusätzlich gegen
+  `/api/game-states` geprüft (wurde schon geladen, aber bisher nirgends benutzt – laut
+  Server-Kommentar extra fürs Spiel-Drawer gedacht) – nur Geräte, die aktuell gegen den
+  geteilten Bucket-Schlüssel meldet, gelten als Teilnehmer und bekommen Icon + Glow.
+- **Gate grün:** Build **0/0**, `dotnet test` **195/0/0** (unverändert, reine
+  Frontend-Änderung). `/code-review medium`: **0 Befunde**. **Laufzeit real belegt**
+  (lokaler Server, 2 gepairte Test-Geräte über echte HTTP-API: Gerät A tritt dem geteilten
+  Stand bei und synct aktiv dagegen, Gerät B bleibt rein privat/lokal): vor dem Fix zeigten
+  beide Karten fälschlich Icon+Glow, danach nur noch Gerät A; SVG-Offset innerhalb seiner
+  Box vorher (4.49/1.0px) → nachher (0/0px), per `getBoundingClientRect()` gemessen.
+  Akkordeon-Interaktion der Karte weiterhin funktionsfähig. Kein `/security-review` (keine
+  sensible Fläche berührt).
+- **Rollout:** nur Server-Image neu bauen/deployen (kein Client-Update nötig); danach beim
+  Dashboard einmal Ctrl+F5 (neues `app.js`/`styles.css` aus dem Browser-Cache).
+- **Offen:** keine Blocker. Sichtbare Abnahme im echten Dashboard bei Tim ausständig
+  (Notebook-Testdaten waren synthetisch über die HTTP-API geseedet).
+
+---
+
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-08)
 
 **Spiel-Detailpanel neu gestaltet (Server 1.5.4).** Delta-Spec
