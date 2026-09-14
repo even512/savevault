@@ -1,4 +1,29 @@
-# SaveVault — Fortschritt (fortgeschrieben 2026-09-09)
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-15)
+
+**Branch-Divergenz aufgeräumt + Release v1.8.4 (Client).** `/projekt-edit`-Anlauf zu Tims
+neuen Konflikt-/Sync-Bugs deckte auf: seit Commit `8f2b722` waren `master` (lokal) und
+`origin/master` acht bzw. sieben Commits lang unabhängig auseinandergelaufen — lokal die
+Nachtrag-3/4-Fixes aus `savevault-change-shared-save-sichtbarkeit.md` (`45e724a`, `ec2a9b5`,
+`cc1015e`, `f147612`), auf `origin/master` parallel dazu die Releases v1.8.0-1.8.3 (u. a. der
+Geräte-Namen-Fix `6675bc7`). Tims laufender v1.8.3-Client hatte dadurch die beiden lokalen
+Fixes nie bekommen — plausible Erklärung für „Konflikt-Dialog fast ohne Infos" und „zeigt nach
+richtigem Umschalten trotzdem weiter Konflikt".
+- Sauberer Merge (`f702a52`, einziger Konflikt in dieser Datei selbst, Code merge-clean),
+  Build 0/0 + Tests 195/195 danach grün.
+- Version nachgezogen (`ad50194`): Client **1.8.3 → 1.8.4** (sonst hätte der Auto-Updater keinen
+  Unterschied gesehen — derselbe Fehler wie beim 1.7.0→1.8.0-Vorfall).
+- Gepusht, Tag `v1.8.4` gesetzt+gepusht, CI (Client-Release + beide Docker-Publishes) grün,
+  GitHub-Release `v1.8.4` mit ZIP bestätigt.
+- **Noch offen (separat, nicht Teil dieses Cleanups):** `ConflictWindow.xaml.cs` zeigt für
+  andere Geräte weiterhin `Gerät {ShortId}` statt eines Namens — der Geräte-Namen-Fix (`6675bc7`)
+  hat nur `RevisionInfo`/`RevisionDownload` erweitert, nicht `ConflictParticipant`/den
+  Konflikt-Dialog. Kandidat für die anstehende Delta-Spec.
+- **Noch offen:** Tims eigentliche neue Bug-Meldungen (Konflikt beim ersten Umschalten ohne
+  Nachfrage, veralteter „Geteilt"-Stand bis zum Spielwechsel, mehrere Konflikte hintereinander)
+  sind noch nicht untersucht/gefixt — Grill-Prozess dazu läuft, wartet auf Tims Retest gegen
+  1.8.4.
+
+---
 
 **Alle gepaarten Clients im Spiel-Detailpanel (Server 1.5.6), auch ohne Spielstand.** Delta-Spec
 `specs/savevault-change-clients-panel-all-devices.md`, Weg über `/projekt-edit`. Reine
