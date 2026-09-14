@@ -1,4 +1,151 @@
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-09)
+
+**Alle gepaarten Clients im Spiel-Detailpanel (Server 1.5.6), auch ohne Spielstand.** Delta-Spec
+`specs/savevault-change-clients-panel-all-devices.md`, Weg über `/projekt-edit`. Reine
+**Server-Dashboard-Änderung** (`app.js`/`styles.css`). Tims Auftrag: im seitlichen Spiel-Panel
+sollen alle mit dem Server verbundenen (= gepaarten) Clients erscheinen, nicht nur die, die für
+genau dieses Spiel bereits einen Spielstand haben — Geräte ohne Spielstand sollen das ebenfalls
+sichtbar zeigen statt einfach zu fehlen.
+- **Vorher:** `openGameDrawer()` bildete den `Clients`-Abschnitt ausschließlich aus den privaten
+  Buckets des Spiels (`state.data.games`) — ein gepaartes Gerät, das dieses Spiel nie lokal
+  erfasst hat, fehlte im Panel komplett, obwohl die volle Geräteliste (`state.data.devices`,
+  bereits für die eigenständige Clients-Ansicht genutzt) längst geladen war.
+- **Jetzt:** `openGameDrawer()` bildet aus `state.data.devices` + den privaten Buckets eine
+  gemischte, alphabetisch nach Gerätename sortierte Liste (`clientEntries`). `clientsSection()`
+  rendert sie in genau dieser Reihenfolge — Geräte mit Bucket als bekannte aufklappbare Karte
+  (unverändert), Geräte ohne Bucket als neue schlanke, nicht aufklappbare Karte
+  (Verbindungsstatus-Punkt via der bestehenden `clientDerivedStatus`-Logik + Text „Kein
+  Spielstand für dieses Spiel"). Trenner-Label „Clients · N" zählt jetzt alle angezeigten
+  Geräte. Leerzustand-Text gilt nur noch, wenn gar kein Gerät gepaart ist.
+- **Gate grün:** Build **0/0**, `dotnet test` **195/0/0** (unverändert, reine
+  Frontend-Änderung). `/code-review medium`: **1 Befund → behoben** (erster Wurf gruppierte
+  Karten-mit-Bucket vor Karten-ohne-Bucket statt sie in der gemeinsamen alphabetischen
+  Reihenfolge zu interleaven — Spec verlangte ausdrücklich reine Namenssortierung unabhängig
+  vom Bucket-Status; `clientsSection()` rendert jetzt in `clientEntries`-Reihenfolge, nur das
+  Akkordeon bleibt auf die Bucket-Karten beschränkt). **Laufzeit real belegt** (zwei isolierte
+  lokale Testserver, echte HTTP-API-Seed-Daten, kein synthetisches Mocking): 1) 3 gepaarte
+  Geräte (A+B mit privatem Bucket, A zusätzlich aktiver Teilnehmer eines geteilten Standes via
+  echtem `POST .../revisions?scope=shared`, C rein gepaart ohne je einen Spielstand zu diesem
+  Spiel) — Drawer zeigt „Clients · 3", A mit Sync-Icon+Glow, B mit normalem Status-Punkt, C mit
+  gedämpfter Karte „Kein Spielstand für dieses Spiel" ohne Chevron; Klick auf C tut nichts,
+  Akkordeon zwischen A/B funktioniert unverändert. 2) Gezielter Interleaving-Test (DeviceA/
+  DeviceB mit Bucket, DeviceAB ohne Bucket, Name bewusst alphabetisch dazwischen) bestätigt nach
+  dem Review-Fix die Reihenfolge A → AB → B statt fälschlich A → B → AB. Kein
+  `/security-review` (keine sensible Fläche berührt).
+- **Rollout:** nur Server-Image neu bauen/pushen (kein Client-Update nötig). Auf Tims
+  ausdrücklichen Wunsch **direkt auf `master` committet und gepusht** (Präzedenzfall: die
+  letzten beiden reinen Dashboard-Fixes liefen ebenso ohne Feature-Branch) — der
+  Docker-Publish-Workflow baut/pusht das Server-Image automatisch bei jedem `master`-Push.
+- **Offen:** keine Blocker. Visuelle Abnahme im echten Dashboard mit echten Daten bei Tim
+  ausständig (Notebook-Testdaten waren synthetisch über die HTTP-API geseedet).
+
+---
+
+**Sync-Icon bei Client-Karten korrigiert (Server 1.5.5) — Rotations-Schiefstand + falsche
+Sichtbarkeit.** Delta-Spec `specs/savevault-change-client-sync-icon.md`, Weg über
+`/projekt-edit`. Tims Rückmeldung zum Detailpanel-Redesign (1.5.4): das rotierende Sync-Icon
+bei den Geräte-Karten drehte sich schief statt sauber um die eigene Achse, und Icon +
+grüner Rahmen erschienen bei JEDEM Gerät mit privatem Bucket, nicht nur bei Geräten, die den
+geteilten Speicherstand tatsächlich nutzen. Reine **Server-Dashboard-Änderung** (`app.js`/
+`styles.css`, kein Backend-/Client-Code).
+- **Root-Cause 1 (Schiefstand):** `.client-card2__sync-icon` zentrierte das eingefügte
+  `<svg>` nicht (anders als das funktionierende Vorbild `.shared-card__icon`). Per
+  `getBoundingClientRect()`-Messung im echten Dashboard saß das SVG **4.49px vertikal /
+  1.0px horizontal** aus der Mitte seiner eigenen Box verschoben (Inline-Baseline-Lücke) –
+  die Rotation lief aber um die Box-Mitte, wodurch das sichtbare Icon exzentrisch wackelte.
+  Fix: `display:flex;align-items:center;justify-content:center` auf dem Icon-Span, wie
+  beim Vorbild.
+- **Root-Cause 2 (falsche Sichtbarkeit):** `isSynced` prüfte bisher nur den generischen
+  `bucket.status === "Synced"` des PRIVATEN Buckets – der ist auch bei einem rein lokalen,
+  nie geteilten Spielstand "Synced", sobald nichts mehr aussteht. Fix: zusätzlich gegen
+  `/api/game-states` geprüft (wurde schon geladen, aber bisher nirgends benutzt – laut
+  Server-Kommentar extra fürs Spiel-Drawer gedacht) – nur Geräte, die aktuell gegen den
+  geteilten Bucket-Schlüssel meldet, gelten als Teilnehmer und bekommen Icon + Glow.
+- **Gate grün:** Build **0/0**, `dotnet test` **195/0/0** (unverändert, reine
+  Frontend-Änderung). `/code-review medium`: **0 Befunde**. **Laufzeit real belegt**
+  (lokaler Server, 2 gepairte Test-Geräte über echte HTTP-API: Gerät A tritt dem geteilten
+  Stand bei und synct aktiv dagegen, Gerät B bleibt rein privat/lokal): vor dem Fix zeigten
+  beide Karten fälschlich Icon+Glow, danach nur noch Gerät A; SVG-Offset innerhalb seiner
+  Box vorher (4.49/1.0px) → nachher (0/0px), per `getBoundingClientRect()` gemessen.
+  Akkordeon-Interaktion der Karte weiterhin funktionsfähig. Kein `/security-review` (keine
+  sensible Fläche berührt).
+- **Rollout:** nur Server-Image neu bauen/deployen (kein Client-Update nötig); danach beim
+  Dashboard einmal Ctrl+F5 (neues `app.js`/`styles.css` aus dem Browser-Cache).
+- **Offen:** keine Blocker. Sichtbare Abnahme im echten Dashboard bei Tim ausständig
+  (Notebook-Testdaten waren synthetisch über die HTTP-API geseedet).
+
+---
+
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-08)
+
+**Spiel-Detailpanel neu gestaltet (Server 1.5.4).** Delta-Spec
+`specs/savevault-change-detailpanel-redesign.md`, Weg über `/projekt-edit`. Reine
+**Server-Dashboard-Änderung** (`app.js`/`styles.css`, kein Backend-/Client-Code) —
+das ausfahrbare Spiel-Detailpanel folgt jetzt der Optik aus dem importierten
+Claude-Design-Projekt `design-reference/Spiele Detailpanel.dc.html`.
+- **Neue Struktur statt gestapelter Bucket-Abschnitte:** eine Karte „Geteilter
+  Speicherstand" oben (Status-Pille, Herkunfts-Gerät/Zeitpunkt/Größe/Dateien,
+  Standard-Pfad, eigener Versionsverlauf hinter einem Umschalter, Konflikt-Banner
+  mit „Lösen") + darunter eine Liste ausklappbarer Geräte-Karten („Clients", ein
+  Bucket = ein Gerät, Akkordeon — nur eine Karte gleichzeitig offen; Sync-Icon +
+  dezenter Grün-Glow bei „Synced", Konflikt-Badge/-Banner+„Lösen" je Gerät).
+  Leerzustand ohne geteilten Stand zeigt Hinweistext + „Über Geräte teilen".
+  Drawer-Kopf (echtes Cover-Art, Titel) unverändert.
+- **Konflikt-Zuordnung über Teilnehmerliste:** ein `Conflict`-Datensatz hängt am
+  (geteilten) Bucket, nicht an den privaten Buckets der beteiligten Geräte — das
+  Konflikt-Badge je Client-Karte matcht daher `conflict.participants[].deviceId`
+  gegen `bucket.ownerDeviceId`, nicht den Bucket-Schlüssel direkt (sonst leer).
+- **Konflikt-Kopien (Fork-Buckets) bekommen eine eigene, einfache Karte**
+  (`forkCard`): eigener kanonischer Schlüssel server-seitig (`{key}#conflict-N`)
+  → eigene Kachel/eigenes Drawer, nie Teil des Eltern-Spiels. Bewusst NICHT die
+  „Geteilter Speicherstand"-Optik (kein Status-Pill/Glow/„Clients"-Abschnitt),
+  sonst sähe ein eingefrorener Verlierer-Stand wie ein live synchroner Stand aus.
+- **Gate grün:** Build **0/0**, `dotnet test` **195/0/0** (unverändert, reine
+  Frontend-Änderung). `/code-review high`: **3 Befunde → 2 behoben** (Fork-Buckets
+  öffneten anfangs fälschlich die „Geteilter Speicherstand"-Karte, weil `isFork`
+  nicht geprüft wurde; der Standard-Save-Pfad ging beim Umbau zunächst verloren),
+  **1 begründet abgelehnt** (neuer `kvCell()`-Helfer dupliziere `kv()` — unterschiedliche
+  Optik/Aufrufer/Rückgabewert, Zusammenlegen hätte 3 bestehende Call-Sites riskiert
+  für rein kosmetischen Gewinn). **Laufzeit real belegt** (lokaler Server, echte
+  HTTP-API-Seed-Daten: 2 Geräte + geteilter Bucket + echter Konflikt via
+  `isConflict:true`-Upload): Karte/Client-Karten zeigen korrekten Status, Akkordeon
+  funktioniert, „Lösen" öffnet den bestehenden Konflikt-Dialog und löst real auf
+  („Beide behalten" getestet), Standard-Pfad erscheint, Konflikt-Kopie-Karte nach
+  Auflösung korrekt (nicht als „geteilt" missverstanden), Export/Wiederherstellen
+  funktionieren. Kein `/security-review` (keine sensible Fläche berührt).
+- **Rollout:** nur Server-Image neu bauen/deployen (kein Client-Update nötig).
+- **Offen:** keine Blocker. Visuelle Abnahme im echten Dashboard mit echten Daten
+  bei Tim ausständig (Notebook-Testdaten waren synthetisch über die HTTP-API geseedet).
+
+---
+
+**Release v1.8.0 (Client) / Server 1.5.2 — Zwei-Kästen-Ansicht Geteilt/Lokal fertig + Kern-Fixes,
+Version-Bump nachgeholt.** Der Limit-Checkpoint direkt unten (2026-09-07) ist erledigt: beide dort
+genannten Kern-Gate-Blocker wurden bereits mit Commit `8f2b722` behoben (Reihenfolge in
+`LocalContentReplacer.Commit` umgekehrt, Sync-Flags erst nach Erfolg gesetzt), dazu der
+Force-Upload-Knopf gebaut und ein Server-Fix ergänzt (Gewinner-Gerät zeigte nach einer
+Dashboard-Konfliktlösung fälschlich dauerhaft weiter „Konflikt", Tims Arc-Raiders-Fall) — nur die
+Version stand danach noch auf dem alten Stand.
+- **Ursache für Tims Verwirrung:** Client-`<Version>` blieb nach `8f2b722` unverändert auf `1.7.0`
+  stehen, obwohl seit dem `v1.7.0`-Tag 6 weitere Commits (~2556 Zeilen, u. a. komplett neues
+  `MainWindow.xaml`/`.cs`) dazugekommen waren. Der installierte `v1.7.0`-Client (aus dem echten
+  GitHub-Release gebaut) enthält diese Änderungen nachweislich nicht — ein Neu-Build vom
+  damaligen `master` hätte sich weiter als „1.7.0" ausgegeben.
+- **Jetzt nachgeholt:** Client **1.7.0 → 1.8.0**, Server **1.5.1 → 1.5.2**, `CHANGELOG.md` um
+  einen v1.8.0-Eintrag ergänzt.
+- **Release:** Tag `v1.8.0` gesetzt und gepusht → GitHub-Actions (`client-release.yml`) baut die
+  Client-ZIP und hängt sie ans GitHub-Release; `docker-publish.yml` baut das Server-Image als
+  `:latest` **und** `:v1.8.0` (läuft ohnehin bei jedem master-Push).
+- **Offen (Tims Schritt):** Unraid-Server-Image ziehen/neu starten, Client auf allen Geräten
+  **einmal von Hand** aktualisieren (danach greift der Selbst-Updater ab 1.6.0 automatisch für
+  künftige Releases), dritter Handtest inkl. Arc-Raiders-Realtest (löst sich der Konflikt jetzt für
+  beide Geräte sauber?), Force-Upload-Knopf einmal live ausprobieren. Bekannte, bewusst offen
+  gelassene Nebensache aus dem Checkpoint unten (Punkt 4, `ConflictWindow`-Metadaten bei
+  privat-gescopten Teilnehmern) weiterhin unverändert offen.
+
+---
+
+# SaveVault — Limit-Checkpoint (2026-09-07)
 
 **Delta `savevault-change-shared-save-sichtbarkeit.md` (Phase 1) — ABGENOMMEN (2026-09-08).**
 Tim: „Ja, abgeschlossen" nach Vorlage des Gesamt-Gate-Ergebnisses. Der vorherige Checkpoint-

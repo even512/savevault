@@ -24,7 +24,7 @@ public sealed class RevisionRow
         OriginText = !string.IsNullOrWhiteSpace(currentDeviceId)
                      && string.Equals(info.DeviceId, currentDeviceId, StringComparison.Ordinal)
             ? "Herkunft: dieses Gerät"
-            : $"Herkunft: {info.DeviceId}";
+            : $"Herkunft: {info.DeviceName ?? info.DeviceId}";
 
         ConflictVisibility = info.IsConflict ? Visibility.Visible : Visibility.Collapsed;
 

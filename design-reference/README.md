@@ -40,6 +40,18 @@ React aus jener Umgebung, ist also standalone nicht lauffähig und für uns kein
 - **Formen:** Karten mit 12–16 px Radius, 1 px Rand `oklch(0.29 0.02 280 / 0.6)`,
   Sidebar links, Suchfeld oben rechts, Filter-Pills, dezente Animationen (Puls/Shimmer).
 
+- **`Spiele Detailpanel.dc.html`** — aus Tims Claude-Design-Projekt „SaveVault Dashboard
+  Redesign" (claude.ai/design, Projekt-ID `331be224-a46d-4775-846b-2cdfc55c49ca`),
+  übernommen für `specs/savevault-change-detailpanel-redesign.md`. Zeigt das
+  **ausfahrbare Spiel-Detailpanel des Server-Dashboards** (rechter Drawer, 460 px):
+  eine Karte „Geteilter Speicherstand" (Icon/Status-Pille/Kennzahlen-Grid/eigener
+  Versionsverlauf) gefolgt von einer „Clients"-Trennlinie und je Gerät einer
+  ausklappbaren Karte (Status-Punkt/Sync-Icon+Glow bei Synced, Konflikt-Badge,
+  letzte Aktivität; ausgeklappt: Status/Änderung/Größe/Dateien-Grid, Konflikt-Banner,
+  eigener Versionsverlauf). Nur EIN Client kann gleichzeitig offen sein (Akkordeon).
+  Nicht übernommen aus dem Projekt: die begleitende Variante „Spiele Detailpanel -
+  Timeline-Konzept.dc.html" (nicht beauftragt).
+
 ## Bewusste Abweichung vom Mockup (von Tim entschieden)
 Im **Konflikt-Modal** werden **Spielzeit** und **Fortschritt %** NICHT umgesetzt (aus
 Savegame-Dateien nicht ableitbar). Stattdessen echte Felder: Zeitpunkt, Größe,

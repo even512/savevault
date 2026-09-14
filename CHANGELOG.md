@@ -3,6 +3,43 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.3 — 2026-09-08
+
+- **Nachbesserung zu v1.8.2:** Der Umbruch allein reichte noch nicht aus, die Zeile blieb
+  bei mehreren gleichzeitig sichtbaren Buttons eng. Die Aktions-Buttons im Spiel-Detail
+  (Jetzt sichern, Als geteilten Stand hochladen, Ordner öffnen, Lösen, Ordner zuordnen)
+  sind jetzt insgesamt kompakter (kleinere Schrift/Abstände) und brechen bei Platzmangel
+  in eine zweite Zeile um, statt sich zu überlappen. „Versionshistorie" bleibt weiterhin
+  fest am rechten Rand.
+
+## v1.8.2 — 2026-09-08
+
+- **Fix: Layout im Spiel-Detail.** Der Knopf „Als geteilten Stand hochladen" konnte durch seinen
+  Text sehr breit werden und drängte dabei „Ordner öffnen" fast komplett aus der Zeile. Der
+  Button-Text bricht jetzt um statt in voller Breite auf einer Zeile zu stehen.
+
+## v1.8.1 — 2026-09-08
+
+- **Fix: „Herkunftsgerät" zeigte eine Geräte-ID statt eines Namens.** Sowohl beim geteilten
+  Speicherstand (Zwei-Kästen-Ansicht) als auch in der Versionshistorie stand dort bisher die
+  rohe, kryptische Geräte-Kennung. Der Server liefert jetzt den beim Pairing vergebenen
+  Gerätenamen (standardmäßig der Rechner-Hostname) mit, der Client zeigt ihn unverkürzt an.
+
+## v1.8.0 — 2026-09-08
+
+- **Geteilt/Lokal auf einen Blick im Spiel-Detail.** Neue Zwei-Kästen-Ansicht zeigt für jedes
+  synchrone Spiel den geteilten und den lokalen Stand nebeneinander (Zeit/Größe/Herkunft), inkl.
+  „Sicherung deaktivieren"-Leiste und einem Versionshistorie-Flyout mit dem echten Datei-Zeitstempel.
+- **Neuer Knopf „Als geteilten Stand hochladen".** Lädt deinen lokalen Stand bewusst als neue
+  geteilte Revision hoch, ohne das Gerät auf Synchron umzuschalten (mit Zwei-Klick-Bestätigung und
+  Metadaten-Vergleich).
+- **Sicherer beim Umschalten Lokal ↔ Synchron.** Ein interner Fix stellt sicher, dass beim
+  Ordner-Austausch nie alte Dateien gelöscht werden, bevor die neuen vollständig da sind, und dass
+  der Client den Wechsel erst nach erfolgreichem Austausch als vollzogen meldet – schützt vor
+  Datenverlust/Fehlanzeige, falls der Vorgang mittendrin abbricht (z. B. Server offline).
+- **Konflikt-Anzeige korrigiert.** Nach einer im Dashboard gelösten Konfliktsituation zeigte das
+  gewinnende Gerät fälschlich dauerhaft weiter „Konflikt" (Server-seitiger Fix).
+
 ## v1.6.0 — 2026-09-03
 
 - **Der Client aktualisiert sich selbst.** Kein manuelles ZIP-Herunterladen und Ordner-Austauschen

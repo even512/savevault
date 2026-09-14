@@ -76,7 +76,8 @@ public sealed record RevisionInfo(
     string ManifestHash,
     bool IsConflict,
     long? BasedOnRevision,
-    string? SaveRoot = null);
+    string? SaveRoot = null,
+    string? DeviceName = null);
 
 /// <summary>Versionsverlauf eines Spiels.</summary>
 public sealed record RevisionListResponse(GameKey Game, IReadOnlyList<RevisionInfo> Revisions);
@@ -108,7 +109,8 @@ public sealed record RevisionDownload(
     string DeviceId,
     DateTime TimestampUtc,
     FileManifest Manifest,
-    string? SaveRoot = null);
+    string? SaveRoot = null,
+    string? DeviceName = null);
 
 // --- Konflikte ---------------------------------------------------------------------
 

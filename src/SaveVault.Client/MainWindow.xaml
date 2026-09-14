@@ -44,8 +44,8 @@
             <Setter Property="Background" Value="{StaticResource ControlBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="FontSize" Value="11.5" />
-            <Setter Property="Padding" Value="11,7" />
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="Padding" Value="9,5" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{StaticResource HoverBrush}" />
@@ -827,42 +827,49 @@
                                 </Button.Template>
                             </Button>
 
-                            <!-- Aktionen: feste rechtsbündige Spalte für „Versionshistorie" statt WrapPanel-Fluss,
-                                 damit der Button IMMER ganz rechts steht, egal wie viele der anderen Buttons
-                                 (Ordner öffnen/Lösen/Ordner zuordnen) gerade sichtbar sind. -->
+                            <!-- Aktionen: „Versionshistorie" bekommt eine feste rechtsbündige Spalte statt im
+                                 selben Fluss wie die übrigen Buttons zu stehen, damit er IMMER ganz rechts
+                                 steht, egal wie viele der anderen Buttons (Ordner öffnen/Lösen/Ordner
+                                 zuordnen/Force-Upload) gerade sichtbar sind. Die übrigen Buttons stehen in
+                                 einem eigenen WrapPanel (Spalte 0) und brechen bei Platzmangel um, statt sich
+                                 zu überlappen. -->
                             <Grid Grid.Row="4" Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                <!-- WrapPanel statt StackPanel: bricht bei Platzmangel in eine zweite Zeile um,
+                                     statt Buttons zu überlappen/abzuschneiden (Tim-Feedback). Die feste rechte
+                                     Spalte für „Versionshistorie" bleibt davon unberührt (siehe Kommentar oben). -->
+                                <WrapPanel Grid.Column="0" Orientation="Horizontal">
                                     <Button Content="Jetzt sichern" Click="OnGameSyncNowClick" Tag="{Binding}"
-                                            Style="{StaticResource PrimaryButton}" FontSize="11.5" Padding="11,7"
-                                            Margin="0,0,6,6" IsEnabled="{Binding CanSyncNow}" />
+                                            Style="{StaticResource PrimaryButton}" FontSize="10.5" Padding="9,5"
+                                            Margin="0,0,5,5" IsEnabled="{Binding CanSyncNow}" />
                                     <!-- „Als geteilten Stand hochladen": nur sichtbar, wenn Lokal aktiv ist UND
                                          bereits ein geteilter Stand existiert (sonst ist der Server-Kasten-Klick
                                          selbst der Seed-Weg). Inline-Bestätigung direkt am Knopf statt Dialog –
                                          erster Klick zeigt Kennzahlen beider Seiten, zweiter Klick lädt hoch. -->
                                     <Button Click="OnForceUploadClick" Tag="{Binding}"
-                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,5,5"
                                             Visibility="{Binding ForceUploadVisibility}" IsEnabled="{Binding CanSyncNow}">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding ForceUploadLabel}" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding ForceUploadLabel}" HorizontalAlignment="Center"
+                                                       TextWrapping="Wrap" MaxWidth="105" TextAlignment="Center" />
                                             <TextBlock Text="{Binding ForceUploadHint}" Visibility="{Binding ForceUploadHintVisibility}"
-                                                       FontSize="9.5" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0"
-                                                       TextWrapping="Wrap" MaxWidth="190" HorizontalAlignment="Center" TextAlignment="Center" />
+                                                       FontSize="9" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0"
+                                                       TextWrapping="Wrap" MaxWidth="160" HorizontalAlignment="Center" TextAlignment="Center" />
                                         </StackPanel>
                                     </Button>
                                     <Button Content="Ordner öffnen" Click="OnOpenFolderClick"
-                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,5,5"
                                             Visibility="{Binding OpenFolderVisibility}" IsEnabled="{Binding CanOpenFolder}" />
                                     <Button Content="Lösen" Click="OnResolveConflictClick" Tag="{Binding}"
-                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,5,5"
                                             Visibility="{Binding ConflictVisibility}" />
                                     <Button Content="Ordner zuordnen" Click="OnAssignFolderClick" Tag="{Binding}"
-                                            Style="{StaticResource ChipButton}" Margin="0,0,6,6"
+                                            Style="{StaticResource ChipButton}" Margin="0,0,5,5"
                                             Visibility="{Binding AssignFolderVisibility}" />
-                                </StackPanel>
+                                </WrapPanel>
                                 <Button x:Name="HistoryToggleButton" Grid.Column="1" Click="OnToggleHistoryClick"
                                         Style="{StaticResource ChipButton}" Margin="6,0,0,6">
                                     <StackPanel Orientation="Horizontal">

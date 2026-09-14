@@ -584,7 +584,8 @@ public sealed class VaultStore
                 infos.Add(new RevisionInfo(
                     rev.Number, rev.DeviceId, rev.TimestampUtc,
                     rev.Manifest.TotalBytes, rev.Manifest.FileCount, rev.Manifest.ManifestHash,
-                    rev.IsConflict, rev.BasedOnRevision, rev.SaveRoot));
+                    rev.IsConflict, rev.BasedOnRevision, rev.SaveRoot,
+                    _index.Devices.FirstOrDefault(d => d.Id == rev.DeviceId)?.Name));
             }
             return new RevisionListResponse(ToGameKey(g), infos);
         }
@@ -600,7 +601,8 @@ public sealed class VaultStore
                 ?? throw new VaultException(404, "Unbekanntes Spiel.");
             var rev = LoadRevision(g, revision)
                 ?? throw new VaultException(404, $"Revision {revision} nicht gefunden.");
-            return new RevisionDownload(rev.Number, ToGameKey(g), rev.DeviceId, rev.TimestampUtc, rev.Manifest, rev.SaveRoot);
+            var deviceName = _index.Devices.FirstOrDefault(d => d.Id == rev.DeviceId)?.Name;
+            return new RevisionDownload(rev.Number, ToGameKey(g), rev.DeviceId, rev.TimestampUtc, rev.Manifest, rev.SaveRoot, deviceName);
         }
         finally { _gate.Release(); }
     }

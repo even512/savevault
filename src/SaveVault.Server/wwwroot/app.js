@@ -1328,41 +1328,7 @@
     overlayRoot.appendChild(scrim);
   }
 
-  // ---- Teilen-Aktionen / Bucket-Beschriftung ----------------------------
-  // Kurze Überschrift eines Buckets im Spiel-Drawer.
-  function bucketHeading(summary) {
-    if (summary.isFork) return "Konflikt-Kopie";
-    if (summary.scope === "shared") return "Geteilt";
-    if (summary.ownerDeviceId) return "Lokal: " + deviceName(summary.ownerDeviceId);
-    return "Lokal";
-  }
-  function scopeLabel(summary) {
-    // Konflikt-Kopien tragen keinen Scope-Präfix, sind aber keine privaten/geteilten
-    // Buckets, sondern bewahrte Verlierer-Stände einer KeepBoth-Lösung.
-    if (summary.isFork) return "Konflikt-Kopie · bewahrter Verlierer-Stand";
-    if (summary.scope === "shared") return "Geteilt · synchron über Geräte";
-    return "Lokal · " + (summary.ownerDeviceId ? deviceName(summary.ownerDeviceId) : "dieses Gerät");
-  }
-  function sharedExistsFor(canonical) {
-    return state.data.games.some(x => x.scope === "shared" && (x.canonicalValue || (x.game && x.game.value)) === canonical);
-  }
-  function gameScopeBar(summary, canonical) {
-    canonical = canonical || summary.canonicalValue || (summary.game && summary.game.value);
-    const wrap = el("div", { style: { display: "flex", "align-items": "center", gap: "10px", "flex-wrap": "wrap", margin: "2px 0 10px" } });
-    wrap.appendChild(el("span", { class: "muted", style: { "font-size": "12.5px" }, text: scopeLabel(summary) }));
-
-    if (summary.isFork) {
-      // Keine Teilen-Aktion auf Konflikt-Kopien.
-    } else if (summary.scope === "private") {
-      if (sharedExistsFor(canonical)) {
-        wrap.appendChild(el("span", { class: "muted", style: { "font-size": "12.5px" }, text: "· geteilter Stand existiert bereits" }));
-      } else {
-        wrap.appendChild(el("button", { class: "btn btn--accent", type: "button", text: "Über Geräte teilen",
-          on: { click: () => beginShare(canonical, summary.ownerDeviceId, canonical) } }));
-      }
-    }
-    return wrap;
-  }
+  // ---- Teilen-Aktionen ---------------------------------------------------
   // Alle privaten Buckets (mit Stand) desselben kanonischen Spiels = Teilen-Kandidaten.
   function shareCandidates(canonical) {
     return state.data.games.filter(x =>
@@ -1426,9 +1392,15 @@
       if (!handleAuthFailure(err)) toast(err.message || "Teilen fehlgeschlagen.", true);
     }
   }
-  // ---- Spiel-Drawer (kanonisch, mit Bucket-Aufschlüsselung) --------------
-  // Wird mit dem KANONISCHEN Spielschlüssel geöffnet und zeigt je zugehörigem
-  // Bucket (privat je Gerät / geteilt / Konflikt-Kopie) einen Abschnitt.
+  // ---- Spiel-Drawer (kanonisch) -------------------------------------------
+  // Wird mit dem KANONISCHEN Spielschlüssel geöffnet. Kopf: Cover/Titel/Kennzahlen
+  // (spielweit). Körper: eine Karte „Geteilter Speicherstand" (falls ein Bucket mit
+  // scope==="shared" existiert, sonst Leerzustand) + eine ausklappbare Karte je
+  // privatem Bucket ("Clients", ein Bucket = ein Gerät). Konflikt-Kopien (Fork-Buckets,
+  // „Beide behalten") bekommen server-seitig einen EIGENEN kanonischen Schlüssel
+  // (`{key}#conflict-{revision}`) und erscheinen daher nie in diesem `buckets`-Array,
+  // sondern als eigene Kachel/eigenes Panel in der Spiele-Liste – unverändert, nicht
+  // Teil dieses Deltas.
   function openGameDrawer(canonical) {
     const buckets = state.data.games.filter(g => canonicalOf(g) === canonical);
     if (buckets.length === 0) return;
@@ -1460,122 +1432,322 @@
     head.appendChild(closeBtn);
     drawer.appendChild(head);
 
-    // Je Bucket ein Abschnitt (bei nur einem Bucket genau einer – nichts leer).
-    for (const bucket of buckets) drawer.appendChild(bucketSection(bucket, canonical));
-  }
-
-  // Ein Bucket-Abschnitt: Überschrift, Scope/Teilen, ggf. Konflikt-Banner,
-  // Clients (Per-Gerät-Status) und Versionsverlauf. Die Detail-Daten werden
-  // PRO BUCKET über den Bucket-Schlüssel geladen (nur das Cover ist kanonisch).
-  function bucketSection(bucket, canonical) {
-    const bucketValue = bucket.game && bucket.game.value;
-    const section = el("div", { class: "bucket-section" });
-
-    section.appendChild(el("div", { class: "bucket-section__head", text: bucketHeading(bucket) }));
-    section.appendChild(gameScopeBar(bucket, canonical));
-
-    // Standard-Save-Pfad (aus der neuesten Revision mit bekanntem Pfad).
-    const pathEl = el("div", { class: "drawer__sub", style: { "margin-top": "2px", opacity: "0.75", "word-break": "break-all" } });
-    section.appendChild(pathEl);
-
-    // Konflikt-Banner nur, wenn genau dieser Bucket betroffen ist.
-    const conflict = state.data.conflicts.find(c => c.game && c.game.value === bucketValue);
-    if (conflict) {
-      const banner = el("div", { class: "conflict-banner" });
-      banner.appendChild(el("div", { class: "conflict-banner__text" }, [
-        (function () { const b = el("b"); b.textContent = "Sync-Konflikt erkannt. "; return b; })(),
-        document.createTextNode("Mehrere Clients haben abweichende Spielstände.")
-      ]));
-      banner.appendChild(el("button", { class: "btn btn--conflict", type: "button", text: "Lösen",
-        on: { click: () => openConflictModal(conflict, canonical) } }));
-      section.appendChild(banner);
+    // Konflikt-Kopien (Fork-Buckets) tragen `scope==="shared"`, sind aber KEIN live
+    // synchroner Stand, sondern ein eingefrorener, bewahrter Verlierer-Stand – eigene,
+    // einfache Darstellung statt der irreführenden „Geteilter Speicherstand"-Karte.
+    // Da ein Fork stets seinen EIGENEN kanonischen Schlüssel trägt (siehe Kommentar
+    // oben), ist `buckets` in diesem Fall immer genau der eine Fork-Bucket.
+    const forkBucket = buckets.find(b => b.isFork);
+    if (forkBucket) {
+      drawer.appendChild(forkCard(forkBucket, canonical));
+      return;
     }
 
-    section.appendChild(el("div", { class: "section-label", text: "Clients" }));
-    const clientsBody = el("div", { class: "drawer-list" });
-    clientsBody.appendChild(loadingState());
-    section.appendChild(clientsBody);
+    const sharedBucket = buckets.find(b => b.scope === "shared");
+    const privateBuckets = buckets.filter(b => b.scope === "private");
 
-    section.appendChild(el("div", { class: "section-label", text: "Versionsverlauf" }));
-    const versionBody = el("div", { class: "version-list" });
-    versionBody.appendChild(loadingState());
-    section.appendChild(versionBody);
+    drawer.appendChild(sharedCard(sharedBucket, canonical));
 
-    fillBucketSection(bucketValue, canonical, clientsBody, versionBody, pathEl);
-    return section;
+    // Clients-Abschnitt zeigt JEDES mit dem Server gepaarte Gerät, nicht nur die, die für
+    // dieses Spiel bereits einen privaten Bucket haben – Geräte ohne Spielstand zu diesem
+    // Spiel bekommen eine eigene, schlanke Karte statt einfach zu fehlen (siehe clientsSection).
+    const clientEntries = state.data.devices
+      .map(device => ({ device, bucket: privateBuckets.find(b => b.ownerDeviceId === device.id) || null }))
+      .sort((a, b) => (a.device.name || "").localeCompare(b.device.name || ""));
+
+    drawer.appendChild(el("div", { class: "clients-divider" }, [
+      el("span", { class: "clients-divider__line" }),
+      el("span", { class: "clients-divider__label", text: "Clients · " + clientEntries.length }),
+      el("span", { class: "clients-divider__line" })
+    ]));
+    // Konflikte hängen technisch am (geteilten) Bucket, betreffen aber die TEILNEHMENDEN
+    // Geräte – für die Client-Karten daher über die Teilnehmerliste zuordnen, nicht über
+    // einen exakten Bucket-Schlüssel-Treffer (sonst bliebe das eigene Konflikt-Badge auf
+    // der Geräte-Karte leer, obwohl das Gerät Teilnehmer des Konflikts ist).
+    const canonicalConflicts = state.data.conflicts.filter(c => c.game && buckets.some(b => b.game && b.game.value === c.game.value));
+    // Ein privater Bucket existiert für JEDES Gerät, das dieses Spiel je lokal erfasst hat –
+    // unabhängig davon, ob es den geteilten Stand nutzt (rein lokale Spielstände eingeschlossen).
+    // Welche Geräte AKTUELL den geteilten Stand nutzen, steht nicht im privaten Bucket selbst,
+    // sondern in den per Heartbeat gemeldeten Geräte-Zuständen (`/api/game-states`): ein Gerät,
+    // das gegen den geteilten Bucket synct, meldet dort seinen Bucket-Schlüssel als den des
+    // sharedBucket. Ohne geteilten Stand bleibt die Menge leer (alle Karten zeigen normal).
+    const sharedParticipants = new Set(
+      sharedBucket
+        ? state.data.gameStates.filter(s => s.game && s.game.value === sharedBucket.game.value).map(s => s.deviceId)
+        : []);
+    drawer.appendChild(clientsSection(clientEntries, canonical, canonicalConflicts, sharedParticipants));
   }
 
-  async function fillBucketSection(bucketValue, canonical, clientsBody, versionBody, pathEl) {
+  // ---- Geteilter-Speicherstand-Karte ---------------------------------------
+  function sharedCard(bucket, canonical) {
+    const isSynced = !!bucket && bucket.status === "Synced";
+    const card = el("div", { class: "shared-card" + (isSynced ? " is-active" : "") });
+
+    const iconWrap = el("div", { class: "shared-card__icon" });
+    iconWrap.appendChild(iconEl("refresh", "shared-card__icon-glyph" + (bucket && bucket.status === "Syncing" ? " spin" : "")));
+    const titleWrap = el("div", { class: "shared-card__title-wrap" }, [
+      el("div", { class: "shared-card__title", text: "Geteilter Speicherstand" }),
+      el("div", { class: "shared-card__sub", text: bucket ? "synchron über alle Geräte" : "nicht vorhanden" })
+    ]);
+    const headRow = el("div", { class: "shared-card__head" }, [iconWrap, titleWrap]);
+    if (bucket) headRow.appendChild(statusPill(bucket.status));
+    card.appendChild(headRow);
+
+    if (!bucket) {
+      const emptyWrap = el("div", { class: "shared-card__empty" });
+      emptyWrap.appendChild(el("div", { class: "shared-card__empty-text",
+        text: "Für dieses Spiel wurde noch kein geteilter Stand angelegt. Sobald ein Client synchronisiert, erscheint er hier." }));
+      if (shareCandidates(canonical).length > 0) {
+        emptyWrap.appendChild(el("button", { class: "btn btn--accent btn--sm", type: "button", text: "Über Geräte teilen",
+          on: { click: () => beginShare(canonical, null, canonical) } }));
+      }
+      card.appendChild(emptyWrap);
+      return card;
+    }
+
+    const bucketValue = bucket.game.value;
+    const originCell = kvCell("Herkunfts-Gerät", "—");
+    const timeCell = kvCell("Zeitpunkt", "—");
+    const grid = el("div", { class: "shared-card__grid" }, [
+      originCell.wrap, timeCell.wrap,
+      kvCell("Größe", formatBytes(bucket.totalBytes)).wrap,
+      kvCell("Dateien", String(bucket.fileCount || 0)).wrap
+    ]);
+    card.appendChild(grid);
+
+    const pathEl = el("div", { class: "bucket-path" });
+    card.appendChild(pathEl);
+
+    const conflict = state.data.conflicts.find(c => c.game && c.game.value === bucketValue);
+    if (conflict) {
+      card.appendChild(conflictBanner("Sync-Konflikt erkannt. ", "Mehrere Clients haben abweichende Spielstände.",
+        () => openConflictModal(conflict, canonical)));
+    }
+
+    const versionWrap = el("div", null, [loadingState()]);
+    card.appendChild(versionWrap);
+    fillVersionHistory(bucketValue, canonical, versionWrap, originCell.valueEl, timeCell.valueEl, pathEl);
+
+    return card;
+  }
+
+  // Einfache Karte für eine Konflikt-Kopie (Fork-Bucket, „Beide behalten"): kein
+  // live-synchroner Stand, daher bewusst NICHT die „Geteilter Speicherstand"-Optik
+  // (kein Status-Pill/Glow, kein „Clients"-Abschnitt) – nur Herkunft/Zeitpunkt/
+  // Kennzahlen + Versionsverlauf (Export/Wiederherstellen bleiben verfügbar).
+  function forkCard(bucket, canonical) {
+    const card = el("div", { class: "shared-card" });
+    const iconWrap = el("div", { class: "shared-card__icon" });
+    iconWrap.appendChild(iconEl("warn", "shared-card__icon-glyph"));
+    const titleWrap = el("div", { class: "shared-card__title-wrap" }, [
+      el("div", { class: "shared-card__title", text: "Konflikt-Kopie" }),
+      el("div", { class: "shared-card__sub", text: "bewahrter Verlierer-Stand einer Konfliktlösung" })
+    ]);
+    card.appendChild(el("div", { class: "shared-card__head" }, [iconWrap, titleWrap]));
+
+    const bucketValue = bucket.game.value;
+    const originCell = kvCell("Herkunfts-Gerät", "—");
+    const timeCell = kvCell("Zeitpunkt", "—");
+    card.appendChild(el("div", { class: "shared-card__grid" }, [
+      originCell.wrap, timeCell.wrap,
+      kvCell("Größe", formatBytes(bucket.totalBytes)).wrap,
+      kvCell("Dateien", String(bucket.fileCount || 0)).wrap
+    ]));
+
+    const pathEl = el("div", { class: "bucket-path" });
+    card.appendChild(pathEl);
+
+    const versionWrap = el("div", null, [loadingState()]);
+    card.appendChild(versionWrap);
+    fillVersionHistory(bucketValue, canonical, versionWrap, originCell.valueEl, timeCell.valueEl, pathEl);
+
+    return card;
+  }
+
+  // Lädt die Revisionen eines Buckets und baut den (initial eingeklappten)
+  // Versionsverlauf-Umschalter. originEl/timeEl (nur bei der geteilten/Fork-Karte
+  // gesetzt) werden aus der ältesten/neuesten Revision befüllt; pathEl (optional)
+  // bekommt den Standard-Save-Pfad der neuesten Revision, die einen kennt.
+  async function fillVersionHistory(bucketValue, canonical, wrap, originEl, timeEl, pathEl) {
     let revisions = [];
     try {
       revisions = await getRevisions(bucketValue);
     } catch (err) {
-      clear(clientsBody); clear(versionBody);
+      clear(wrap);
       if (handleAuthFailure(err)) { closeOverlay(); return; }
-      clientsBody.appendChild(el("div", { class: "empty", text: "—" }));
-      versionBody.appendChild(el("div", { class: "empty", text: err.message || "Konnte Versionen nicht laden." }));
+      wrap.appendChild(el("div", { class: "empty", text: err.message || "Konnte Versionen nicht laden." }));
       return;
     }
-
-    // Per-Gerät-Zustand aus /api/game-states; Revisionen liefern die letzte
-    // Übertragung je Gerät für die Unterzeile.
-    clear(clientsBody);
-    const latestByDevice = {};
-    for (const r of revisions) {
-      if (!latestByDevice[r.deviceId] || r.number > latestByDevice[r.deviceId].number) latestByDevice[r.deviceId] = r;
+    if (revisions.length > 0 && originEl && timeEl) {
+      originEl.textContent = deviceName(revisions[revisions.length - 1].deviceId);
+      timeEl.textContent = absTime(revisions[0].timestampUtc);
     }
-    const gameStates = (state.data.gameStates || []).filter(s => s.game && s.game.value === bucketValue);
-    if (gameStates.length === 0) {
-      clientsBody.appendChild(el("div", { class: "empty", text: "Noch kein Client hat diesen Stand synchronisiert." }));
-    } else {
-      for (const gs of gameStates) {
-        const r = latestByDevice[gs.deviceId];
-        const item = el("div", { class: "drawer-item" });
-        item.appendChild(el("div", null, [
-          el("div", { class: "drawer-item__name", text: deviceName(gs.deviceId) }),
-          el("div", { class: "drawer-item__sub", text: r ? ("zuletzt " + relTime(r.timestampUtc)) : "noch nicht übertragen" })
-        ]));
-        item.appendChild(statusLine(gs.status));
-        clientsBody.appendChild(item);
+    if (pathEl) {
+      const withRoot = revisions.find(r => r.saveRoot);
+      if (withRoot) pathEl.textContent = "Standard-Pfad: " + withRoot.saveRoot;
+    }
+    clear(wrap);
+    wrap.appendChild(versionHistoryToggle(revisions, bucketValue, canonical));
+  }
+
+  // Versionsverlauf-Umschalter: Kopfzeile (Label + „Anzeigen (N)"/„Ausblenden")
+  // klappt die KOMPLETTE Liste auf/zu (auch die neueste Version bleibt bis dahin
+  // verborgen) – bewusst wie im Mockup, siehe Delta-Spec „Risiken".
+  function versionHistoryToggle(revisions, bucketValue, canonical) {
+    const wrap = el("div", { class: "version-history" });
+    const stateLabel = el("span", { class: "version-history__toggle-label" });
+    const chevron = iconEl("chevron", "version-history__chevron");
+    const headBtn = el("button", { class: "version-history__head", type: "button" }, [
+      el("span", { class: "version-history__label", text: "Versionsverlauf" }),
+      el("span", { class: "version-history__toggle" }, [stateLabel, chevron])
+    ]);
+    const body = el("div", { class: "version-history__body sv-scroll" });
+    wrap.appendChild(headBtn);
+    wrap.appendChild(body);
+
+    let open = false, filled = false;
+    function render() {
+      stateLabel.textContent = open ? "Ausblenden" : ("Anzeigen (" + revisions.length + ")");
+      chevron.classList.toggle("is-open", open);
+      body.classList.toggle("is-open", open);
+      if (open && !filled) {
+        filled = true;
+        if (revisions.length === 0) body.appendChild(el("div", { class: "empty", text: "Noch keine Versionen." }));
+        else for (const r of revisions) body.appendChild(versionRow(r, bucketValue, canonical));
       }
     }
+    headBtn.addEventListener("click", () => { open = !open; render(); });
+    render();
+    return wrap;
+  }
 
-    const withRoot = revisions.find(r => r.saveRoot);
-    if (withRoot) pathEl.textContent = "Standard-Pfad: " + withRoot.saveRoot;
+  // ---- Clients (ein Eintrag je gepaartem Gerät; aufklappbare Karte, falls das
+  // Gerät einen privaten Bucket für dieses Spiel hat, sonst schlanke Leer-Karte) ------------
+  function clientsSection(clientEntries, canonical, canonicalConflicts, sharedParticipants) {
+    const container = el("div", { class: "client-cards" });
+    if (clientEntries.length === 0) {
+      container.appendChild(el("div", { class: "empty", text: "Noch kein Client gekoppelt." }));
+      return container;
+    }
+    // Reihenfolge folgt der (alphabetischen) `clientEntries`-Sortierung unverändert – Karten
+    // mit und ohne Bucket werden nicht getrennt gruppiert, sondern genau in dieser Reihenfolge
+    // gerendert. Nur die aufklappbaren Karten (mit Bucket) nehmen am Akkordeon teil.
+    const cards = clientEntries
+      .filter(entry => entry.bucket)
+      .map(entry => buildClientCard(entry.bucket, canonical, canonicalConflicts, sharedParticipants));
+    for (const c of cards) {
+      c.head.addEventListener("click", () => {
+        const willOpen = !c.isOpen();
+        for (const other of cards) other.setOpen(other === c && willOpen); // Akkordeon
+      });
+    }
+    let cardIdx = 0;
+    for (const entry of clientEntries) {
+      container.appendChild(entry.bucket ? cards[cardIdx++].wrap : buildEmptyClientCard(entry.device));
+    }
+    return container;
+  }
 
-    clear(versionBody);
-    if (revisions.length === 0) {
-      versionBody.appendChild(el("div", { class: "empty", text: "Noch keine Versionen." }));
-    } else {
-      // Standardmäßig nur die aktuellste Version zeigen; ältere Versionen (falls
-      // vorhanden) hinter einem lokalen Auf-/Zuklapp-Toggle verstecken. Der Zustand
-      // lebt nur hier, da der Drawer bei jedem Öffnen neu aufgebaut wird.
-      const [latest, ...older] = revisions;
-      versionBody.appendChild(versionRow(latest, bucketValue, canonical));
+  // Gerät ist gepaart, hat aber (noch) keinen Spielstand zu diesem Spiel erfasst – schlanke,
+  // nicht aufklappbare Karte statt einfach zu fehlen.
+  function buildEmptyClientCard(device) {
+    const m = statusMeta(clientDerivedStatus(device));
+    const head = el("div", { class: "client-card2__head client-card2__head--static" });
+    head.appendChild(el("span", { class: "dot dot--lg dot--" + m.cls + (m.pulse ? " is-pulse" : "") }));
+    head.appendChild(iconEl("monitor", "client-card2__device-icon"));
+    head.appendChild(el("span", { class: "client-card2__name", text: device.name }));
+    head.appendChild(el("span", { class: "client-card2__spacer" }));
+    head.appendChild(el("span", { class: "client-card2__activity", text: "Kein Spielstand für dieses Spiel" }));
+    return el("div", { class: "client-card2 is-empty" }, [head]);
+  }
 
-      if (older.length > 0) {
-        let expanded = false;
-        const olderWrap = el("div", { class: "version-older" });
-        const label = el("span", { class: "version-toggle__label" });
-        const toggle = el("button", { class: "version-toggle", type: "button" }, [
-          label, iconEl("chevron", "version-toggle__chevron")
-        ]);
+  function buildClientCard(bucket, canonical, canonicalConflicts, sharedParticipants) {
+    const bucketValue = bucket.game.value;
+    const m = statusMeta(bucket.status);
+    // Icon + Glow nur für Geräte, die den geteilten Stand tatsächlich nutzen (siehe
+    // openGameDrawer) – ein rein lokaler privater Bucket zeigt sonst fälschlich denselben
+    // "live synchron"-Look, obwohl er nie mit dem geteilten Stand abgeglichen wird.
+    const isSynced = bucket.status === "Synced" && !!sharedParticipants && sharedParticipants.has(bucket.ownerDeviceId);
+    // Konflikt = dieses Gerät ist Teilnehmer, unabhängig davon, an welchem Bucket
+    // (i. d. R. dem geteilten) der Konflikt technisch hängt.
+    const conflict = (canonicalConflicts || []).find(c =>
+      c.participants && c.participants.some(p => p.deviceId === bucket.ownerDeviceId));
 
-        const renderOlder = () => {
-          clear(olderWrap);
-          if (expanded) for (const r of older) olderWrap.appendChild(versionRow(r, bucketValue, canonical));
-        };
-        const updateToggle = () => {
-          label.textContent = expanded ? "Ältere Versionen ausblenden" : "Ältere Versionen anzeigen (" + older.length + ")";
-          toggle.classList.toggle("is-open", expanded);
-        };
-        toggle.addEventListener("click", () => { expanded = !expanded; updateToggle(); renderOlder(); });
-        updateToggle();
+    const head = el("button", { class: "client-card2__head", type: "button" });
+    if (isSynced) head.appendChild(iconEl("refresh", "client-card2__sync-icon spin"));
+    else head.appendChild(el("span", { class: "dot dot--lg dot--" + m.cls + (m.pulse ? " is-pulse" : "") }));
+    head.appendChild(iconEl("monitor", "client-card2__device-icon"));
+    head.appendChild(el("span", { class: "client-card2__name", text: deviceName(bucket.ownerDeviceId) }));
+    if (conflict) {
+      head.appendChild(el("span", { class: "client-card2__conflict-badge", title: "Konflikt mit geteiltem Stand" }, [
+        iconEl("warn", "client-card2__conflict-badge-icon"),
+        document.createTextNode("Konflikt")
+      ]));
+    }
+    head.appendChild(el("span", { class: "client-card2__spacer" }));
+    const t = lastActivityForGame(bucketValue);
+    head.appendChild(el("span", { class: "client-card2__activity", text: t ? relTime(t.toISOString()) : "—" }));
+    head.appendChild(iconEl("chevron", "client-card2__chevron"));
 
-        versionBody.appendChild(toggle);
-        versionBody.appendChild(olderWrap);
+    const body = el("div", { class: "client-card2__body" });
+    const wrap = el("div", { class: "client-card2" + (isSynced ? " is-glow" : "") }, [head, body]);
+
+    let open = false, filled = false;
+    function setOpen(next) {
+      open = next;
+      wrap.classList.toggle("is-open", open);
+      if (open && !filled) {
+        filled = true;
+        fillClientCardBody(bucket, bucketValue, canonical, body, conflict, m);
       }
     }
+    return { wrap, head, setOpen, isOpen: () => open };
+  }
+
+  function fillClientCardBody(bucket, bucketValue, canonical, body, conflict, m) {
+    const t = lastActivityForGame(bucketValue);
+    body.appendChild(el("div", { class: "client-card2__grid" }, [
+      kvCell("Status", m.label, "status--" + m.cls).wrap,
+      kvCell("Letzte Änderung", t ? relTime(t.toISOString()) : "—").wrap,
+      kvCell("Größe", formatBytes(bucket.totalBytes)).wrap,
+      kvCell("Dateien", String(bucket.fileCount || 0)).wrap
+    ]));
+
+    const pathEl = el("div", { class: "bucket-path" });
+    body.appendChild(pathEl);
+
+    if (conflict) {
+      body.appendChild(conflictBanner("Konflikt. ", "Unterscheidet sich vom geteilten Stand. Bitte prüfen, bevor synchronisiert wird.",
+        () => openConflictModal(conflict, canonical)));
+    }
+
+    const versionWrap = el("div", null, [loadingState()]);
+    body.appendChild(versionWrap);
+    fillVersionHistory(bucketValue, canonical, versionWrap, null, null, pathEl);
+  }
+
+  // ---- Kleine Bausteine, von Karte/Client-Karten geteilt -------------------
+  function kvCell(label, value, valueClass) {
+    const valueEl = el("div", { class: "kv-cell__value" + (valueClass ? " " + valueClass : ""), text: value });
+    const wrap = el("div", { class: "kv-cell" }, [el("div", { class: "kv-cell__label", text: label }), valueEl]);
+    return { wrap, valueEl };
+  }
+  function statusPill(statusKey) {
+    const m = statusMeta(statusKey);
+    return el("span", { class: "status-pill" }, [
+      el("span", { class: "dot dot--" + m.cls + (m.pulse ? " is-pulse" : "") }),
+      el("span", { class: "status-pill__label status--" + m.cls, text: m.label })
+    ]);
+  }
+  function conflictBanner(strongText, restText, onResolve) {
+    const textWrap = el("div", { class: "conflict-banner__text" });
+    const strong = el("b"); strong.textContent = strongText;
+    textWrap.appendChild(strong);
+    textWrap.appendChild(document.createTextNode(restText));
+    return el("div", { class: "conflict-banner conflict-banner--tight" }, [
+      textWrap,
+      el("button", { class: "btn btn--conflict btn--sm", type: "button", text: "Lösen", on: { click: onResolve } })
+    ]);
   }
 
   // Eine Versionszeile (Revisionsnummer, Zeit, Gerät, Größe, Export/Wiederherstellen).
