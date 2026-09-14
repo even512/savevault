@@ -3,6 +3,22 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.4 — 2026-09-15
+
+- **Nachgezogene Fixes aus einem zweiten, zuvor nicht veröffentlichten Entwicklungszweig**
+  (Ursache: nach Commit `8f2b722` liefen zwei unabhängige Fortsetzungen auseinander — der
+  Zweig, der zu v1.8.0-1.8.3 führte, und ein separater lokaler Zweig mit den folgenden
+  beiden Fixes; jetzt zusammengeführt).
+- **Fix: Konflikt-Dialog zeigte fast keine Informationen.** Zeit/Größe/Prüfsumme der
+  beteiligten Fassungen blieben oft bei „—" stehen. Ursache: die Metadaten-Abfrage nutzte
+  den bereits gescopten Konflikt-Schlüssel ein zweites Mal als wäre er der kanonische
+  Spiel-Schlüssel und fand serverseitig nichts. Fragt jetzt den kanonischen Schlüssel +
+  echten Scope ab.
+- **Fix: Nach richtig gewähltem Stand blieb „Konflikt" bei jedem Speichern erneut sichtbar.**
+  Ein erfolgreicher, exakter Wechsel (Lokal↔Synchron) oder ein über „Lösen" bestätigter
+  verwaister Konflikt setzten den Anzeige-Status bisher nicht zurück, wenn zuvor „Konflikt"
+  stand. Der Zustand kippte danach nie mehr eigenständig zurück auf „Synchronisiert".
+
 ## v1.8.3 — 2026-09-08
 
 - **Nachbesserung zu v1.8.2:** Der Umbruch allein reichte noch nicht aus, die Zeile blieb
