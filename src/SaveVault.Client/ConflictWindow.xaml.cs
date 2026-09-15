@@ -56,11 +56,18 @@ public partial class ConflictWindow : Window
             var isThisDevice = !string.IsNullOrEmpty(currentId)
                 && string.Equals(currentId, participant.DeviceId, StringComparison.Ordinal);
 
+            // Für ein fremdes Gerät den echten Namen nutzen, sofern die zugehörige RevisionInfo
+            // gefunden wurde UND ein DeviceName darin gesetzt ist (seit v1.8.1 Teil der Antwort) –
+            // die "Gerät {ShortId(...)}"-Kurzform bleibt nur noch der Fallback für den Fall, dass zur
+            // Teilnehmer-Revision keine Metadaten (mehr) auffindbar sind (siehe
+            // specs/savevault-change-sync-anzeige-fixes.md, Fix 3).
             var deviceLabel = isThisDevice
                 ? (string.IsNullOrWhiteSpace(currentName)
                     ? "Dieses Gerät"
                     : $"{currentName} (dieses Gerät)")
-                : $"Gerät {ShortId(participant.DeviceId)}";
+                : (rev is not null && !string.IsNullOrWhiteSpace(rev.DeviceName)
+                    ? rev.DeviceName!
+                    : $"Gerät {ShortId(participant.DeviceId)}");
 
             var timeText = rev is not null
                 ? $"Rev {rev.Number} · {rev.TimestampUtc.ToLocalTime():dd.MM.yyyy HH:mm}"

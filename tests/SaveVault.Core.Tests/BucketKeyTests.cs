@@ -139,4 +139,18 @@ public class BucketKeyTests
         Assert.Equal(BucketScope.Private, BucketKey.FromWire("  ", BucketScope.Private));
         Assert.Throws<ArgumentException>(() => BucketKey.FromWire("bogus", BucketScope.Private));
     }
+
+    // --- ForShared (Regressionstest fuer Fix 5, savevault-change-sync-anzeige-fixes.md) ---------
+    // Deckt die von ClientAgent.ActiveScope UND MainWindow.LoadHistoryAsync genutzte
+    // Scope-Auswahl ab ("Synchron" -> Shared, sonst Private) ueber einen gemeinsamen, pur
+    // testbaren Helfer, da die eigentliche Aufrufstelle in MainWindow.xaml.cs (WPF-Code-Behind)
+    // nicht direkt per xUnit ansprechbar ist.
+
+    [Theory]
+    [InlineData(true, BucketScope.Shared)]
+    [InlineData(false, BucketScope.Private)]
+    public void ForShared_bildet_das_IsShared_Flag_korrekt_auf_den_Scope_ab(bool isShared, BucketScope expected)
+    {
+        Assert.Equal(expected, BucketKey.ForShared(isShared));
+    }
 }

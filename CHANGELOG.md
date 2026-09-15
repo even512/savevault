@@ -3,6 +3,36 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.5 — 2026-09-15
+
+- **Nachfrage beim ersten Beitritt zu einem bereits geteilten Stand.** Trifft ein Gerät zum ersten
+  Mal auf ein Spiel, das anderswo bereits geteilt wird, erscheint jetzt eine Entscheidung mit
+  echten Kennzahlen beider Seiten („Server-Stand übernehmen" oder „meinen lokalen Stand als
+  geteilten Stand hochladen"), statt den Server-Stand automatisch und ohne Rückfrage zu
+  übernehmen. Späteres Hin- und Herschalten eines bereits bekannten Spiels bleibt unverändert ohne
+  Nachfrage.
+- **Fix: Konflikt-Dialog zeigte bei einem wiederholt auftretenden Konflikt weiterhin den
+  allerersten Erkennungszeitpunkt.** Speicherte ein Gerät bei offenem, ungelöstem Konflikt mehrfach
+  weiter (z. B. beim Weiterspielen), zeigte „Lösen" bis zuletzt nur die Fassung vom ersten
+  Auftreten, nicht die aktuelle. Der Server hält die im Konflikt verzeichneten Revisionsnummern
+  jetzt aktuell (serverseitiger Fix, Server 1.5.7 erforderlich).
+- **Fix: Geräte-Name im Konflikt-Dialog.** Für ein fremdes Gerät stand dort weiterhin eine rohe
+  Geräte-Kennung statt des Namens (der Namens-Fix aus v1.8.1 deckte nur die Versionshistorie/den
+  geteilten Stand ab, nicht den Konflikt-Dialog selbst).
+- **Fix: Versionshistorie im Client zeigte bei einem „Synchron"-Spiel den falschen (privaten,
+  eingefrorenen) Verlauf** statt des tatsächlich aktiven geteilten Verlaufs — dadurch wirkte die
+  Historie unvollständig/veraltet im Vergleich zum Dashboard, und ein „Wiederherstellen" auf einen
+  vermeintlich aktuellen, tatsächlich alten Eintrag konnte den aktiven Ordnerinhalt ungewollt
+  zurücksetzen.
+- **Fix: die Geteilt/Lokal-Kästen aktualisierten sich nicht automatisch**, wenn im Hintergrund ein
+  Sync-Zyklus für das gerade angezeigte Spiel abschloss — erst ein erneutes Auswählen des Spiels
+  zeigte den aktuellen Stand. Aktualisiert sich jetzt von selbst.
+- **Neu: dauerhaftes Diagnose-Log** (`%AppData%\SaveVault\sync.log`) protokolliert ab jetzt jeden
+  Sync-Zyklus (Zeitpunkt, Spiel, Scope, Aktion, Revisionsstände) — hilft, einen weiteren,
+  bislang nicht reproduzierbaren Einzelfall (ein Gerät zeigte nach nachweislich korrektem Download
+  trotzdem beim nächsten Speichern „Konflikt") beim nächsten Auftreten mit echten Daten statt
+  Vermutungen einzugrenzen.
+
 ## v1.8.4 — 2026-09-15
 
 - **Nachgezogene Fixes aus einem zweiten, zuvor nicht veröffentlichten Entwicklungszweig**

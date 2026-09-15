@@ -47,6 +47,7 @@ public sealed class SyncEngine
     private readonly Func<DeviceInfo> _deviceInfo;
     private readonly ManifestBuilder _manifestBuilder;
     private readonly Func<DateTime> _nowUtc;
+    private readonly SyncDiagnosticsLog _diagnostics;
 
     public SyncEngine(
         ISaveVaultApi api,
@@ -54,7 +55,8 @@ public sealed class SyncEngine
         AgentState state,
         Func<DeviceInfo> deviceInfo,
         ManifestBuilder? manifestBuilder = null,
-        Func<DateTime>? nowUtc = null)
+        Func<DateTime>? nowUtc = null,
+        SyncDiagnosticsLog? diagnosticsLog = null)
     {
         _api = api ?? throw new ArgumentNullException(nameof(api));
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
@@ -62,6 +64,7 @@ public sealed class SyncEngine
         _deviceInfo = deviceInfo ?? throw new ArgumentNullException(nameof(deviceInfo));
         _manifestBuilder = manifestBuilder ?? new ManifestBuilder();
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
+        _diagnostics = diagnosticsLog ?? new SyncDiagnosticsLog(new AppPaths());
     }
 
     /// <summary>
@@ -90,6 +93,15 @@ public sealed class SyncEngine
             _state.MarkServerReachable(_nowUtc());
 
             var decision = SyncDecider.Decide(local, state, head.CurrentRevision);
+
+            // Dauerhaftes Diagnose-Log (siehe specs/savevault-change-sync-anzeige-fixes.md, Fix 0,
+            // Schritt 2): reine Beobachtung der Entscheidungsgrundlage dieses Zyklus, damit sich ein
+            // spaeter gemeldeter unerwarteter Konflikt anhand der Revisionsnummern zum damaligen
+            // Zeitpunkt rekonstruieren laesst. "lokal" hat vor dem ersten Upload keine Revisionsnummer
+            // - dafuer der kurze Manifest-Hash-Fingerabdruck des gescannten Ordnerinhalts.
+            _diagnostics.Append(game, scope, decision.Action, decision.Reason,
+                local.ManifestHash, state.BaseRevision, head.CurrentRevision, _nowUtc());
+
             return decision.Action switch
             {
                 SyncAction.Upload => await UploadAsync(game, roots, local, state, head.CurrentRevision, scope, ct).ConfigureAwait(false),

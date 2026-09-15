@@ -36,4 +36,7 @@ public sealed class AppPaths
 
     /// <summary>Verzeichnis für den lokalen Box-Art-/Cover-Cache (verwerfbar).</summary>
     public string CoverCacheDirectory => Path.Combine(Root, "covers");
+
+    /// <summary>Dauerhaftes, rollierendes Diagnose-Log der Sync-Entscheidungen (siehe <see cref="SyncDiagnosticsLog"/>).</summary>
+    public string SyncLogFile => Path.Combine(Root, "sync.log");
 }

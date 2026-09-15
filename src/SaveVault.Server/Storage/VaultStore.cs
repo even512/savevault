@@ -1391,13 +1391,39 @@ public sealed class VaultStore
         var existing = _index.Conflicts.FirstOrDefault(c => !c.Resolved && c.Game.Value == g.KeyValue);
         if (existing is not null)
         {
-            if (existing.Participants.All(p => p.DeviceId != deviceId))
+            var parts = existing.Participants.ToList();
+            var mine = parts.FindIndex(p => p.DeviceId == deviceId);
+            if (mine < 0)
             {
-                var parts = existing.Participants.ToList();
                 parts.Add(new ConflictParticipant(deviceId, conflictRevision));
-                var i = _index.Conflicts.IndexOf(existing);
-                _index.Conflicts[i] = existing with { Participants = parts };
             }
+            else if (parts[mine].Revision != conflictRevision)
+            {
+                // Geraet ist bereits Teilnehmer (weitere lokale Aenderung, derselbe offene Konflikt):
+                // die Revision auf den NEUEN Stand nachziehen, statt (wie bisher) dauerhaft auf der
+                // Revision der Erst-Erkennung eingefroren zu bleiben - sonst vergleicht "Loesen" immer
+                // gegen eine laengst ueberholte Fassung.
+                parts[mine] = parts[mine] with { Revision = conflictRevision };
+            }
+
+            // Ebenso den Gegenpart (Kopf-Revision) nachziehen, falls sich die Server-Kopf-Revision seit
+            // der Erst-Erkennung weiterbewegt hat (z. B. weil der Kopf-Besitzer unabhaengig vom Konflikt
+            // weitere, nicht konfligierende Revisionen hochgeladen hat).
+            if (currentRevision > 0)
+            {
+                var head = LoadRevision(g, currentRevision);
+                if (head is not null && head.DeviceId != deviceId)
+                {
+                    var headIdx = parts.FindIndex(p => p.DeviceId == head.DeviceId);
+                    if (headIdx < 0)
+                        parts.Add(new ConflictParticipant(head.DeviceId, currentRevision));
+                    else if (parts[headIdx].Revision != currentRevision)
+                        parts[headIdx] = parts[headIdx] with { Revision = currentRevision };
+                }
+            }
+
+            var i = _index.Conflicts.IndexOf(existing);
+            _index.Conflicts[i] = existing with { Participants = parts };
             return;
         }
 

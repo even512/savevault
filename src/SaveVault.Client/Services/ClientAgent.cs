@@ -19,12 +19,24 @@ public sealed record ShareSide(int FileCount, long TotalBytes, DateTime? WhenUtc
 /// <see cref="SharedManifest"/>/<see cref="SharedRevision"/> tragen den geteilten Head für den
 /// anschließenden „übernehmen/lokal behalten"-Schritt.
 /// </summary>
+/// <param name="IsFirstContact">
+/// Ob dieses Gerät dem geteilten Bucket dieses Spiels noch <b>nie</b> beigetreten ist (kein
+/// vorheriger geteilter <see cref="SyncState"/> lokal vorhanden), UND bereits ein geteilter Stand
+/// existiert (siehe <see cref="SharedExists"/>) – der eigentliche „Erstkontakt"-Fall (siehe
+/// <c>specs/savevault-change-sync-anzeige-fixes.md</c>, Fix „Erstkontakt-Dialog"). Immer
+/// <c>false</c>, wenn <see cref="SharedExists"/> <c>false</c> ist (dann ist der Server-Kasten-Klick
+/// ohnehin der Seed-Weg). Ein <b>späteres</b> Hin- und Herschalten eines bereits einmal beigetretenen
+/// Spiels bleibt <c>false</c> (der geteilte <see cref="SyncState"/> bleibt nach dem Beitritt
+/// dauerhaft &gt; 0, auch nach einem Zurückschalten auf „Lokal") – die Oberfläche darf den
+/// Erstkontakt-Dialog also ausschließlich anhand dieses Flags entscheiden, nie zusätzlich raten.
+/// </param>
 public sealed record ShareProbe(
     bool SharedExists,
     long SharedRevision,
     ShareSide Local,
     ShareSide? Shared,
-    FileManifest? SharedManifest);
+    FileManifest? SharedManifest,
+    bool IsFirstContact = false);
 
 /// <summary>
 /// Ergebnis der reinen Kennzahlen-Vorschau vor <see cref="ClientAgent.ClearOrphanedConflictAsync"/>
@@ -155,7 +167,8 @@ public sealed class ClientAgent : IAsyncDisposable
         _http = new HttpClient { BaseAddress = serverUri, Timeout = TimeSpan.FromMinutes(5) };
         _api = new SaveVaultApiClient(_http, config.DeviceToken);
 
-        _engine = new SyncEngine(_api, _stateStore, State, () => DeviceIdentity.FromConfig(_configStore.Load(), DateTime.UtcNow));
+        _engine = new SyncEngine(_api, _stateStore, State, () => DeviceIdentity.FromConfig(_configStore.Load(), DateTime.UtcNow),
+            diagnosticsLog: new SyncDiagnosticsLog(_paths));
         _commandPoller = new CommandPoller(_api, _configStore, _registry, _engine, State, _serializer);
         _heartbeat = new HeartbeatReporter(_api, _configStore, _registry, _stateStore, State);
 
@@ -302,7 +315,7 @@ public sealed class ClientAgent : IAsyncDisposable
 
     /// <summary>Der aktive Bucket-Scope eines Spiels: geteilt, wenn „Synchron", sonst privat.</summary>
     private BucketScope ActiveScope(GameKey game)
-        => _shares.IsShared(game) ? BucketScope.Shared : BucketScope.Private;
+        => BucketKey.ForShared(_shares.IsShared(game));
 
     /// <summary>
     /// Prüft, ob für ein Spiel schon ein geteilter Stand existiert, und liefert die Kennzahlen von
@@ -333,7 +346,16 @@ public sealed class ClientAgent : IAsyncDisposable
 
         var rev = await api.GetRevisionAsync(game, head.CurrentRevision, BucketScope.Shared, ct).ConfigureAwait(false);
         var sharedSide = new ShareSide(rev.Manifest.FileCount, rev.Manifest.TotalBytes, rev.TimestampUtc, rev.DeviceName ?? rev.DeviceId);
-        return new ShareProbe(true, rev.Number, localSide, sharedSide, rev.Manifest);
+
+        // Erstkontakt-Erkennung (siehe ShareProbe.IsFirstContact): dieses Geraet ist dem geteilten
+        // Bucket noch nie beigetreten, wenn sein lokaler GETEILTER SyncState noch nie gesetzt wurde
+        // (BaseRevision <= 0 - der Startzustand aus SyncState.Initial). Dieser Zustand bleibt nach
+        // einem einmaligen Beitritt DAUERHAFT > 0 (auch nach SwitchToLocalAsync, das nur das
+        // _shares-Flag entfernt, nicht den geteilten SyncState loescht) - ein spaeteres
+        // Hin-und-Herschalten eines bereits bekannten Spiels loest den Erstkontakt-Fall also nie
+        // erneut aus.
+        var isFirstContact = _stateStore.Load(game, BucketScope.Shared).BaseRevision <= 0;
+        return new ShareProbe(true, rev.Number, localSide, sharedSide, rev.Manifest, isFirstContact);
     }
 
     /// <summary>

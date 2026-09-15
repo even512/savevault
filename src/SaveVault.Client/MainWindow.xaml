@@ -1228,5 +1228,54 @@
                 </StackPanel>
             </Border>
         </Border>
+
+        <!-- Erstkontakt-Entscheidung (In-Fenster-Overlay): dieses Gerät tritt einem bereits
+             existierenden geteilten Stand zum ERSTEN Mal bei – vor der Übernahme mit echten
+             Kennzahlen beider Seiten fragen, welcher Stand gelten soll (siehe
+             specs/savevault-change-sync-anzeige-fixes.md, Fix „Erstkontakt-Dialog"). Ein SPÄTERES
+             Hin- und Herschalten eines bereits bekannten geteilten Spiels bleibt bewusst ohne
+             diesen Dialog (siehe MainWindow.xaml.cs, OnServerBoxClick). -->
+        <Border x:Name="FirstContactOverlay" Grid.RowSpan="3" Background="#99060708"
+                Visibility="Collapsed" MouseLeftButtonDown="OnCloseFirstContactBackdrop">
+            <Border Width="440" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="#14151D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="16" Padding="24" MouseLeftButtonDown="OnSwallowClick">
+                <StackPanel>
+                    <TextBlock x:Name="FirstContactTitleText" Text="Geteilter Stand gefunden" FontSize="16"
+                               FontWeight="SemiBold" Margin="0,0,0,6" TextWrapping="Wrap" />
+                    <TextBlock Text="Dieses Gerät verbindet sich zum ersten Mal mit dem bereits geteilten Stand dieses Spiels. Welcher Stand soll gelten?"
+                               Foreground="{StaticResource MutedBrush}" FontSize="12.5" Margin="0,0,0,16" TextWrapping="Wrap" />
+
+                    <Border Background="{StaticResource ControlBrush}" CornerRadius="10" Padding="12,10" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock Text="Server-Stand (geteilt)" FontSize="11.5" FontWeight="Bold"
+                                       Foreground="{StaticResource AccentBrush}" />
+                            <TextBlock x:Name="FirstContactServerInfo" Text="" FontSize="11.5"
+                                       Margin="0,3,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource ControlBrush}" CornerRadius="10" Padding="12,10" Margin="0,0,0,20">
+                        <StackPanel>
+                            <TextBlock Text="Mein lokaler Stand" FontSize="11.5" FontWeight="Bold"
+                                       Foreground="{StaticResource MutedBrush}" />
+                            <TextBlock x:Name="FirstContactLocalInfo" Text="" FontSize="11.5"
+                                       Margin="0,3,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Abbrechen" Click="OnCancelFirstContact" Style="{StaticResource SecondaryButton}"
+                                Padding="16,9" Margin="0,0,10,0" />
+                        <Button Click="OnTakeLocalClick" Style="{StaticResource SecondaryButton}"
+                                Padding="14,9" Margin="0,0,10,0">
+                            <TextBlock Text="Meinen lokalen Stand als geteilten Stand hochladen"
+                                       TextWrapping="Wrap" MaxWidth="140" TextAlignment="Center" />
+                        </Button>
+                        <Button Content="Server-Stand übernehmen" Click="OnTakeServerClick"
+                                Style="{StaticResource PrimaryButton}" Padding="16,9" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </Window>

@@ -116,6 +116,16 @@ public static class BucketKey
         return BucketScope.Legacy;
     }
 
+    /// <summary>
+    /// Leitet den Scope aus dem einfachen „ist geteilt?"-Flag ab (<see cref="BucketScope.Shared"/>,
+    /// wenn <c>true</c>, sonst <see cref="BucketScope.Private"/>). Gemeinsamer, pur-testbarer Helfer
+    /// für Client-Aufrufer, die genau diese Fallunterscheidung sonst je für sich duplizieren würden
+    /// (z. B. <c>ClientAgent.ActiveScope</c> aus <c>GameShareStore.IsShared</c>,
+    /// <c>MainWindow.LoadHistoryAsync</c> aus <c>GameRow.IsShared</c> – siehe
+    /// <c>specs/savevault-change-sync-anzeige-fixes.md</c>, Fix 5).
+    /// </summary>
+    public static BucketScope ForShared(bool isShared) => isShared ? BucketScope.Shared : BucketScope.Private;
+
     /// <summary>Scope als Wire-Wert (Query-Parameter <c>?scope=</c>).</summary>
     public static string ToWire(BucketScope scope) => scope switch
     {

@@ -261,6 +261,9 @@ public partial class MainWindow : Window
         // Ein Spielwechsel verwirft eine offene Force-Upload-Bestätigung des VORHERIGEN Spiels
         // (sonst bliebe der Knopf eines nicht mehr sichtbaren Spiels "scharf").
         DisarmForceUpload(_selectedRow);
+        // Ebenso eine offene Erstkontakt-Entscheidung: sie bezieht sich auf das VORHERIGE Spiel und
+        // würde sonst fälschlich auf das neu ausgewählte angewandt.
+        CloseFirstContactOverlay();
 
         _selectedRow = row;
         _selectedKey = row.Game.Value;
@@ -299,8 +302,19 @@ public partial class MainWindow : Window
             return;
         DetailArea.Visibility = Visibility.Visible;
         _ = _selectedRow.EnsureCoverAsync(_agent.Covers);
+
+        // LastActionUtc aendert sich nur bei einer ECHTEN, abgeschlossenen Uebertragung (Upload/
+        // Download/neu erkannter Konflikt - siehe AgentState.SetStatus/Report), nicht bei jedem
+        // Heartbeat/NoOp-Zyklus. Das ist bereits die richtige Drosselung fuer beide Nachladungen
+        // unten: schliesst waehrend die Ansicht offen ist im Hintergrund ein regulaerer Sync-Zyklus
+        // fuer das GERADE angezeigte Spiel ab, sollen sowohl Historie ALS AUCH die Zwei-Kaesten-
+        // Anzeige ohne Spielwechsel aktuell werden (siehe
+        // specs/savevault-change-sync-anzeige-fixes.md, Fix 4) - bisher fehlte hier die Kaesten-Probe.
         if (_selectedRow.LastActionUtc != _historyLoadedAction)
+        {
             _ = LoadHistoryAsync(_selectedRow);
+            _ = ProbeShareStatusAsync(_selectedRow);
+        }
     }
 
     private async Task LoadHistoryAsync(GameRow row)
@@ -312,7 +326,13 @@ public partial class MainWindow : Window
         IReadOnlyList<Core.Api.RevisionInfo> revisions;
         try
         {
-            revisions = await _agent.GetRevisionsAsync(row.Game);
+            // Aktiven Scope abfragen (ueber denselben pur-testbaren Helfer wie
+            // ClientAgent.ActiveScope, siehe BucketKey.ForShared): ein "Synchron"-Spiel hat seinen
+            // Verlauf im geteilten Bucket, dessen privater Bucket ist seit dem Umschalten
+            // eingefroren. Der Default-Parameter (Privat) durchfallen zu lassen zeigte bei geteilten
+            // Spielen faelschlich immer nur den alten privaten Verlauf (siehe
+            // specs/savevault-change-sync-anzeige-fixes.md, Fix 5).
+            revisions = await _agent.GetRevisionsAsync(row.Game, BucketKey.ForShared(row.IsShared));
         }
         catch
         {
@@ -524,18 +544,121 @@ public partial class MainWindow : Window
             }
 
             if (!probe.SharedExists)
+            {
                 await _agent.SeedShareAsync(row.Game);
-            else
-                await _agent.JoinTakeSharedAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
+                // Nach jeder mutierenden Aktion die Zwei-Kästen-Anzeige sofort neu abfragen (siehe
+                // savevault-change-shared-save-sichtbarkeit.md, Nachtrag "Probe-Refresh nach jeder
+                // mutierenden Aktion") – behebt die zuvor stehen bleibende CTA-Meldung.
+                await ProbeShareStatusAsync(row);
+                return;
+            }
 
-            // Nach jeder mutierenden Aktion die Zwei-Kästen-Anzeige sofort neu abfragen (siehe
-            // savevault-change-shared-save-sichtbarkeit.md, Nachtrag "Probe-Refresh nach jeder
-            // mutierenden Aktion") – behebt die zuvor stehen bleibende CTA-Meldung.
+            // Erstkontakt: dieses Gerät ist dem geteilten Stand noch NIE beigetreten, obwohl bereits
+            // einer existiert – vor der Übernahme fragen, welcher Stand gelten soll (siehe
+            // specs/savevault-change-sync-anzeige-fixes.md, Fix „Erstkontakt-Dialog"). Ein SPÄTERES
+            // Hin- und Herschalten eines bereits bekannten geteilten Spiels (IsFirstContact == false)
+            // bleibt bewusst ohne diesen Dialog – Tims ausdrückliche Vorgabe, keine Ausnahme.
+            if (probe.IsFirstContact)
+            {
+                ShowFirstContactOverlay(row, probe);
+                return;
+            }
+
+            await _agent.JoinTakeSharedAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
             await ProbeShareStatusAsync(row);
         }
         catch (Exception ex)
         {
             Info("Wechsel fehlgeschlagen: " + ex.Message);
+        }
+        finally
+        {
+            _switchInFlight = false;
+        }
+    }
+
+    // --- Erstkontakt-Entscheidungsdialog (In-Fenster-Overlay) -----------------------
+    // Siehe OnServerBoxClick: nur beim ERSTEN Beitritt zu einem bereits existierenden geteilten
+    // Stand gezeigt (ShareProbe.IsFirstContact). Zwei gleichwertige Optionen, spiegelbildlich zu den
+    // bestehenden Übernahme-Pfaden (JoinTakeSharedAsync/JoinTakeLocalAsync) – kein neuer Kern-Pfad.
+
+    private GameRow? _firstContactRow;
+    private ShareProbe? _firstContactProbe;
+
+    private void ShowFirstContactOverlay(GameRow row, ShareProbe probe)
+    {
+        _firstContactRow = row;
+        _firstContactProbe = probe;
+
+        FirstContactTitleText.Text = $"„{row.DisplayName}“ wird bereits geteilt";
+
+        var shared = probe.Shared;
+        FirstContactServerInfo.Text = shared is null
+            ? "—"
+            : $"{ByteSize.Format(shared.TotalBytes)} · {shared.FileCount} Dat. · {RelativeTime.Format(shared.WhenUtc)} · "
+              + (string.IsNullOrWhiteSpace(shared.DeviceLabel) ? "unbekanntes Gerät" : shared.DeviceLabel!);
+
+        var local = probe.Local;
+        FirstContactLocalInfo.Text =
+            $"{ByteSize.Format(local.TotalBytes)} · {local.FileCount} Dat. · {RelativeTime.Format(local.WhenUtc)}";
+
+        FirstContactOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void CloseFirstContactOverlay()
+    {
+        FirstContactOverlay.Visibility = Visibility.Collapsed;
+        _firstContactRow = null;
+        _firstContactProbe = null;
+    }
+
+    private void OnCloseFirstContactBackdrop(object sender, MouseButtonEventArgs e)
+        => CloseFirstContactOverlay();
+
+    private void OnCancelFirstContact(object sender, RoutedEventArgs e)
+        => CloseFirstContactOverlay();
+
+    private async void OnTakeServerClick(object sender, RoutedEventArgs e)
+    {
+        var row = _firstContactRow;
+        var probe = _firstContactProbe;
+        CloseFirstContactOverlay();
+        if (row is null || probe is null || _switchInFlight)
+            return;
+
+        _switchInFlight = true;
+        try
+        {
+            await _agent.JoinTakeSharedAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
+            await ProbeShareStatusAsync(row);
+        }
+        catch (Exception ex)
+        {
+            Info("Wechsel fehlgeschlagen: " + ex.Message);
+        }
+        finally
+        {
+            _switchInFlight = false;
+        }
+    }
+
+    private async void OnTakeLocalClick(object sender, RoutedEventArgs e)
+    {
+        var row = _firstContactRow;
+        var probe = _firstContactProbe;
+        CloseFirstContactOverlay();
+        if (row is null || probe is null || _switchInFlight)
+            return;
+
+        _switchInFlight = true;
+        try
+        {
+            await _agent.JoinTakeLocalAsync(row.Game, probe.SharedRevision, probe.SharedManifest!);
+            await ProbeShareStatusAsync(row);
+        }
+        catch (Exception ex)
+        {
+            Info("Hochladen fehlgeschlagen: " + ex.Message);
         }
         finally
         {
