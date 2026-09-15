@@ -1,5 +1,28 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-15)
 
+**Sync-Anzeige-/Konflikt-Fixes released, Client 1.8.5 / Server 1.5.7.** Delta
+`specs/savevault-change-sync-anzeige-fixes.md`, direkter Fortsatz des v1.8.4-Cleanups unten.
+Fünf Bugs aus Tims Realtest behoben (Erstkontakt-Dialog, `RegisterConflict` hält Teilnehmer-
+Revisionen aktuell, Gerätename statt ID im Konflikt-Dialog, Versionshistorie fragt aktiven Scope
+ab, Zwei-Kästen-Autorefresh) + neues Diagnose-Log (`%AppData%\SaveVault\sync.log`). Alle Gates
+grün (Delta-, Kern-, Oberflächen-, automatisierbarer Laufzeit-Teil), Build 0/0, Tests 199/199.
+Committet (`11a2ba4`), gepusht, getaggt `v1.8.5`, CI (Client-Release + beide Docker-Publishes)
+grün, GitHub-Release bestätigt.
+
+**Bewusst nicht reproduziert, bleibt offen:** Tims schwerwiegendster Fall (Gerät zeigt
+nachweislich korrekt heruntergeladenen Stand, meldet aber beim ersten neuen Speichern sofort
+„Konflikt") ließ sich in einem sauberen In-Process-Nachstellversuch NICHT nachstellen —
+`SyncDecider`/`ApplyRevisionAsync` als korrekt verifiziert, Ursache vermutlich umgebungsspezifisch.
+Kein Fix ohne Beleg gemacht; das neue Diagnose-Log soll beim nächsten echten Auftreten die Ursache
+belegbar machen (`sync.log` beider beteiligten Geräte anfordern, statt erneut zu spekulieren).
+
+**Noch offen:** geführter Handtest mit Tim auf echten Geräten für die WPF-Interaktion selbst
+(Erstkontakt-Dialog, Konflikt-Dialog-Gerätename, Kästen-Live-Update) — headless nicht prüfbar,
+Tim wurde um Rückmeldung gebeten (siehe Chat). Bis dahin gilt dieser Punkt als technisch fertig,
+aber nicht kundenabgenommen.
+
+---
+
 **Branch-Divergenz aufgeräumt + Release v1.8.4 (Client).** `/projekt-edit`-Anlauf zu Tims
 neuen Konflikt-/Sync-Bugs deckte auf: seit Commit `8f2b722` waren `master` (lokal) und
 `origin/master` acht bzw. sieben Commits lang unabhängig auseinandergelaufen — lokal die
