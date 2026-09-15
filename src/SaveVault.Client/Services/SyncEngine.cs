@@ -109,7 +109,22 @@ public sealed class SyncEngine
             _diagnostics.Append(game, scope, decision.Action, decision.Reason,
                 local.ManifestHash, state.BaseRevision, head.CurrentRevision, _nowUtc());
 
-            var result = decision.Action switch
+            // Geteilte (shared) Speicherstaende: Tim spielt nie gleichzeitig auf zwei Geraeten - ein
+            // erkannter "Konflikt" entsteht dort nur, weil dieses Geraet den zuletzt woanders
+            // gespeicherten Stand noch nicht gezogen hatte. Statt des manuellen Dialogs gewinnt
+            // dieses Geraet automatisch: derselbe Weg wie ein gewoehnlicher Upload (die alte
+            // Server-Revision bleibt dabei unangetastet in der Historie erhalten). Fuer "private"
+            // bleibt der Konflikt-Dialog wie bisher bestehen (siehe
+            // specs/savevault-change-shared-conflict-autoresolve.md).
+            var executedAction = decision.Action == SyncAction.Conflict && scope == BucketScope.Shared
+                ? SyncAction.Upload
+                : decision.Action;
+            // Ab hier ist die TATSAECHLICH ausgefuehrte Aktion fuers Diagnose-Log massgeblich (Erfolgs-
+            // wie Fehlerfall unten in den catch-Zweigen) - sonst wuerde ein Auto-Resolve-Upload
+            // faelschlich weiter als "Conflict" protokolliert (siehe Delta-Spec oben, Nachtrag Diagnose-Log).
+            decidedAction = executedAction;
+
+            var result = executedAction switch
             {
                 SyncAction.Upload => await UploadAsync(game, roots, local, state, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Download => await DownloadAsync(game, roots, head.CurrentRevision, scope, ct).ConfigureAwait(false),
@@ -120,8 +135,9 @@ public sealed class SyncEngine
             // Dauerhaftes Diagnose-Log, Teil 2: das TATSAECHLICHE Ergebnis - insbesondere die Basis-
             // Revision NACH der Ausfuehrung, damit sichtbar wird, ob sie wirklich vorgerueckt ist
             // (ein Zyklus, der "Download" entscheidet, aber die Basis nicht bewegt, ist genau der
-            // bislang unerklaerte Fehlerfall aus Tims Realtest).
-            _diagnostics.AppendOutcome(game, scope, decision.Action, success: true, result.Message,
+            // bislang unerklaerte Fehlerfall aus Tims Realtest). Nutzt executedAction statt der rohen
+            // Entscheidung, damit ein Shared-Conflict-Autoresolve korrekt als "Upload" erscheint.
+            _diagnostics.AppendOutcome(game, scope, executedAction, success: true, result.Message,
                 _stateStore.Load(game, scope).BaseRevision, _nowUtc());
 
             return result;

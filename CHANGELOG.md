@@ -3,6 +3,20 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.7 — 2026-09-15
+
+- **Konflikte bei geteilten (shared) Speicherständen lösen sich jetzt automatisch, ohne
+  Dialog.** Tims Reallog zeigte: sobald ein Gerät bei einem geteilten Stand weiterspielte,
+  während ein anderes Gerät zwischenzeitlich schon gespeichert hatte, meldete der Client
+  jeden Sync-Zyklus erneut „Konflikt" und legte bei jeder weiteren lokalen Änderung eine
+  neue Konflikt-Revision an — bis Tim manuell im Konflikt-Dialog die richtige Fassung
+  auswählte. Da er nie gleichzeitig auf zwei Geräten spielt, ist das immer derselbe Fall:
+  dieses Gerät hatte den zuletzt woanders gespeicherten Stand nur noch nicht gezogen. Bei
+  `shared`-Speicherständen gewinnt jetzt automatisch dieses Gerät (normaler Upload auf den
+  aktuellen Server-Stand) — die überschriebene Server-Revision bleibt dabei unangetastet in
+  der Versions-Historie erhalten. Private Speicherstände zeigen den manuellen Konflikt-Dialog
+  weiterhin wie bisher.
+
 ## v1.8.6 — 2026-09-15
 
 - **Diagnose-Log erfasst jetzt auch das tatsächliche Ergebnis eines Sync-Zyklus, nicht nur die

@@ -1,5 +1,35 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-15)
 
+**Konflikte bei geteilten Speicherständen lösen sich jetzt automatisch (Client 1.8.7).**
+Delta `specs/savevault-change-shared-conflict-autoresolve.md`, Weg über `/projekt-edit`. Tims
+Realtest-Log zeigte: sobald ein Gerät bei einem `shared`-Stand weiterspielte, während ein
+anderes Gerät zwischenzeitlich bereits gespeichert hatte, meldete jeder Sync-Zyklus erneut
+„Konflikt" und legte bei jeder weiteren lokalen Änderung eine neue Konflikt-Revision an —
+bis Tim manuell im Konflikt-Dialog die richtige Fassung auswählte. Da er nie gleichzeitig auf
+zwei Geräten spielt, ist das immer derselbe Fall: dieses Gerät hatte den zuletzt woanders
+gespeicherten Stand nur noch nicht gezogen.
+- **Fix (`SyncEngine.RunCycleAsync`):** Bei `SyncAction.Conflict` **und** `scope==Shared` läuft
+  jetzt derselbe Weg wie ein gewöhnlicher Upload (`UploadAsync` auf den aktuellen Server-Head) —
+  dieses Gerät gewinnt automatisch, ohne Dialog. Die überschriebene Server-Revision bleibt dabei
+  unangetastet in der Revisions-Historie erhalten (Sicherheitsnetz). Für `private` bleibt der
+  manuelle Konflikt-Dialog unverändert bestehen. Zusätzlich zieht das Diagnose-Log jetzt die
+  tatsächlich ausgeführte Aktion nach (sonst hätte ein Auto-Resolve-Upload fälschlich als
+  „Conflict" protokolliert).
+- **Gates grün:** Delta-Gate, Kern-Gate (reviewer+inspekteur je zweimal, keine Drift, keine
+  Regression). Build 0/0, `dotnet test` 199/199 unverändert grün.
+- **Laufzeit-Gate real belegt** (kein WPF-Handtest nötig/möglich — reine Hintergrundlogik ohne
+  UI-Änderung): Wegwerf-Harness (In-Process, gegen die echten Klassen `VaultStore`/`BucketKey`/
+  `SyncEngine`/`SyncStateStore`, nur die HTTP-Schicht durch einen direkten Adapter ersetzt) baut
+  Tims exaktes Szenario nach. Runde 1 deckte einen Fehler im Harness selbst auf (Content-Blobs
+  nie gespeichert → Head blieb bei „pending" hängen, Absturz vor Erreichen des Szenarios) —
+  nach Korrektur (jeder simulierte Upload speichert Content + finalisiert, wie
+  `SaveVaultEndpoints.cs` es real tut) bestanden beide Läufe: `shared` löst automatisch auf
+  (Aktion `Upload`, Status `Synced`, Head+Basis rücken vor, alte Revision bleibt lesbar),
+  `private` bleibt wie bisher auf `Conflict` stehen.
+- **Rollout:** nur Client-Update nötig (kein Server-Code geändert). Version **1.8.6 → 1.8.7**.
+
+---
+
 **Fix 0 real reproduziert (Client 1.8.6) — Ursache weiterhin offen, für spätere Session
 aufbereitet.** Direkt nach dem v1.8.5-Release hat Tim denselben Ablauf auf echter Hardware
 wiederholt und den Konflikt tatsächlich erneut ausgelöst — diesmal mit dem neuen Diagnose-Log.
