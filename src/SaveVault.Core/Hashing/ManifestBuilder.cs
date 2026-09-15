@@ -103,8 +103,21 @@ public sealed class ManifestBuilder
                 {
                     hash = FileHasher.HashFile(file);
                 }
-                catch (IOException) { continue; }          // z. B. gerade gesperrte Datei
-                catch (UnauthorizedAccessException) { continue; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Datei gerade nicht lesbar (z. B. exklusiv vom laufenden Spiel offen).
+                    // Gibt es einen vorherigen Eintrag für denselben Pfad, wird dieser
+                    // unverändert übernommen, statt die Datei kommentarlos aus dem Manifest
+                    // zu werfen (das sähe für den SyncDecider wie "Datei gelöscht" aus und
+                    // würde eine lückenhafte Revision erzeugen). Ohne vorherigen Eintrag
+                    // (nie erfolgreich gescannt) bleibt sie ausgelassen.
+                    if (previous is not null && previousByPath.TryGetValue(rel, out var lastKnown))
+                    {
+                        entries.Add(lastKnown);
+                        continue;
+                    }
+                    continue;
+                }
             }
 
             entries.Add(new FileEntry(rel, hash, size, mtime));

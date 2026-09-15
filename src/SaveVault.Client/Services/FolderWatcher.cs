@@ -80,7 +80,29 @@ public sealed class FolderWatcher : IDisposable
         }
     }
 
-    private void OnFsEvent(object sender, FileSystemEventArgs e) => Kick();
+    private void OnFsEvent(object sender, FileSystemEventArgs e)
+    {
+        // Eigene, gescheiterte Download-Zwischendateien (siehe SyncEngine.ApplyRevisionAsync:
+        // "<ziel>.svtmp-<guid>") sollen keinen eigenen Zyklus mehr auslösen - sonst löst ein
+        // gescheiterter Download sich durch Anlegen/Löschen seiner Temp-Datei selbst im
+        // Sekundentakt erneut aus (siehe specs/savevault-change-sync-anzeige-fixes.md, Nachtrag 2+3).
+        if (IsSyncTempFile(e.Name) || (e is RenamedEventArgs renamed && IsSyncTempFile(renamed.OldName)))
+            return;
+        Kick();
+    }
+
+    /// <summary>
+    /// Erkennt die eigenen Zwischendateien eines Downloads (Muster
+    /// <c>&lt;dateiname&gt;.svtmp-&lt;guid&gt;</c>, siehe <see cref="SyncEngine.ApplyRevisionAsync"/>)
+    /// anhand des Dateinamens (nicht des vollen relativen Pfads, damit Unterordner egal sind).
+    /// </summary>
+    private static bool IsSyncTempFile(string? relativeOrName)
+    {
+        if (string.IsNullOrEmpty(relativeOrName))
+            return false;
+        var fileName = Path.GetFileName(relativeOrName);
+        return fileName.Contains(".svtmp-", StringComparison.OrdinalIgnoreCase);
+    }
 
     private void OnError(object sender, ErrorEventArgs e)
     {

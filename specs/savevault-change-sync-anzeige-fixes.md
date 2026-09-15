@@ -375,3 +375,127 @@ Zeitpunkt des jeweiligen Commits):**
    sollte nur verfolgt werden, wenn er die eigentliche Frage (warum scheitert/verharrt der Download)
    mit erklärt, nicht als eigenständiger Fix.
 4. Datei-Sperre durch das Spiel ist widerlegt — nicht erneut als erste Hypothese ansetzen.
+
+## Nachtrag 2 (2026-09-15) — neuer, eigenständiger Vorfall: Dateisperre durchs LAUFENDE Spiel bestätigt
+
+**Wichtig zur Abgrenzung von Nachtrag 1:** Die dort widerlegte Hypothese betraf einen Vorfall, bei
+dem das Spiel nachweislich geschlossen war. Dieser Nachtrag beschreibt einen **anderen, neuen**
+Vorfall — die Falsifizierung aus Nachtrag 1 bleibt für den alten Fall gültig, gilt aber nicht hier.
+
+**Von Tim bestätigtes Muster:** Wenn Gerät A gerade spielt (Spiel offen, Speicherdatei dadurch
+gesperrt) und Gerät B zwischenzeitlich eine neue Revision hochlädt, scheitert der Download auf
+Gerät A dauerhaft mit `UnauthorizedAccessException` ("Access to the path is denied") — solange A
+spielt. Symmetrisch: läuft das Spiel stattdessen auf B, tritt derselbe Effekt dort auf. Zusatz-
+symptom: die Herkunftsgerät-Anzeige bleibt auf dem zuletzt erfolgreich heruntergeladenen Gerät
+hängen, weil die neuere Revision nie tatsächlich übernommen wird.
+
+**Mechanik (aus Code-Lesung `SyncEngine.cs` + `FolderWatcher.cs` hergeleitet):**
+- `ApplyRevisionAsync` schreibt je Datei erst nach `*.svtmp-<guid>`, dann `File.Move(tmp, target,
+  overwrite: true)`. Ist `target` vom laufenden Spiel offen/gesperrt, wirft `File.Move` eine rohe
+  `IOException`/`UnauthorizedAccessException`; die Basis-Revision bleibt stehen (kein
+  `_stateStore.Save` erreicht).
+- `FolderWatcher` beobachtet den ganzen Ordner ungefiltert (`NotifyFilter` deckt alles ab) — auch
+  die eigenen `*.svtmp-*`-Zwischendateien, die ein gescheiterter Download selbst anlegt und im
+  `catch` wieder löscht. Das löst sofort einen neuen Zyklus aus → Kadenz von wenigen Sekunden statt
+  des normalen Poll-Intervalls (im Log von Nachtrag 1 bereits als Auffälligkeit 1 vermerkt, jetzt
+  als Teil-Ursache bestätigt).
+- Während das Spiel weiterspielt/speichert, ändert sich der lokale Manifest-Hash real (lesend meist
+  noch möglich, auch wenn Schreiben blockiert ist) → nächster Zyklus entscheidet „Conflict" →
+  Shared-Auto-Resolve (v1.8.7) lädt den lokalen Stand als neue Revision hoch, **ohne** die eigentlich
+  neuere Server-Revision je gesehen/gemerged zu haben → Ping-Pong zwischen den Geräten.
+
+**Fix-Plan (umzusetzen von `bauer`):**
+1. `SyncEngine.ApplyRevisionAsync`: Schreibversuch je Datei (Erstellen der Temp-Datei + `File.Move`)
+   bekommt Retry-mit-kurzem-Backoff bei `IOException`/`UnauthorizedAccessException` (transiente
+   Sperren, z. B. während eines Spiel-Speichervorgangs, lösen sich oft von selbst). Bleibt die Datei
+   nach den Versuchen gesperrt: eigener, unterscheidbarer Exception-Typ (nicht die rohe
+   `IOException` weiterreichen) — `SyncEngine.RunCycleAsync` protokolliert das dann im Diagnose-Log
+   klar als „Datei gesperrt, erneuter Versuch folgt" statt als generischen Fehler; kein
+   Sync-Fehler-Status bei jedem Zyklus.
+2. `FolderWatcher`: `*.svtmp-*`-Namen von den beobachteten Datei-Events ausschließen (Filter auf
+   `e.Name`), damit ein gescheiterter Download sich nicht selbst im Sekundentakt erneut auslöst.
+3. Test-/Review-Punkt: mit 1+2 sollte der Download in der Praxis fast immer vor dem nächsten lokalen
+   Speichervorgang durchgehen (kürzeres Sperrfenster + normales Poll-Intervall statt Sekundentakt).
+   Bleibt dennoch ein Restfenster (Spiel hält die Datei durchgängig über Minuten offen), das im
+   Bericht **offen benennen**, nicht stillschweigend als gelöst darstellen — keine implizite
+   Datenverlust-Annahme.
+
+**Akzeptanzkriterien (neu, zusätzlich zu oben):**
+- [ ] Ein simulierter gesperrter Zieldatei-Schreibversuch (Test) führt nicht mehr zu einer rohen,
+  unklassifizierten Exception im Diagnose-Log, sondern zu einer klar als „Datei gesperrt" erkennbaren
+  Outcome-Zeile.
+- [ ] `*.svtmp-*`-Dateien lösen keinen `FolderWatcher.Changed` mehr aus (Test mit Erzeugen/Löschen
+  einer solchen Datei im überwachten Ordner).
+- [ ] Bestehende Baseline-Pfade (Nachtrag 1, Fixes 1-5) bleiben unverändert grün.
+- [ ] Build 0/0, `dotnet test` weiterhin grün.
+
+**Kein neuer API-/DTO-Vertrag, keine neue Sicherheitsfläche** (reine Fehlerbehandlung + lokale
+Datei-IO-Robustheit) — `security-auditor` bestätigt das im Gate kurz statt vollen Audit.
+
+## Nachtrag 3 (2026-09-15) — eigentlicher Hauptfund: ManifestBuilder wirft gesperrte Dateien still aus dem Manifest
+
+**Wichtiger als Nachtrag 2:** Im Gespräch mit Tim stellte sich heraus, dass der Access-Denied-
+Download-Fall aus Nachtrag 2 nur unter künstlichem Schnell-Geräte-Wechsel auftrat (bewusster Test,
+kein Alltagsfall). Tims tatsächlich beobachtetes Alltagsverhalten war ein anderes: „Während der
+Hauptrechner spielt, synchronisiert das Notebook zwar immer wieder, aber erst wenn das Spiel auf
+dem Hauptrechner geschlossen wird, aktualisiert sich das Herkunftsgerät korrekt auf Hauptrechner."
+
+**Ursache gefunden in `SaveVault.Core/Hashing/ManifestBuilder.cs`, `ScanRootInto`
+(Zeile 102-108):** Kann eine Datei nicht gehasht werden (`IOException`/`UnauthorizedAccessException`
+— z. B. weil das Spiel sie exklusiv offen hält), wird sie per `continue` **komplett aus dem
+Manifest ausgelassen** – nicht anders behandelt als eine tatsächlich gelöschte Datei. Für
+`SyncDecider` sieht das identisch aus wie „Datei entfernt": der Manifest-Hash weicht vom Basis-
+Stand ab → `localChanged = true` → Upload (oder Conflict) einer Revision, der genau die gerade
+aktive, eigentlich unveränderte Speicherdatei fehlt.
+
+**Warum das ernster ist als Nachtrag 2:** Diese lückenhafte Revision landet echt in der Historie.
+Jede Stelle, die eine Revision **exakt** übernimmt (`ReplaceLocalContentAsync` – genutzt von
+Restore, „Lokal ↔ Synchron"-Umschalten, geteilten Stand übernehmen) **löscht** dort bewusst alle
+lokalen Dateien, die im Ziel-Manifest fehlen. Wird eine solche lückenhafte Revision später exakt
+angewandt, kann das die aktive, tatsächlich vorhandene Speicherdatei auf einem Gerät real löschen –
+ein Datenverlust-Risiko, kein reines Anzeige-Problem.
+
+**Fix-Plan (umzusetzen von `bauer`, in dieser Reihenfolge):**
+1. **Hauptfix — `ManifestBuilder.ScanRootInto`:** Schlägt `FileHasher.HashFile` mit `IOException`/
+   `UnauthorizedAccessException` fehl UND existiert für denselben relativen Pfad ein Eintrag im
+   `previous`-Manifest, diesen Eintrag **unverändert übernehmen** (Hash/Größe/Schreibzeit vom
+   letzten erfolgreichen Scan) statt die Datei wegzulassen – die Datei bleibt damit im Manifest
+   sichtbar, einfach mit zuletzt bekanntem Stand, bis sie wieder lesbar ist. Gibt es keinen
+   `previous`-Eintrag (Datei ist neu, nie zuvor erfolgreich gescannt), bleibt das bisherige
+   Verhalten (überspringen) – da ist nichts Sinnvolles zu bewahren.
+2. **Aus Nachtrag 2 übernommen (Download-Schreibpfad, betrifft den selteneren
+   Schnell-Wechsel-Fall):** `SyncEngine.ApplyRevisionAsync` – Retry-mit-Backoff bei
+   `IOException`/`UnauthorizedAccessException` auf `File.Move`/`File.Create`; bleibt die Datei
+   gesperrt, eigener unterscheidbarer Exception-Typ statt roher Weiterreichung, damit das
+   Diagnose-Log das klar als „Datei gesperrt" statt generischen Fehler zeigt.
+3. **Aus Nachtrag 2 übernommen:** `FolderWatcher` schließt `*.svtmp-*`-Namen von den beobachteten
+   Events aus (verhindert Selbstauslösung bei einem gescheiterten Download-Versuch).
+4. **Neu, von Tim angefragt — Variante A, Sperr-Diagnose über die Windows Restart-Manager-API:**
+   Ein kleiner Wrapper um `RmStartSession`/`RmRegisterResources`/`RmGetList` (P/Invoke,
+   `rstrtmgr.dll`), der zu einem gegebenen Dateipfad den/die haltenden Prozessnamen liefert –
+   generisch, ohne dass der Client vorher weiß, wie das Spiel/seine exe heißt. Wird genutzt, um bei
+   einer per Fix 1 erkannten gesperrten Datei eine ehrliche Statuszeile zu zeigen (z. B. „Wartet –
+   `Warcraft III.exe` hält die Datei offen"), statt nur „Wartet" ohne Erklärung. Reine
+   Zusatz-Diagnose, keine Verhaltensänderung der Sync-Entscheidung.
+
+**Akzeptanzkriterien (neu, ersetzt/erweitert die aus Nachtrag 2):**
+- [ ] Test: eine Datei, die zwischen zwei Scans kurzzeitig nicht lesbar ist (simulierte Sperre),
+  bleibt mit ihrem letzten bekannten Hash im Manifest – `SyncDecider` wertet das NICHT als
+  „lokal geändert" (kein Phantom-Upload/-Conflict wegen einer bloß gesperrten Datei).
+- [ ] Test: eine Datei ohne jeden vorherigen Eintrag (nie erfolgreich gescannt) UND aktuell gesperrt
+  bleibt weiterhin ausgelassen (bestehendes Verhalten, unverändert).
+- [ ] Test: ein simulierter gesperrter Zieldatei-Schreibversuch beim Download führt zu einer klar
+  als „Datei gesperrt" erkennbaren Outcome-Zeile statt einer rohen Exception im Diagnose-Log.
+- [ ] Test: `*.svtmp-*`-Dateien lösen keinen `FolderWatcher.Changed` mehr aus.
+- [ ] Der Restart-Manager-Wrapper liefert für eine bekanntermaßen gesperrte Testdatei einen
+  Prozessnamen zurück (Test mit einer selbst offen gehaltenen Datei im Testprozess reicht als
+  Nachweis der Mechanik) und liefert `null`/leer, wenn niemand sperrt oder die Abfrage selbst
+  fehlschlägt (nie eine Exception nach außen).
+- [ ] Bestehende Baseline-Pfade (Nachtrag 1+2, alle bisherigen Fixes) bleiben unverändert grün.
+- [ ] Build 0/0, `dotnet test` weiterhin grün.
+
+**Sicherheitsfläche:** Neuer P/Invoke-Aufruf gegen eine Windows-Systemkomponente
+(`rstrtmgr.dll`) – keine externen/Netz-Eingaben, operiert nur auf bereits lokal bekannten
+Dateipfaden dieses Geräts. `security-auditor` prüft trotzdem kurz: korrekte Freigabe der
+RM-Session-Handles (kein Leak bei jedem Aufruf), keine ungeprüfte Puffergrößen-Berechnung bei der
+`RmGetList`-Marshaling-Schleife.

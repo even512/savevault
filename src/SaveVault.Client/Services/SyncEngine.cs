@@ -29,6 +29,38 @@ public sealed class SyncSecurityException : Exception
 }
 
 /// <summary>
+/// Eine Datei blieb beim Anwenden einer heruntergeladenen Revision auch nach mehreren
+/// Schreibversuchen (mit Backoff, siehe <see cref="SyncEngine.ApplyRevisionAsync"/>) gesperrt –
+/// typischerweise weil ein laufendes Spiel sie exklusiv offen hält. Bewusst <b>unterscheidbar</b>
+/// von einer rohen <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/>, damit
+/// <see cref="SyncEngine.RunCycleAsync"/> das im Diagnose-Log klar als „Datei gesperrt, erneuter
+/// Versuch folgt" statt als generischen Fehler protokollieren kann (siehe
+/// <c>specs/savevault-change-sync-anzeige-fixes.md</c>, Nachtrag 2+3).
+/// </summary>
+public sealed class SyncFileLockedException : Exception
+{
+    public GameKey Game { get; }
+    public string Path { get; }
+
+    /// <summary>Namen der Prozesse, die die Datei laut Restart-Manager-Abfrage offen halten
+    /// (siehe <see cref="FileLockInspector"/>); leer, wenn nicht ermittelbar.</summary>
+    public IReadOnlyList<string> LockingProcesses { get; }
+
+    public SyncFileLockedException(GameKey game, string path, IReadOnlyList<string> lockingProcesses, Exception inner)
+        : base(BuildMessage(path, lockingProcesses), inner)
+    {
+        Game = game;
+        Path = path;
+        LockingProcesses = lockingProcesses;
+    }
+
+    private static string BuildMessage(string path, IReadOnlyList<string> lockingProcesses)
+        => lockingProcesses.Count > 0
+            ? $"Datei gesperrt: '{path}' wird gehalten von {string.Join(", ", lockingProcesses)}."
+            : $"Datei gesperrt: '{path}' ist derzeit nicht schreibbar (Prozess nicht ermittelbar).";
+}
+
+/// <summary>
 /// Kern-Orchestrator des Client-Sync. Bildet die Fälle der verbindlichen
 /// <see cref="SyncDecider"/>-Logik (inkl. Reseed bei Server-Verlust) auf die vier API-Aktionen
 /// Upload / Download / Conflict / NoOp ab. IO gegen den Server läuft über <see cref="ISaveVaultApi"/> (injiziert,
@@ -48,6 +80,7 @@ public sealed class SyncEngine
     private readonly ManifestBuilder _manifestBuilder;
     private readonly Func<DateTime> _nowUtc;
     private readonly SyncDiagnosticsLog _diagnostics;
+    private readonly IReadOnlyList<TimeSpan> _fileWriteRetryDelays;
 
     public SyncEngine(
         ISaveVaultApi api,
@@ -56,7 +89,8 @@ public sealed class SyncEngine
         Func<DeviceInfo> deviceInfo,
         ManifestBuilder? manifestBuilder = null,
         Func<DateTime>? nowUtc = null,
-        SyncDiagnosticsLog? diagnosticsLog = null)
+        SyncDiagnosticsLog? diagnosticsLog = null,
+        IReadOnlyList<TimeSpan>? fileWriteRetryDelays = null)
     {
         _api = api ?? throw new ArgumentNullException(nameof(api));
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
@@ -65,6 +99,12 @@ public sealed class SyncEngine
         _manifestBuilder = manifestBuilder ?? new ManifestBuilder();
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
         _diagnostics = diagnosticsLog ?? new SyncDiagnosticsLog(new AppPaths());
+        // Kurzer Backoff bei gesperrter Zieldatei (z. B. waehrend eines Spiel-Speichervorgangs):
+        // transiente Sperren loesen sich oft innerhalb weniger hundert Millisekunden von selbst
+        // (siehe specs/savevault-change-sync-anzeige-fixes.md, Nachtrag 2+3). Injizierbar, damit
+        // Tests nicht auf die echten Wartezeiten angewiesen sind.
+        _fileWriteRetryDelays = fileWriteRetryDelays
+            ?? new[] { TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(800) };
     }
 
     /// <summary>
@@ -165,6 +205,22 @@ public sealed class SyncEngine
             _diagnostics.AppendOutcome(game, scope, decidedAction ?? SyncAction.NoOp, success: false,
                 $"SyncSecurityException: {ex.Message}", _stateStore.Load(game, scope).BaseRevision, _nowUtc());
             return Report(game, SyncAction.NoOp, SyncStatus.Error, ex.Message, folder);
+        }
+        catch (SyncFileLockedException ex)
+        {
+            // Eine gesperrte Zieldatei (z. B. vom laufenden Spiel offen gehalten) ist KEIN echter
+            // Sync-Fehler - sie loest sich typischerweise beim naechsten Zyklus von selbst (siehe
+            // specs/savevault-change-sync-anzeige-fixes.md, Nachtrag 2+3). Deshalb wird hier NICHT
+            // wie beim generischen Sicherheitsnetz unten weitergereicht (das wuerde ClientAgent zu
+            // einem harten "Sync-Fehler: ..."-Status bei JEDEM Zyklus fuehren) - stattdessen ein
+            // klar unterscheidbarer, ehrlicher Warte-Status samt (falls ermittelbar) haltendem
+            // Prozessnamen.
+            _diagnostics.AppendOutcome(game, scope, decidedAction ?? SyncAction.NoOp, success: false,
+                $"Datei gesperrt, erneuter Versuch folgt: {ex.Message}", _stateStore.Load(game, scope).BaseRevision, _nowUtc());
+            var waitMessage = ex.LockingProcesses.Count > 0
+                ? $"Wartet – {string.Join(", ", ex.LockingProcesses)} hält die Datei offen"
+                : "Wartet – Datei gerade gesperrt, erneuter Versuch folgt";
+            return Report(game, SyncAction.NoOp, SyncStatus.Pending, waitMessage, folder);
         }
         catch (Exception ex)
         {
@@ -343,7 +399,54 @@ public sealed class SyncEngine
                 {
                     await source.CopyToAsync(dest, ct).ConfigureAwait(false);
                 }
+            }
+            catch
+            {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best effort */ }
+                throw;
+            }
+
+            // Der eigentlich fehleranfaellige Schritt ist der finale Move an den Zielpfad – ist
+            // "target" gerade vom laufenden Spiel exklusiv geoeffnet, schlaegt NUR dieser Schritt
+            // fehl (der Download in den Temp-Pfad daneben ist bereits erfolgreich abgeschlossen).
+            // Retry mit kurzem Backoff, bevor als dauerhaft gesperrt aufgegeben wird (siehe
+            // specs/savevault-change-sync-anzeige-fixes.md, Nachtrag 2+3).
+            await MoveIntoPlaceWithRetryAsync(game, tmp, target, ct).ConfigureAwait(false);
+        }
+
+        _stateStore.Save(new SyncState(game, revisionNumber, manifest), scope);
+        _stateStore.ClearConflictHash(game, scope); // Stand ist auf eine echte Revision nachgezogen – Konflikt-Marke hinfällig.
+    }
+
+    /// <summary>
+    /// Verschiebt eine bereits fertig heruntergeladene Temp-Datei an ihren Zielpfad – mit
+    /// Retry-mit-kurzem-Backoff bei <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/>
+    /// (typischerweise eine transiente Sperre durch ein laufendes Spiel, das die Datei gerade
+    /// selbst speichert). Bleibt die Datei über alle Versuche hinweg gesperrt, wird die Temp-Datei
+    /// aufgeräumt und eine <see cref="SyncFileLockedException"/> geworfen (statt der rohen
+    /// Ausnahme) – inklusive der über <see cref="FileLockInspector"/> ermittelten haltenden
+    /// Prozesse, falls das gelingt.
+    /// </summary>
+    private async Task MoveIntoPlaceWithRetryAsync(GameKey game, string tmp, string target, CancellationToken ct)
+    {
+        var attempt = 0;
+        while (true)
+        {
+            try
+            {
                 File.Move(tmp, target, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= _fileWriteRetryDelays.Count)
+                {
+                    try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best effort */ }
+                    var lockingProcesses = SafeGetLockingProcessNames(target);
+                    throw new SyncFileLockedException(game, target, lockingProcesses, ex);
+                }
+                await Task.Delay(_fileWriteRetryDelays[attempt], ct).ConfigureAwait(false);
+                attempt++;
             }
             catch
             {
@@ -351,9 +454,14 @@ public sealed class SyncEngine
                 throw;
             }
         }
+    }
 
-        _stateStore.Save(new SyncState(game, revisionNumber, manifest), scope);
-        _stateStore.ClearConflictHash(game, scope); // Stand ist auf eine echte Revision nachgezogen – Konflikt-Marke hinfällig.
+    /// <summary>Fragt <see cref="FileLockInspector"/> defensiv ab – die Diagnose ist reine
+    /// Zusatzinformation und darf den eigentlichen Sync-Fehlerpfad nie stören.</summary>
+    private static IReadOnlyList<string> SafeGetLockingProcessNames(string path)
+    {
+        try { return FileLockInspector.GetLockingProcessNames(path); }
+        catch { return Array.Empty<string>(); }
     }
 
     // --- Exakter Austausch (Umschalten Lokal ↔ Synchron) — SICHERHEITS-CHOKEPOINT --
