@@ -85,6 +85,12 @@ public sealed class SyncEngine
         var statusBeforeCycle = _state.GetStatus(game);
         _state.SetStatus(game, SyncStatus.Syncing, folder: folder);
 
+        // Ausserhalb des try-Blocks gemerkt, damit auch ein Fehlschlag VOR/WAEHREND der Ausfuehrung
+        // (in den catch-Zweigen unten) noch weiss, welche Aktion eigentlich versucht wurde (siehe
+        // specs/savevault-change-sync-anzeige-fixes.md, Nachtrag "Diagnose-Log erfasst nur die
+        // Entscheidung, nicht das Ergebnis").
+        SyncAction? decidedAction = null;
+
         try
         {
             var state = _stateStore.Load(game, scope);
@@ -93,22 +99,32 @@ public sealed class SyncEngine
             _state.MarkServerReachable(_nowUtc());
 
             var decision = SyncDecider.Decide(local, state, head.CurrentRevision);
+            decidedAction = decision.Action;
 
-            // Dauerhaftes Diagnose-Log (siehe specs/savevault-change-sync-anzeige-fixes.md, Fix 0,
-            // Schritt 2): reine Beobachtung der Entscheidungsgrundlage dieses Zyklus, damit sich ein
-            // spaeter gemeldeter unerwarteter Konflikt anhand der Revisionsnummern zum damaligen
-            // Zeitpunkt rekonstruieren laesst. "lokal" hat vor dem ersten Upload keine Revisionsnummer
-            // - dafuer der kurze Manifest-Hash-Fingerabdruck des gescannten Ordnerinhalts.
+            // Dauerhaftes Diagnose-Log, Teil 1 (siehe specs/savevault-change-sync-anzeige-fixes.md,
+            // Fix 0, Schritt 2): die Entscheidungsgrundlage dieses Zyklus - VOR der Ausfuehrung, zeigt
+            // also nur die Absicht, nicht ob sie gelang (dafuer Teil 2 unten/in den catch-Zweigen).
+            // "lokal" hat vor dem ersten Upload keine Revisionsnummer - dafuer der kurze
+            // Manifest-Hash-Fingerabdruck des gescannten Ordnerinhalts.
             _diagnostics.Append(game, scope, decision.Action, decision.Reason,
                 local.ManifestHash, state.BaseRevision, head.CurrentRevision, _nowUtc());
 
-            return decision.Action switch
+            var result = decision.Action switch
             {
                 SyncAction.Upload => await UploadAsync(game, roots, local, state, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Download => await DownloadAsync(game, roots, head.CurrentRevision, scope, ct).ConfigureAwait(false),
                 SyncAction.Conflict => await ConflictAsync(game, roots, local, state, scope, ct).ConfigureAwait(false),
                 _ => NoOp(game, folder, state.BaseRevision, decision.Reason, statusBeforeCycle),
             };
+
+            // Dauerhaftes Diagnose-Log, Teil 2: das TATSAECHLICHE Ergebnis - insbesondere die Basis-
+            // Revision NACH der Ausfuehrung, damit sichtbar wird, ob sie wirklich vorgerueckt ist
+            // (ein Zyklus, der "Download" entscheidet, aber die Basis nicht bewegt, ist genau der
+            // bislang unerklaerte Fehlerfall aus Tims Realtest).
+            _diagnostics.AppendOutcome(game, scope, decision.Action, success: true, result.Message,
+                _stateStore.Load(game, scope).BaseRevision, _nowUtc());
+
+            return result;
         }
         catch (OperationCanceledException)
         {
@@ -116,17 +132,35 @@ public sealed class SyncEngine
         }
         catch (SaveVaultApiException ex)
         {
+            _diagnostics.AppendOutcome(game, scope, decidedAction ?? SyncAction.NoOp, success: false,
+                $"SaveVaultApiException: {ex.Message}", _stateStore.Load(game, scope).BaseRevision, _nowUtc());
             _state.MarkServerUnreachable(ex.Message);
             return Report(game, SyncAction.NoOp, SyncStatus.Error, "Serverfehler: " + ex.Message, folder);
         }
         catch (HttpRequestException ex)
         {
+            _diagnostics.AppendOutcome(game, scope, decidedAction ?? SyncAction.NoOp, success: false,
+                $"HttpRequestException: {ex.Message}", _stateStore.Load(game, scope).BaseRevision, _nowUtc());
             _state.MarkServerUnreachable(ex.Message);
             return Report(game, SyncAction.NoOp, SyncStatus.Error, "Server nicht erreichbar: " + ex.Message, folder);
         }
         catch (SyncSecurityException ex)
         {
+            _diagnostics.AppendOutcome(game, scope, decidedAction ?? SyncAction.NoOp, success: false,
+                $"SyncSecurityException: {ex.Message}", _stateStore.Load(game, scope).BaseRevision, _nowUtc());
             return Report(game, SyncAction.NoOp, SyncStatus.Error, ex.Message, folder);
+        }
+        catch (Exception ex)
+        {
+            // Sicherheitsnetz (vorher nicht vorhanden): jede andere, bislang unbenannte Ausnahme
+            // (z. B. eine rohe IOException beim Schreiben - Datei gesperrt/Antivirus/Berechtigung)
+            // lief bisher komplett unprotokolliert an diesem Log vorbei nach oben durch, wo der
+            // ClientAgent sie zwar abfaengt (Status "Sync-Fehler: ..."), aber NICHT ins Diagnose-Log
+            // schreibt. Hier wird sie zuerst mit vollem Typ+Nachricht festgehalten, dann UNVERAENDERT
+            // weitergereicht (keine Verhaltensaenderung ausserhalb des Loggings).
+            _diagnostics.AppendOutcome(game, scope, decidedAction ?? SyncAction.NoOp, success: false,
+                $"{ex.GetType().Name}: {ex.Message}", _stateStore.Load(game, scope).BaseRevision, _nowUtc());
+            throw;
         }
     }
 

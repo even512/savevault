@@ -76,6 +76,51 @@ public sealed class SyncDiagnosticsLog
         }
     }
 
+    /// <summary>
+    /// Hängt eine zweite Zeile an, die das TATSÄCHLICHE Ergebnis eines Zyklus festhält (siehe
+    /// <c>specs/savevault-change-sync-anzeige-fixes.md</c>, Nachtrag „Diagnose-Log erfasst nur die
+    /// Entscheidung, nicht das Ergebnis"): <see cref="Append"/> wird VOR der Ausführung der Aktion
+    /// aufgerufen und beweist daher nur die Absicht, nicht den Erfolg. Diese Methode wird NACH dem
+    /// Ausführungsversuch aufgerufen — bei Erfolg mit der resultierenden Basis-Revision (zeigt, ob
+    /// sie wirklich vorgerückt ist), bei einem Fehler mit Ausnahme-Typ und -Nachricht.
+    /// </summary>
+    public void AppendOutcome(
+        GameKey game,
+        BucketScope scope,
+        SyncAction decidedAction,
+        bool success,
+        string detail,
+        long resultingBaseRevision,
+        DateTime timestampUtc)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        try
+        {
+            var line =
+                $"{timestampUtc.ToString("o", CultureInfo.InvariantCulture)}\t" +
+                $"{game.DisplayName}\t" +
+                $"{BucketKey.ToWire(scope)}\t" +
+                $"ERGEBNIS({decidedAction})\t" +
+                $"{(success ? "OK" : "FEHLER")}\t" +
+                $"neueBasis={resultingBaseRevision.ToString(CultureInfo.InvariantCulture)}\t" +
+                $"{detail}" +
+                Environment.NewLine;
+
+            lock (_lock)
+            {
+                RotateIfNeededLocked();
+                var dir = Path.GetDirectoryName(_path);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                File.AppendAllText(_path, line, Encoding.UTF8);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Diagnose-Log ist reine Beobachtung - ein Schreibfehler darf den Sync nie stoeren.
+        }
+    }
+
     private void RotateIfNeededLocked()
     {
         try

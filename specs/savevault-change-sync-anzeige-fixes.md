@@ -287,3 +287,91 @@ begründet bestätigt statt übersprungen.
 - Ob Fix 4 (automatische Kästen-Aktualisierung) eine Drosselung braucht, um nicht bei jedem
   Heartbeat unnötig oft den Server abzufragen — Ermessen `bauer`, Performance ist hier zweitrangig
   gegenüber Korrektheit, aber unnötige Last vermeiden.
+
+## Nachtrag (2026-09-15, nach Release v1.8.5) — Fix 0 real reproduziert, Ursache weiterhin offen
+
+**Was passierte:** Nach dem Update auf v1.8.5 hat Tim denselben Ablauf (Gerät wechseln, ins
+bereits geteilte Warcraft-3-Reforged-Savegame gehen, speichern) auf echter Hardware wiederholt —
+diesmal mit dem neuen Diagnose-Log. Ergebnis: **der Fehler tritt real auf**, der Nachstell-Versuch
+im sauberen In-Process-Harness (siehe oben, „nicht reproduziert") deckt also nicht den echten Fall
+ab.
+
+**Echte Log-Auszüge (Gerät, das den Konflikt zeigte), chronologisch:**
+```
+00:49:06  NoOp      local=5a645006  base=45  server=45   Lokal unverändert und Server nicht neuer als base: nichts zu tun.
+00:49:23  Upload    local=98bdd42b  base=45  server=45   Lokal geändert, Server-Revision 45 <= base 45: neue Revision hochladen.
+00:49:32  NoOp      local=98bdd42b  base=46  server=46   Lokal unverändert und Server nicht neuer als base: nichts zu tun.
+00:49:43  NoOp      local=98bdd42b  base=46  server=46   Lokal unverändert und Server nicht neuer als base: nichts zu tun.
+00:49:45  NoOp      local=98bdd42b  base=46  server=46   Lokal unverändert und Server nicht neuer als base: nichts zu tun.
+00:49:48  Download  local=98bdd42b  base=46  server=47   Lokal unverändert, Server-Revision 47 > base 46: aktuelle Revision herunterladen.
+00:49:51  Download  local=98bdd42b  base=46  server=47   (identisch)
+00:49:55  Download  local=98bdd42b  base=46  server=47   (identisch)
+00:49:58  Download  local=98bdd42b  base=46  server=47   (identisch)
+00:50:02  Download  local=98bdd42b  base=46  server=47   (identisch)
+00:50:06  Conflict  local=b0fa4d0d  base=46  server=47   Lokal geändert UND Server-Revision 47 > base 46: echter Konflikt, nicht überschreiben.
+00:50:08  Conflict  local=b0fa4d0d  base=46  server=47   (identisch)
+00:50:22  Conflict  local=c582628f  base=46  server=47   (identisch, lokaler Hash erneut geändert)
+```
+
+**Auffälligkeit 1 — Kadenz:** die Abstände zwischen den Zyklen (3–13 Sekunden) sind viel kürzer als
+ein normales Rescan-Intervall — das deutet auf `FolderWatcher`-getriebene Zyklen hin, nicht auf den
+periodischen Timer. `FolderWatcher.cs` filtert **keine** `.svtmp-*`-Dateien aus den beobachteten
+Ereignissen (`NotifyFilter` deckt `FileName`/`LastWrite`/`Size`/`CreationTime` pauschal ab) — ein
+eigener, gescheiterter Download-Versuch (der laut `SyncEngine.ApplyRevisionAsync` `.svtmp-<guid>`-
+Dateien im selben, beobachteten Ordner anlegt und bei einem Fehler wieder löscht) würde sich damit
+theoretisch selbst erneut auslösen. Nicht abschließend verifiziert, ob das hier tatsächlich die
+Zyklus-Quelle war oder ob z. B. `ludusavi`/das Spiel selbst wiederholt kleine Dateien berührt hat.
+
+**Auffälligkeit 2 — Basis bewegt sich 5 Zyklen lang trotz „Download"-Entscheidung nicht:** das ist
+der eigentliche Kern des Bugs. Fünfmal in Folge wird „herunterladen" entschieden, aber `base` bleibt
+bei 46 stehen — das kann nur bedeuten, dass entweder (a) der Download-Versuch jedes Mal mit einer
+Ausnahme abbricht, bevor `_stateStore.Save(...)` erreicht wird, oder (b) er "erfolgreich" durchläuft,
+aber etwas den gespeicherten Zustand danach wieder auf 46 zurückfallen lässt (unwahrscheinlicher,
+da `SyncStateStore` zustandslos direkt von der Platte liest/schreibt, keine Zwischen-Caches hat).
+
+**Zunächst vermutet, dann verworfen:** eine Datei-Sperre durch das laufende Spiel. **Tim hat das
+widerlegt** — das Spiel war zum Zeitpunkt des Vorfalls nachweislich geschlossen. Diese Theorie ist
+damit **falsifiziert**, nicht nur unbestätigt — eine künftige Session sollte sie nicht wiederholen,
+ohne neue Belege dafür zu haben.
+
+**Warum das alte Diagnose-Log die eigentliche Ursache nicht zeigen konnte:** `SyncEngine.
+RunCycleAsync` rief `_diagnostics.Append(...)` bisher **vor** der Ausführung der Aktion auf (direkt
+nach `SyncDecider.Decide(...)`, vor dem `switch`, das `UploadAsync`/`DownloadAsync`/etc. aufruft).
+Die Log-Zeile bewies also nur die **Absicht**, nie das tatsächliche Ergebnis — ob der
+`DownloadAsync`-Aufruf dahinter erfolgreich war, mit einer der drei explizit behandelten Ausnahmen
+(`SaveVaultApiException`/`HttpRequestException`/`SyncSecurityException`) abbrach, oder mit einer
+davor **komplett unbehandelten** Ausnahme (z. B. einer rohen `IOException`, die durch keinen der
+drei `catch`-Zweige gefangen wurde und bisher unprotokolliert bis zum generischen
+`catch (Exception ex)` in `ClientAgent` durchgereicht wurde) scheiterte, ließ sich aus dem Log
+allein **nicht** unterscheiden. Das war der eigentliche Fehler in der ersten Fix-0-Umsetzung: das
+Log beobachtete die falsche Sache.
+
+**Fix (umgesetzt, released als v1.8.5-Folgeversion — Version siehe CHECKPOINT.md/CHANGELOG.md zum
+Zeitpunkt des jeweiligen Commits):**
+- `SyncDiagnosticsLog` bekommt eine zweite Methode `AppendOutcome(...)`, die das TATSÄCHLICHE
+  Ergebnis eines Zyklus protokolliert — bei Erfolg mit der resultierenden Basis-Revision (zeigt
+  direkt, ob sie wirklich vorgerückt ist), bei einem Fehler mit Ausnahme-Typ und -Nachricht.
+- `SyncEngine.RunCycleAsync` ruft diese Methode jetzt nach der Ausführung auf: im Erfolgsfall nach
+  dem `switch`, in allen drei bestehenden `catch`-Zweigen, UND in einem neuen, bisher nicht
+  vorhandenen `catch (Exception ex)`-Sicherheitsnetz, das jede sonst unbenannte Ausnahme zuerst
+  protokolliert und dann **unverändert weiterreicht** (`throw;`, keine Verhaltensänderung
+  gegenüber dem bisherigen `ClientAgent`-Fehlerpfad, nur zusätzliche Sichtbarkeit).
+- Build 0/0, `dotnet test` weiterhin grün (199/199, keine neuen Tests nötig — reine
+  Beobachtungserweiterung, keine neue Entscheidungslogik).
+
+**Für die nächste Session, die das übernimmt:**
+1. Tritt der Konflikt erneut auf: `%AppData%\SaveVault\sync.log` **beider** beteiligten Geräte
+   anfordern (nicht nur des einen, das den Konflikt zeigte) und nach der neuen
+   `ERGEBNIS(...)`-Zeile suchen, die jetzt direkt nach jeder `Download`/`Upload`/`Conflict`-Zeile
+   folgen sollte — sie zeigt entweder `OK neueBasis=47` (dann war der Download technisch
+   erfolgreich, und die Ursache liegt woanders, z. B. bei einer erneuten, zwischenzeitlich
+   geänderten lokalen Datei) oder `FEHLER` mit einer konkreten Ausnahme (dann ist die Ursache exakt
+   benannt).
+2. Zusätzlich lohnt sich ein Blick auf das **andere** Gerät (das, welches Revision 47 erzeugt hat):
+   Zeitstempel seines Uploads gegen die Download-Versuche des betroffenen Geräts legen, um
+   auszuschließen/bestätigen, dass es sich um ein reines Timing-Fenster handelt.
+3. Die `FolderWatcher`-Selbstauslösungs-Theorie (Auffälligkeit 1) ist ein guter Nebenkandidat, aber
+   NICHT der Kern des Bugs (der Kern ist: Basis bewegt sich trotz „Download"-Entscheidung nicht) —
+   sollte nur verfolgt werden, wenn er die eigentliche Frage (warum scheitert/verharrt der Download)
+   mit erklärt, nicht als eigenständiger Fix.
+4. Datei-Sperre durch das Spiel ist widerlegt — nicht erneut als erste Hypothese ansetzen.

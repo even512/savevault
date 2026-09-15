@@ -3,6 +3,18 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.6 — 2026-09-15
+
+- **Diagnose-Log erfasst jetzt auch das tatsächliche Ergebnis eines Sync-Zyklus, nicht nur die
+  Entscheidung.** Tim reproduzierte den in v1.8.5 noch offenen Konflikt-Fall real (Basis-Revision
+  rückte trotz „Download"-Entscheidung fünf Zyklen lang nicht vor) — das bisherige Log zeigte aber
+  nur, was der Client vorhatte, nicht ob es gelang. `sync.log` bekommt jetzt zusätzlich eine
+  `ERGEBNIS(...)`-Zeile je Zyklus (Erfolg + neue Basis-Revision, oder Fehler + genaue Ausnahme).
+  Zusätzlich fängt ein neues Sicherheitsnetz jede zuvor unprotokollierte Ausnahme ab, bevor sie wie
+  gehabt weitergereicht wird — reine Sichtbarkeit, kein Verhaltensunterschied. Ursache des
+  eigentlichen Konflikt-Falls ist damit noch nicht gefunden, aber beim nächsten Auftreten jetzt
+  belegbar statt zu erraten.
+
 ## v1.8.5 — 2026-09-15
 
 - **Nachfrage beim ersten Beitritt zu einem bereits geteilten Stand.** Trifft ein Gerät zum ersten

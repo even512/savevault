@@ -1,5 +1,31 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-15)
 
+**Fix 0 real reproduziert (Client 1.8.6) — Ursache weiterhin offen, für spätere Session
+aufbereitet.** Direkt nach dem v1.8.5-Release hat Tim denselben Ablauf auf echter Hardware
+wiederholt und den Konflikt tatsächlich erneut ausgelöst — diesmal mit dem neuen Diagnose-Log.
+**Wichtigster Fund:** das Log zeigte 5 identische „Download"-Entscheidungen in Folge
+(`base=46, server=47`), OHNE dass die Basis je auf 47 vorrückte — der eigentliche Bug sitzt also
+im Download-Ausführungspfad selbst (`ApplyRevisionAsync`/`DownloadAsync`), nicht in der bereits
+mehrfach verifizierten Entscheidungslogik. **Datei-Sperre durch das laufende Spiel wurde von Tim
+ausdrücklich widerlegt** (Spiel war zum Vorfallszeitpunkt geschlossen) — diese Hypothese ist
+falsifiziert, nicht offen.
+
+**Root-Cause des Diagnose-Log-Problems selbst gefunden und behoben:** `SyncDiagnosticsLog.Append`
+wurde in `SyncEngine.RunCycleAsync` VOR der Aktionsausführung aufgerufen — das Log bewies also nur
+die Absicht, nie das Ergebnis. Fix (Client 1.8.6): neue Methode `AppendOutcome(...)` protokolliert
+nach der Ausführung Erfolg (+ neue Basis-Revision) oder Fehler (+ Ausnahme-Typ/-Nachricht), inkl.
+neuem Sicherheitsnetz (`catch (Exception ex)`) für bislang komplett unprotokollierte Ausnahmen —
+reine Sichtbarkeitserweiterung, keine Verhaltensänderung. Build 0/0, Tests 199/199 weiterhin grün.
+Committet, gepusht, getaggt `v1.8.6`, released.
+
+**Vollständige Diagnose (Log-Auszüge, verworfene Hypothesen, offene Spuren, Anleitung für den
+nächsten Reproduktionsversuch) steht im Nachtrag am Ende von
+`specs/savevault-change-sync-anzeige-fixes.md`** — dort ansetzen, nicht neu anfangen. Tim möchte
+das Problem bewusst in einer **späteren, separaten Session** weiterverfolgen; dieser Punkt ist
+absichtlich als offen/nicht abgeschlossen zurückgelassen worden, kein vergessener Rest.
+
+---
+
 **Sync-Anzeige-/Konflikt-Fixes released, Client 1.8.5 / Server 1.5.7.** Delta
 `specs/savevault-change-sync-anzeige-fixes.md`, direkter Fortsatz des v1.8.4-Cleanups unten.
 Fünf Bugs aus Tims Realtest behoben (Erstkontakt-Dialog, `RegisterConflict` hält Teilnehmer-
