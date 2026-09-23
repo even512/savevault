@@ -521,21 +521,9 @@
                                                 <DataTrigger Binding="{Binding ServerBoxActive}" Value="True">
                                                     <Setter TargetName="Bd" Property="Opacity" Value="1" />
                                                     <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                                                    <DataTrigger.EnterActions>
-                                                        <BeginStoryboard Name="ServerGlow">
-                                                            <Storyboard>
-                                                                <DoubleAnimation Storyboard.TargetName="Bd"
-                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.BlurRadius)"
-                                                                    From="6" To="16" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
-                                                                <DoubleAnimation Storyboard.TargetName="Bd"
-                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.Opacity)"
-                                                                    From="0.22" To="0.5" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
-                                                            </Storyboard>
-                                                        </BeginStoryboard>
-                                                    </DataTrigger.EnterActions>
-                                                    <DataTrigger.ExitActions>
-                                                        <StopStoryboard BeginStoryboardName="ServerGlow" />
-                                                    </DataTrigger.ExitActions>
+                                                    <!-- Statt Endlos-Puls (Software-Rendering, siehe App.xaml.cs, würde das dauerhaft
+                                                         auf jeder aktiven Zeile CPU-Last erzeugen): fester Glow-Wert. -->
+                                                    <Setter TargetName="Bd" Property="Effect" Value="{StaticResource ActiveBoxGlow}" />
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding ServerBoxActive}" Value="False">
                                                     <Setter TargetName="Bd" Property="Opacity" Value="0.55" />
@@ -678,21 +666,9 @@
                                                 <DataTrigger Binding="{Binding LocalBoxActive}" Value="True">
                                                     <Setter TargetName="Bd" Property="Opacity" Value="1" />
                                                     <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                                                    <DataTrigger.EnterActions>
-                                                        <BeginStoryboard Name="LocalGlow">
-                                                            <Storyboard>
-                                                                <DoubleAnimation Storyboard.TargetName="Bd"
-                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.BlurRadius)"
-                                                                    From="6" To="16" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
-                                                                <DoubleAnimation Storyboard.TargetName="Bd"
-                                                                    Storyboard.TargetProperty="(Border.Effect).(DropShadowEffect.Opacity)"
-                                                                    From="0.22" To="0.5" Duration="0:0:1.3" AutoReverse="True" RepeatBehavior="Forever" />
-                                                            </Storyboard>
-                                                        </BeginStoryboard>
-                                                    </DataTrigger.EnterActions>
-                                                    <DataTrigger.ExitActions>
-                                                        <StopStoryboard BeginStoryboardName="LocalGlow" />
-                                                    </DataTrigger.ExitActions>
+                                                    <!-- Statt Endlos-Puls (Software-Rendering, siehe App.xaml.cs, würde das dauerhaft
+                                                         auf jeder aktiven Zeile CPU-Last erzeugen): fester Glow-Wert. -->
+                                                    <Setter TargetName="Bd" Property="Effect" Value="{StaticResource ActiveBoxGlow}" />
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding LocalBoxActive}" Value="False">
                                                     <Setter TargetName="Bd" Property="Opacity" Value="0.55" />

@@ -40,6 +40,14 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Software-Rendering erzwingen, ganz am Anfang (vor jedem Fenster/base.OnStartup): SaveVault
+        // läuft dauerhaft im Tray, WPF würde sonst per Hardwarepipeline ein GPU-Gerät offen halten –
+        // genau das blockiert auf Advanced-Optimus-Notebooks den automatischen MUX-Wechsel beim
+        // Spielstart (Windows nennt SaveVault dann als blockierenden Prozess). Bei dieser kleinen,
+        // selten sichtbaren Oberfläche (Dashboard, Wasserzeichen-Toast) ist das nicht wahrnehmbar.
+        System.Windows.Media.RenderOptions.ProcessRenderMode =
+            System.Windows.Interop.RenderMode.SoftwareOnly;
+
         // Applier-Modus: Wird diese exe von der gestagten Kopie mit --apply-update gestartet, tauscht
         // sie nur die Installation aus (kopiert Staging → Installationsordner, startet die neue exe)
         // und beendet sich – ohne Tray/Agent hochzufahren. Muss ganz am Anfang stehen.

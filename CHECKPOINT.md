@@ -1,4 +1,35 @@
-# SaveVault — Fortschritt (fortgeschrieben 2026-09-15)
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-23)
+
+**SaveVault blockiert die automatische Advanced-Optimus-Umschaltung (offener Handtest, kein
+Release).** Delta-Spec `specs/savevault-change-optimus-gpu-block.md`, Weg über `/projekt-edit`.
+Tims Meldung: startet er auf dem Notebook ein Spiel, versucht Advanced Optimus automatisch auf
+„nur NVIDIA-GPU" umzuschalten — Windows nennt SaveVault dabei namentlich als blockierenden
+Prozess, der Wechsel scheitert.
+- **Ursache (Code-Recherche, technisch plausibel, noch nicht auf Hardware verifiziert):**
+  SaveVault.Client läuft dauerhaft im Tray als WPF-App. WPF komponiert jedes Fenster
+  standardmäßig über die DirectX-Hardwarepipeline, hält damit ein aktives GPU-Gerät offen —
+  bekanntes Verhalten bei im Hintergrund residenten WPF-Apps auf Advanced-Optimus-Laptops.
+- **Fix (`App.xaml.cs::OnStartup`):** `RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly`
+  ganz am Anfang gesetzt, vor jedem Fenster — SaveVault fasst dann nie mehr ein Hardware-GPU-Gerät an.
+- **`/code-review high`, Runde 1 (Fund behoben):** Der bisherige Endlos-Puls des Glow-Effekts
+  auf aktiven Speicherstand-Kästen (`MainWindow.xaml`, praktisch jedes nicht ausgeschlossene
+  Spiel) hätte unter Software-Rendering dauerhafte CPU-Last erzeugt. Ersetzt durch festen Glow
+  (`Theme.xaml`-Resource `ActiveBoxGlow`) — optisch fast identisch, kein Endlos-Neuzeichnen mehr.
+- **`/code-review high`, Runde 2:** keine Crash-/Korrektheitsfunde mehr. Ein Fund war reine
+  Spec-Ungenauigkeit (behoben, Betroffene-Dateien-Liste nachgezogen), ein Fund (Software-Rendering
+  pauschal statt nur auf Advanced-Optimus-Hardware) begründet abgelehnt — siehe Spec-Risiken.
+- **Gates grün:** Delta-Gate, Build 0/0, `dotnet test` 208/208 unverändert grün. Kein
+  `/security-review` (reines Rendering-Startup-Flag + XAML-Trigger, keine sensible Fläche).
+- **Laufzeit-Verifikation NICHT möglich in dieser Sitzung** (GPU-/Treiber-Verhalten, nur auf
+  echter Hardware prüfbar) — **offener Handtest bei Tim:** Spiel starten, prüfen ob Advanced
+  Optimus jetzt automatisch und ohne SaveVault-Blockade umschaltet; Dashboard-Fenster/
+  Wasserzeichen-Toast sollen optisch unverändert wirken.
+- **Kein Versions-Bump/Release, solange der Handtest offen ist** (Spec-Entscheidung) — der
+  eigentliche Beweis ist echtes Umschalt-Verhalten, nicht nur ein grüner Build.
+- **Rollout:** kein Server-Code betroffen, reine Client-Änderung.
+- **Offen:** Handtest oben bei Tim. Danach Versions-Bump + CHANGELOG-Eintrag.
+
+---
 
 **Konflikte bei geteilten Speicherständen lösen sich jetzt automatisch (Client 1.8.7).**
 Delta `specs/savevault-change-shared-conflict-autoresolve.md`, Weg über `/projekt-edit`. Tims
