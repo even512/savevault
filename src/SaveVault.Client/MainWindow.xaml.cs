@@ -22,7 +22,11 @@ namespace SaveVault.Client;
 /// die verschmolzenen Einstellungen. Liest ausschließlich die beobachtbare <see cref="AgentState"/>
 /// und ruft Aktionen des <see cref="ClientAgent"/> auf; Zustandsänderungen aus Hintergrund-Threads
 /// werden über den <see cref="System.Windows.Threading.Dispatcher"/> in den UI-Thread gebracht.
-/// Schließen versteckt das Fenster in den Infobereich (die App läuft weiter).
+/// Schließen (X) beendet dieses Fenster wirklich (die App läuft im Tray weiter) – bewusst kein
+/// Hide()-in-den-Tray mehr: ein nur verstecktes WPF-Fenster hält sein Composition-Handle am
+/// Leben und blockiert dadurch auf Advanced-Optimus-Notebooks die automatische GPU-Umschaltung
+/// beim Spielstart (siehe specs/savevault-change-optimus-gpu-block.md). <see cref="App"/> baut
+/// beim nächsten Öffnen über den Tray eine frische Instanz.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -46,6 +50,10 @@ public partial class MainWindow : Window
     private DateTime? _historyLoadedAction;
     private RevisionRow? _restoreTarget;
     private bool _isOverview = true;
+
+    // Wird in OnClosed gesetzt: ein zum Schließen-Zeitpunkt bereits über Dispatcher.BeginInvoke
+    // eingereihtes Refresh() (aus OnAgentStateChanged) liefe sonst noch auf dem toten Fenster.
+    private bool _closed;
 
     // Inline-Bestätigung des „Als geteilten Stand hochladen"-Knopfs (siehe OnForceUploadClick):
     // nur je EIN Spiel kann gerade die Bestätigung zeigen, daher genügt ein einzelner Timer.
@@ -86,6 +94,11 @@ public partial class MainWindow : Window
 
     private void Refresh()
     {
+        // Ein beim Schließen bereits eingereihter Aufruf (Race mit OnAgentStateChanged) soll auf
+        // dem toten Fenster nichts mehr tun (kein Netz-I/O, keine tote UI aktualisieren).
+        if (_closed)
+            return;
+
         var state = _agent.State;
 
         UpdateConnection(state);
@@ -369,7 +382,7 @@ public partial class MainWindow : Window
         => WindowState = WindowState.Minimized;
 
     private void OnCloseButtonClick(object sender, RoutedEventArgs e)
-        => Close(); // OnClosing bricht ab und versteckt in den Tray.
+        => Close(); // Beendet dieses Fenster wirklich, siehe Klassenkommentar/OnClosed.
 
     // --- Navigation ----------------------------------------------------------------
 
@@ -1353,11 +1366,18 @@ public partial class MainWindow : Window
     private void Info(string message)
         => System.Windows.MessageBox.Show(this, message, "SaveVault", MessageBoxButton.OK, MessageBoxImage.Information);
 
-    protected override void OnClosing(CancelEventArgs e)
+    protected override void OnClosed(EventArgs e)
     {
-        // Nicht schließen, sondern in den Tray zurückziehen – die App läuft weiter.
-        e.Cancel = true;
-        Hide();
-        base.OnClosing(e);
+        // Fenster wird wirklich geschlossen (siehe Klassenkommentar) – Anbindung an den
+        // Agent-Zustand lösen, sonst würde Refresh() auf einem toten Fenster weiterlaufen.
+        _closed = true;
+        _agent.State.Changed -= OnAgentStateChanged;
+
+        // Ein noch laufender Bestätigungs-Timer (siehe ArmForceUpload) darf dieses Fenster
+        // nicht überleben – sonst feuert DisarmForceUpload später auf tote Zeilen-Referenzen.
+        _forceUploadArmTimer?.Stop();
+        _forceUploadArmTimer = null;
+
+        base.OnClosed(e);
     }
 }

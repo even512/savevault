@@ -1,33 +1,58 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-23)
 
-**SaveVault blockiert die automatische Advanced-Optimus-Umschaltung (offener Handtest, kein
-Release).** Delta-Spec `specs/savevault-change-optimus-gpu-block.md`, Weg über `/projekt-edit`.
-Tims Meldung: startet er auf dem Notebook ein Spiel, versucht Advanced Optimus automatisch auf
-„nur NVIDIA-GPU" umzuschalten — Windows nennt SaveVault dabei namentlich als blockierenden
-Prozess, der Wechsel scheitert.
-- **Ursache (Code-Recherche, technisch plausibel, noch nicht auf Hardware verifiziert):**
-  SaveVault.Client läuft dauerhaft im Tray als WPF-App. WPF komponiert jedes Fenster
-  standardmäßig über die DirectX-Hardwarepipeline, hält damit ein aktives GPU-Gerät offen —
-  bekanntes Verhalten bei im Hintergrund residenten WPF-Apps auf Advanced-Optimus-Laptops.
-- **Fix (`App.xaml.cs::OnStartup`):** `RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly`
-  ganz am Anfang gesetzt, vor jedem Fenster — SaveVault fasst dann nie mehr ein Hardware-GPU-Gerät an.
-- **`/code-review high`, Runde 1 (Fund behoben):** Der bisherige Endlos-Puls des Glow-Effekts
-  auf aktiven Speicherstand-Kästen (`MainWindow.xaml`, praktisch jedes nicht ausgeschlossene
-  Spiel) hätte unter Software-Rendering dauerhafte CPU-Last erzeugt. Ersetzt durch festen Glow
-  (`Theme.xaml`-Resource `ActiveBoxGlow`) — optisch fast identisch, kein Endlos-Neuzeichnen mehr.
-- **`/code-review high`, Runde 2:** keine Crash-/Korrektheitsfunde mehr. Ein Fund war reine
-  Spec-Ungenauigkeit (behoben, Betroffene-Dateien-Liste nachgezogen), ein Fund (Software-Rendering
-  pauschal statt nur auf Advanced-Optimus-Hardware) begründet abgelehnt — siehe Spec-Risiken.
-- **Gates grün:** Delta-Gate, Build 0/0, `dotnet test` 208/208 unverändert grün. Kein
-  `/security-review` (reines Rendering-Startup-Flag + XAML-Trigger, keine sensible Fläche).
+**SaveVault blockiert die automatische Advanced-Optimus-Umschaltung (offener Handtest Runde 2,
+kein Release).** Delta-Spec `specs/savevault-change-optimus-gpu-block.md`, Weg über
+`/projekt-edit`. Tims Meldung: startet er auf dem Notebook ein Spiel, versucht Advanced Optimus
+automatisch auf „nur NVIDIA-GPU" umzuschalten — Windows nennt SaveVault dabei namentlich als
+blockierenden Prozess, der Wechsel scheitert.
+- **Runde 1 — Fix widerlegt durch echten Handtest:** Vermutet: WPFs Standard-Hardwarepipeline
+  hält allein durchs Rendern ein GPU-Gerät offen. Fix (`RenderOptions.ProcessRenderMode =
+  SoftwareOnly`) gebaut, `/code-review high` zweimal durchlaufen (Runde 1: Endlos-Puls-Glow auf
+  aktiven Speicherstand-Kästen hätte unter Software-Rendering CPU-Last erzeugt, behoben durch
+  festen Glow; Runde 2: nur noch weiche Funde, einer davon begründet abgelehnt). **Tims Handtest:
+  keine Wirkung, SaveVault blockiert weiterhin.**
+- **Tatsächliche Ursache (durch Recherche + Tims Bestätigung gefunden):** `MainWindow.OnClosing`
+  hat den X-Klick bisher nur mit `Hide()` beantwortet („in den Tray zurückziehen"). Tim hatte
+  das Dashboard offen gehabt und mit X geschlossen — das Fenster-Handle blieb dabei am Leben,
+  nur unsichtbar, und genau das hält laut mehreren Praxisfällen
+  ([dotnet/wpf#9286](https://github.com/dotnet/wpf/issues/9286), ein vergleichbarer
+  PowerToys-Fall) dauerhaft das blockierende GPU-Composition-Handle offen, unabhängig vom
+  Render-Modus. Treiber war bereits aktuell (555+), Treiber-Version damit ausgeschlossen.
+- **Runde 3 — der eigentliche Fix:** `MainWindow` schließt sich beim X jetzt wirklich (Handle
+  wird zerstört), `App.xaml.cs` baut beim nächsten Öffnen über den Tray automatisch eine frische
+  Instanz. Danach zwei weitere `/code-review high`-Runden mit echten Funden:
+  - Runde 3-Fund: Fenster-Neuaufbau direkt im `Closed`-Handler hätte beim „Beenden" (Shutdown
+    schließt ein offenes Dashboard mit) kurz vor `_agent.DisposeAsync()` unnötig eine weitere,
+    am Agent-Zustand hängende Instanz erzeugt — Absturzrisiko, falls dabei noch eine späte
+    `State.Changed` auf den bereits herunterfahrenden Dispatcher träfe. Behoben: Neuaufbau nur
+    noch faul beim nächsten `ShowMainWindow()`.
+  - Runde 4-Fund: dadurch brach die 24h-Selbst-Update-Prüfung (`RunAutoUpdateCheckAsync`)
+    stillschweigend ab, sobald `_window` mal `null` war — vorher toter Code, jetzt Normalfall.
+    Erster Fix (Fenster bei Bedarf selbst aufbauen) erzeugte in Runde 5 ein **neues, schlimmeres
+    Leck**: ein nie gezeigtes/geschlossenes Geister-Fenster, das für immer am Agent-Zustand hängt
+    und bei jeder Zustandsänderung echte Netzwerk-Aufrufe auslöst. **Zurückgerollt** auf den
+    einfachen, sicheren Guard — die Update-Prüfung setzt bewusst aus, solange das Dashboard
+    geschlossen ist.
+  - Runde 5, zwei weitere kleine, risikoarme Funde behoben: `_forceUploadArmTimer` wird jetzt in
+    `OnClosed` gestoppt (sonst hätte ein 5-s-Bestätigungs-Timer das geschlossene Fenster
+    überlebt); ein beim Schließen bereits eingereihtes `Refresh()` bricht jetzt über ein
+    `_closed`-Flag früh ab.
+  - **Eskalationsschwelle erreicht (Gate-Regel „max. 2 Runden Rückarbeit"):** ab hier bewusst
+    keine weiteren Runden mehr gedreht. Offen gelassen (siehe Spec-Risiken): Update-Banner-Status
+    geht beim Schließen verloren (gleiche Kategorie wie der bereits gebilligte UI-Zustandsverlust
+    ausgewähltes Spiel/Tab); ob Software-Rendering (Runde 1) überhaupt noch etwas bringt, ist
+    ungeklärt (Tims Handtest hat sie nicht isoliert geprüft) — bleibt vorerst drin; ein paar
+    kosmetische Code-Doppelungen.
+- **Gates grün:** Delta-Gate (Spec nach jeder Runde nachgezogen), Build 0/0, `dotnet test`
+  208/208 unverändert grün. Kein `/security-review` (kein Auth/Pfad/Netz/Registry-Neuland).
 - **Laufzeit-Verifikation NICHT möglich in dieser Sitzung** (GPU-/Treiber-Verhalten, nur auf
-  echter Hardware prüfbar) — **offener Handtest bei Tim:** Spiel starten, prüfen ob Advanced
-  Optimus jetzt automatisch und ohne SaveVault-Blockade umschaltet; Dashboard-Fenster/
-  Wasserzeichen-Toast sollen optisch unverändert wirken.
-- **Kein Versions-Bump/Release, solange der Handtest offen ist** (Spec-Entscheidung) — der
-  eigentliche Beweis ist echtes Umschalt-Verhalten, nicht nur ein grüner Build.
+  echter Hardware prüfbar) — **offener Handtest Runde 2 bei Tim:** Dashboard einmal öffnen und
+  mit X schließen (genau Tims Ausgangslage), dann ein Spiel starten und prüfen, ob Advanced
+  Optimus jetzt automatisch und ohne SaveVault-Blockade umschaltet.
+- **Kein Versions-Bump/Release, solange der Handtest offen ist** (Spec-Entscheidung).
 - **Rollout:** kein Server-Code betroffen, reine Client-Änderung.
-- **Offen:** Handtest oben bei Tim. Danach Versions-Bump + CHANGELOG-Eintrag.
+- **Offen:** Handtest Runde 2 bei Tim. Danach Versions-Bump + CHANGELOG-Eintrag, und ggf.
+  Entscheidung zu den bewusst zurückgestellten Punkten oben.
 
 ---
 

@@ -83,7 +83,7 @@ public partial class App : Application
         };
 
         _agent = new ClientAgent();
-        _window = new MainWindow(_agent);
+        _window = CreateWindow();
 
         CreateTray();
 
@@ -141,7 +141,14 @@ public partial class App : Application
         await RunAutoUpdateCheckAsync();
     }
 
-    /// <summary>Führt eine selbsttätige Prüfung aus und meldet einen Fund einmalig per Tray-Hinweis.</summary>
+    /// <summary>
+    /// Führt eine selbsttätige Prüfung aus und meldet einen Fund einmalig per Tray-Hinweis.
+    /// Bewusst KEIN eigenes <see cref="MainWindow"/> mehr aufbauen, nur um an
+    /// <see cref="MainWindow.CheckForUpdatesAsync"/> zu kommen (das hätte permanent am
+    /// Agent-Zustand hängende, nie geschlossene Geister-Fenster erzeugt) – solange das
+    /// Dashboard geschlossen ist, setzt die Prüfung einfach aus; sie holt sie beim nächsten
+    /// Öffnen automatisch nach (siehe Spec-Risiken, bewusst akzeptierter Trade-off).
+    /// </summary>
     private async Task RunAutoUpdateCheckAsync()
     {
         if (_window is null)
@@ -213,10 +220,31 @@ public partial class App : Application
         _tray.DoubleClick += (_, _) => ShowMainWindow();
     }
 
+    /// <summary>
+    /// Baut eine frische <see cref="MainWindow"/>-Instanz (noch ungezeigt, kein Fenster-Handle).
+    /// <see cref="MainWindow"/> schließt sich beim X-Klick jetzt wirklich (siehe dortiger
+    /// Klassenkommentar), damit kein verstecktes Fenster-Handle dauerhaft ein GPU-Composition-
+    /// Handle offenhält (Advanced-Optimus-Fix) – <see cref="_window"/> wird dafür auf
+    /// <c>null</c> gesetzt, sobald das Fenster wirklich schließt, und erst beim nächsten
+    /// Öffnen (<see cref="ShowMainWindow"/>) neu gebaut – bewusst NICHT sofort im
+    /// Closed-Handler: sonst entstünde beim „Beenden" (Shutdown schließt ein offenes Fenster
+    /// mit) unnötig noch eine neue, am Agent-Zustand hängende Instanz, während der Dispatcher
+    /// schon herunterfährt.
+    /// </summary>
+    private MainWindow CreateWindow()
+    {
+        var window = new MainWindow(_agent!);
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_window, window))
+                _window = null;
+        };
+        return window;
+    }
+
     private void ShowMainWindow()
     {
-        if (_window is null)
-            return;
+        _window ??= CreateWindow();
 
         if (!_window.IsVisible)
             _window.Show();
