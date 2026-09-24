@@ -1,5 +1,23 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-24)
 
+**Upload-Größenlimit von 2 auf 5 GiB angehoben (Client 1.8.11).** Tims Wunsch:
+größere Save-Sets (bisher hart bei 2 GiB übersprungen) sollen synchronisiert werden.
+- **Änderung:** `SaveFolderSafety.MaxTotalBytes` 2 GiB → 5 GiB (konstant, exklusive
+  Grenze wie bisher; Dateizahl-Limit 5.000 bleibt). Die Grenze lag nur im Client
+  (Erkennungs-Check `IsSaveSetTooLarge`): der Server hat bereits
+  `MaxRequestBodySize = null`, d. h. keine Upload-Begrenzung.
+- **Nötige Folgeränderung:** der Sync-`HttpClient` im `ClientAgent` hatte einen
+  5-Minuten-Timeout — ein 5-GiB-Upload auf ~100 Mbit/s (≈7 min) wäre mitten im
+  Upload abgerissen. Timeout auf 30 Minuten erhöht. Akzeptierter Trade-off:
+  Heartbeat/Commands/Downloads teilen sich den Client, ein hängender Request
+  blockiert den jeweiligen Loop künftig bis zu 30 statt 5 Minuten — Uploads sind
+  aber der Kernpfad, und hängende Requests bleiben selten.
+- **Version:** csproj 1.8.9 → 1.8.11 (das 1.8.10-Tag war bereits verschickt, der
+  csproj-Bump fehlte dort); CHANGELOG-Eintrag v1.8.11.
+- **Gates grün:** Build 0/0, `dotnet test` 212/212 (Core 201, Client 11).
+
+---
+
 **Migrations-Bug gefixt: verlorene `config.json` löst `ResetAllState()` nicht mehr erneut aus
 (Client 1.8.10).** Das in der Optimus-Session als „offen" zurückgestellte Thema: die einmalige
 Migration auf geräte-eigene Buckets war am Config-Flag `PerDeviceBucketsMigrated` gehängt —

@@ -3,6 +3,16 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.11 — 2026-09-24
+
+- **Upload-Größenlimit von 2 auf 5 GiB erhöht.** Save-Sets bis zu 5 GiB (bisher 2 GiB)
+  werden jetzt erkannt und automatisch synchronisiert, statt beim Erkennen übersprungen
+  zu werden; das Dateizahl-Limit (5.000 Dateien) bleibt. Damit der Sync auch für die neu
+  erlaubte Größe zuverlässig bleibt, wurde die Client-Timeout-Grenze für Server-Anfragen
+  von 5 auf 30 Minuten angehoben: Ein 5-GiB-Upload auf einer langsameren Leitung
+  (ca. 100 Mbit/s ≈ 7 min) hätte die frühere Grenze überschritten und mitten im
+  Upload abbrechen können.
+
 ## v1.8.10 — 2026-09-24
 
 - **Fix: Eine verlorene `config.json` löst die einmalige Per-Device-Buckets-Migration nicht

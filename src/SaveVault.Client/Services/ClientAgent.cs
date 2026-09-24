@@ -169,8 +169,11 @@ public sealed class ClientAgent : IAsyncDisposable
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
 
-        // Server-API mit BaseAddress + Token verdrahten.
-        _http = new HttpClient { BaseAddress = serverUri, Timeout = TimeSpan.FromMinutes(5) };
+        // Server-API mit BaseAddress + Token verdrahten. Bewusst großzügiger Timeout:
+        // Uploads bis 5 GiB (SaveFolderSafety.MaxTotalBytes) dürfen auf langsameren
+        // Leitungen (>5 min) dauern — die frühere 5-Minuten-Grenze hätte einen solchen
+        // Upload mitten im Transfer abreißen lassen.
+        _http = new HttpClient { BaseAddress = serverUri, Timeout = TimeSpan.FromMinutes(30) };
         _api = new SaveVaultApiClient(_http, config.DeviceToken);
 
         _engine = new SyncEngine(_api, _stateStore, State, () => DeviceIdentity.FromConfig(_configStore.Load(), DateTime.UtcNow),

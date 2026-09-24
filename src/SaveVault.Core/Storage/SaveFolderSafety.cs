@@ -301,8 +301,8 @@ public static class SaveFolderSafety
     /// <summary>Obergrenze für die Dateizahl eines Save-Sets, bevor es als „zu groß" gilt.</summary>
     public const int MaxFileCount = 5000;
 
-    /// <summary>Obergrenze für die Gesamtgröße eines Save-Sets in Bytes (2 GiB).</summary>
-    public const long MaxTotalBytes = 2L * 1024 * 1024 * 1024;
+    /// <summary>Obergrenze für die Gesamtgröße eines Save-Sets in Bytes (5 GiB).</summary>
+    public const long MaxTotalBytes = 5L * 1024 * 1024 * 1024;
 
     /// <summary>
     /// <c>true</c>, wenn ein Save-Set ZU GROSS ist: mehr als <see cref="MaxFileCount"/> Dateien
