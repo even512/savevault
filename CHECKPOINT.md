@@ -1,4 +1,67 @@
-# SaveVault — Fortschritt (fortgeschrieben 2026-09-15)
+# SaveVault — Fortschritt (fortgeschrieben 2026-09-24)
+
+**SaveVault blockierte die automatische Advanced-Optimus-Umschaltung — behoben, bestätigt,
+Client 1.8.9.** Delta-Spec `specs/savevault-change-optimus-gpu-block.md`, Weg über
+`/projekt-edit`. Tims Meldung: startet er auf dem Notebook ein Spiel, versucht Advanced Optimus
+automatisch auf „nur NVIDIA-GPU" umzuschalten — Windows nannte SaveVault dabei namentlich als
+blockierenden Prozess.
+- **Zwei plausible, recherche-gestützte Theorien nacheinander durch echte Handtests widerlegt:**
+  (1) Software-Rendering erzwingen (WPFs Hardwarepipeline halte ein GPU-Gerät offen) — keine
+  Wirkung. (2) `MainWindow` schließt jetzt wirklich statt nur zu verstecken (`Hide()`) — Tims
+  Handtest mit nie geöffnetem Dashboard zeigte: blockiert weiterhin. Task-Manager bestätigte:
+  SaveVault zeigt **keinerlei** GPU-Auslastung.
+- **Systematische Bisektion statt weiterer Theorien:** Reihe von Wegwerf-Sonden (WinForms-Tray,
+  WPF+Tray+nie gezeigtes Fenster, Netzwerk+Datei-Watcher, Netzwerk gegen Tims echten LAN-Server,
+  `IsConfigured=false`-Leerlauf) — alle liefen sauber durch, **außer** die echte
+  `SaveVault.Client.exe`, komplett unkonfiguriert. Einzige verbliebene Variable:
+  `_window = CreateWindow()` (eager in `OnStartup`) — entfernt: **Umschaltung klappt.**
+- **Bestätigte Ursache:** `MainWindow.xaml` enthält Effekte (`DropShadowEffect`) und
+  hochwertig skalierte Bilder — WPF bereitet das schon beim bloßen Konstruieren
+  (`InitializeComponent()`) vor, auch ganz ohne `Show()`. Ein leeres Fenster (wie in den Sonden)
+  löst das nicht aus, SaveVaults reich gestaltetes Dashboard schon.
+- **Der Fix:** `App.xaml.cs::OnStartup` baut `MainWindow` nicht mehr eager — die Instanz entsteht
+  erst beim ersten echten Öffnen über den Tray. Notwendige Folgearbeit: die 24-h-Selbst-Update-
+  Prüfung hing bisher am Vorhandensein von `_window` (früher unkritisch, jetzt der Normalfall) —
+  zentralisiert in `UpdateService.CheckAndStampAsync`, `App` bekommt eine eigene, vom Dashboard
+  unabhängige `UpdateService`-Instanz. `/code-review high` lief auf diesem Rework acht Runden;
+  ein echter Fund (Config-Datei-Race zwischen Update-Stempel und UI-Speichern, durch
+  `ConfigureAwait(false)` auf einen Threadpool-Thread verlagert) behoben, mehrere reine
+  Timing-/UX-Kanten bewusst als Trade-off akzeptiert (siehe Spec-Risiken) — Eskalationsschwelle
+  war längst überschritten, keine weiteren Runden mehr gedreht.
+- **Gates grün:** Delta-Gate (Spec laufend nachgezogen), Build 0/0, `dotnet test` 208/208
+  unverändert grün. Kein `/security-review` (kein Auth/Pfad/Netz/Registry-Neuland).
+- **Laufzeit-Verifikation, Runde 1:** Root Cause mehrfach auf Tims echter Hardware bestätigt
+  (verschiedene Diagnose-Testbauten, ausschließlich der Verzicht auf `MainWindow`-Konstruktion
+  macht den Unterschied).
+- **Unabhängiger Vorfall während der Diagnose:** Ein Diagnose-Testbau (config.json testweise
+  beiseite gelegt) hat eine einmalige Migrationslogik fälschlich erneut ausgelöst
+  (`ClientAgent.StartAsync`, `PerDeviceBucketsMigrated`-Guard) und Tims lokale Sync-Status für
+  alle privaten Buckets gelöscht — **keine echten Spielstand-Dateien betroffen** (nur die
+  Fortschritts-Buchführung), aber 54 falsche „Konflikt"-Meldungen erzeugt. Über die reale
+  Server-API automatisiert aufgelöst (Dry-Run zuerst, dann mit Tims Freigabe angewendet — alle
+  54 hatten genau einen Teilnehmer = dieses Gerät, sicher). Der zugrunde liegende Bug ist noch
+  **nicht** gefixt, auf Tims Wunsch zurückgestellt.
+- **Laufzeit-Verifikation, Runde 2 — Handtest auf echtem Setup deckte einen weiteren Fall auf:**
+  Tim öffnete das Dashboard (um die Konflikte oben zu lösen), schloss es sauber mit X — Blockade
+  war wieder da. Ursache: WPFs interne Kompositions-Infrastruktur
+  (`MediaContextNotificationWindow`) wird beim ersten gezeigten Fenster einmalig angelegt und
+  bleibt für den Rest der Prozess-Laufzeit bestehen, auch nach sauberem Schließen — nur ein
+  echter Prozess-Neustart setzt sie zurück. **Tims pragmatischer Vorschlag, umgesetzt:** der
+  X-Button im Dashboard startet SaveVault jetzt komplett neu (`App.RestartApp`) statt das Fenster
+  nur zu schließen. `/code-review high` fand dabei ein echtes Risiko (kurzzeitig zwei Instanzen
+  gleichzeitig, falls die neue startet bevor die alte ihren Agent stoppt) — behoben, Agent stoppt
+  zuerst. Dabei auch Software-Rendering (Runde 1) entfernt: jetzt erwiesen wirkungslos gegen die
+  Blockade, hatte aber echten Preis (CPU-Last u. a. beim Wasserzeichen-Toast während des Zockens).
+- **End-zu-Ende-Handtest auf dem finalen Stand: BESTÄTIGT.** Normal starten → Spiel starten →
+  Umschaltung klappt. Dashboard geöffnet, mit X geschlossen (Neustart) → nochmal Spiel gestartet
+  → Umschaltung klappt weiterhin. Tims Worte: „funktioniert jetzt exakt so wie es soll".
+- **Release: Client 1.8.8 → 1.8.9**, `CHANGELOG.md` nachgezogen.
+- **Rollout:** kein Server-Code betroffen, reine Client-Änderung.
+- **Offen:** der in der Diagnose gefundene, zurückgestellte Migrations-Bug (`ResetAllState()`
+  feuert bei jeder fehlenden `config.json`, nicht nur beim echten Erstlauf) — eigenständiger,
+  unabhängiger Fix für eine spätere Sitzung.
+
+---
 
 **Konflikte bei geteilten Speicherständen lösen sich jetzt automatisch (Client 1.8.7).**
 Delta `specs/savevault-change-shared-conflict-autoresolve.md`, Weg über `/projekt-edit`. Tims

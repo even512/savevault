@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Threading;
 using System.Windows;
 using SaveVault.Client.Services;
@@ -35,11 +36,15 @@ public partial class App : Application
     private WatermarkWindow? _watermark;
 
     // Selbst-Update: 24-h-Prüftakt und die zuletzt per Tray gemeldete Version (kein Doppel-Hinweis).
+    // Eigene UpdateService-Instanz statt über MainWindow: die Prüfung muss unabhängig vom
+    // Dashboard laufen, das jetzt oft nie konstruiert wird (siehe OnStartup).
+    private readonly UpdateService _updater = new();
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
     private Version? _announcedUpdate;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+
         // Applier-Modus: Wird diese exe von der gestagten Kopie mit --apply-update gestartet, tauscht
         // sie nur die Installation aus (kopiert Staging → Installationsordner, startet die neue exe)
         // und beendet sich – ohne Tray/Agent hochzufahren. Muss ganz am Anfang stehen.
@@ -75,7 +80,13 @@ public partial class App : Application
         };
 
         _agent = new ClientAgent();
-        _window = new MainWindow(_agent);
+        // KEIN eager _window = CreateWindow() mehr hier: MainWindow enthält Effekte
+        // (DropShadowEffect, hochwertige Bild-Skalierung) und einen großen Steuerelement-Baum –
+        // WPF bereitet das schon beim bloßen Konstruieren (InitializeComponent) vor, ganz ohne
+        // Show(). Genau das hält auf Advanced-Optimus-Notebooks den automatischen MUX-Wechsel
+        // beim Spielstart auf (siehe specs/savevault-change-optimus-gpu-block.md – Tims Handtest
+        // Runde 3 belegt: kein je konstruiertes MainWindow ⇒ kein Blockieren mehr). Die Instanz
+        // entsteht jetzt erst beim ersten echten Öffnen (<see cref="ShowMainWindow"/>).
 
         CreateTray();
 
@@ -133,21 +144,31 @@ public partial class App : Application
         await RunAutoUpdateCheckAsync();
     }
 
-    /// <summary>Führt eine selbsttätige Prüfung aus und meldet einen Fund einmalig per Tray-Hinweis.</summary>
+    /// <summary>
+    /// Führt eine selbsttätige Prüfung aus und meldet einen Fund einmalig per Tray-Hinweis.
+    /// Läuft bewusst über die eigene <see cref="_updater"/>-Instanz statt über
+    /// <see cref="MainWindow.CheckForUpdatesAsync"/>: <see cref="_window"/> ist jetzt oft dauerhaft
+    /// <c>null</c> (kein eager Aufbau mehr, siehe OnStartup) – die Prüfung darf davon nicht
+    /// abhängen, sonst liefe sie nie, solange das Dashboard nie geöffnet wird.
+    /// </summary>
     private async Task RunAutoUpdateCheckAsync()
     {
-        if (_window is null)
-            return;
+        var configStore = new ClientConfigStore(new AppPaths());
         try
         {
-            if (!new ClientConfigStore(new AppPaths()).Load().AutoUpdateCheckEnabled)
+            if (!configStore.Load().AutoUpdateCheckEnabled)
                 return;
         }
         catch { /* im Zweifel prüfen */ }
 
         UpdateCheckResult result;
-        try { result = await _window.CheckForUpdatesAsync(userInitiated: false); }
+        try { result = await _updater.CheckAndStampAsync(configStore); }
         catch { return; }
+
+        // Ein gerade offenes Fenster lernt vom Ergebnis sofort, statt erst beim nächsten Öffnen.
+        // Kein Zugriff auf ein frisch/neu geöffnetes Fenster nötig – das prüft beim Öffnen selbst
+        // manuell über „Nach Updates suchen", falls es diesen Takt verpasst hat.
+        _window?.ApplyUpdateResult(result);
 
         if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Available is not null
             && !result.Available.Equals(_announcedUpdate))
@@ -205,10 +226,31 @@ public partial class App : Application
         _tray.DoubleClick += (_, _) => ShowMainWindow();
     }
 
+    /// <summary>
+    /// Baut eine frische <see cref="MainWindow"/>-Instanz (noch ungezeigt, kein Fenster-Handle).
+    /// <see cref="MainWindow"/> schließt sich beim X-Klick jetzt wirklich (siehe dortiger
+    /// Klassenkommentar), damit kein verstecktes Fenster-Handle dauerhaft ein GPU-Composition-
+    /// Handle offenhält (Advanced-Optimus-Fix) – <see cref="_window"/> wird dafür auf
+    /// <c>null</c> gesetzt, sobald das Fenster wirklich schließt, und erst beim nächsten
+    /// Öffnen (<see cref="ShowMainWindow"/>) neu gebaut – bewusst NICHT sofort im
+    /// Closed-Handler: sonst entstünde beim „Beenden" (Shutdown schließt ein offenes Fenster
+    /// mit) unnötig noch eine neue, am Agent-Zustand hängende Instanz, während der Dispatcher
+    /// schon herunterfährt.
+    /// </summary>
+    private MainWindow CreateWindow()
+    {
+        var window = new MainWindow(_agent!);
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_window, window))
+                _window = null;
+        };
+        return window;
+    }
+
     private void ShowMainWindow()
     {
-        if (_window is null)
-            return;
+        _window ??= CreateWindow();
 
         if (!_window.IsVisible)
             _window.Show();
@@ -244,6 +286,52 @@ public partial class App : Application
     private void ShutdownApp()
     {
         Shutdown();
+    }
+
+    /// <summary>
+    /// Beendet SaveVault komplett und startet sofort eine frische Instanz — auf Tims Wunsch der
+    /// pragmatische Ausweg für <see cref="MainWindow"/>s Advanced-Optimus-Einschränkung: WPFs
+    /// interne Kompositions-Infrastruktur (<c>MediaContextNotificationWindow</c>) bleibt, einmal
+    /// angelegt, für den Rest der Prozess-Laufzeit bestehen, auch nachdem das Dashboard wieder
+    /// geschlossen ist — nur ein echter Prozess-Neustart setzt sie zurück.
+    ///
+    /// Stoppt zuerst den eigenen <see cref="ClientAgent"/> (Watcher/Netz-Schleifen), BEVOR die
+    /// neue Instanz startet – sonst liefen kurzzeitig zwei Agents gegen dieselben lokalen
+    /// Zustands-Dateien/denselben Server (Doppel-Uploads, Schreibkonflikte). Schlägt der Start
+    /// der neuen Instanz fehl (z. B. exe verschoben), schließt sich wenigstens das Fenster ganz
+    /// normal, statt SaveVault ohne jede Rückmeldung stehenzulassen.
+    /// </summary>
+    public async Task RestartApp()
+    {
+        if (_agent is not null)
+        {
+            try { await _agent.StopAsync(); }
+            catch { /* best effort – Neustart soll daran nicht scheitern */ }
+        }
+
+        Process? started = null;
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(exePath))
+                started = Process.Start(new ProcessStartInfo { FileName = exePath, UseShellExecute = false });
+        }
+        catch { /* unten behandelt */ }
+
+        if (started is not null)
+        {
+            Shutdown();
+            return;
+        }
+
+        // Neustart nicht möglich: den eigenen Agent wieder hochfahren (wurde oben gestoppt) und
+        // das Fenster wenigstens normal schließen, statt SaveVault ohne Rückmeldung offen zu lassen.
+        if (_agent is not null)
+        {
+            try { await _agent.StartAsync(); }
+            catch { /* best effort */ }
+        }
+        _window?.Close();
     }
 
     // --- Toast-Ausgabe -------------------------------------------------------------

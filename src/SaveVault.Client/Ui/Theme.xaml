@@ -40,6 +40,13 @@
     <SolidColorBrush x:Key="OfflineBrush" Color="#787986" />
     <SolidColorBrush x:Key="ErrorBrush" Color="#F94144" />
 
+    <!-- Fester Glow für die aktiven Speicherstand-Kästen (Server/Lokal). Bewusst statisch statt
+         animiert (Puls): historisch, weil ein endlos laufendes Storyboard unter dem inzwischen
+         wieder entfernten erzwungenen Software-Rendering auf jeder aktiven Zeile CPU-Last erzeugt
+         hätte (siehe specs/savevault-change-optimus-gpu-block.md) – bleibt so, kein Grund, den
+         Puls wieder einzuführen. -->
+    <DropShadowEffect x:Key="ActiveBoxGlow" Color="#5CA7A7" BlurRadius="16" ShadowDepth="0" Opacity="0.5" />
+
     <!-- Basis: Textfarbe/Schrift -->
     <Style TargetType="{x:Type TextBlock}">
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />

@@ -3,6 +3,21 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.9 — 2026-09-24
+
+- **SaveVault blockierte auf Advanced-Optimus-Notebooks (Hardware-MUX) die automatische
+  Umschaltung auf „nur NVIDIA-GPU" beim Spielstart — behoben.** Ursache: das Dashboard-Fenster
+  (`MainWindow`) wurde bisher beim Programmstart immer im Hintergrund aufgebaut, auch wenn es
+  nie geöffnet wurde; WPF bereitet dabei allein durchs Konstruieren (nicht erst beim Anzeigen)
+  Effekte vor, die Windows als GPU-Nutzung wertet. Der Client baut das Fenster jetzt erst beim
+  tatsächlichen Öffnen über den Tray. Da WPFs interne Kompositions-Infrastruktur, einmal
+  angelegt, für den Rest der Programmlaufzeit bestehen bleibt, startet ein Klick auf das X im
+  Dashboard SaveVault jetzt außerdem komplett neu (statt das Fenster nur zu schließen) — so
+  bleibt die Umschaltung auch nach einem Blick ins Dashboard zuverlässig frei.
+- Software-Rendering (seit v1.8.8-Vorstufe testweise erzwungen) wieder entfernt: hat die
+  Blockade oben nicht gelöst, kostete aber unnötig CPU, u. a. beim Wasserzeichen-Toast während
+  des Spielens.
+
 ## v1.8.7 — 2026-09-15
 
 - **Konflikte bei geteilten (shared) Speicherständen lösen sich jetzt automatisch, ohne

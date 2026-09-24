@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -22,7 +21,13 @@ namespace SaveVault.Client;
 /// die verschmolzenen Einstellungen. Liest ausschließlich die beobachtbare <see cref="AgentState"/>
 /// und ruft Aktionen des <see cref="ClientAgent"/> auf; Zustandsänderungen aus Hintergrund-Threads
 /// werden über den <see cref="System.Windows.Threading.Dispatcher"/> in den UI-Thread gebracht.
-/// Schließen versteckt das Fenster in den Infobereich (die App läuft weiter).
+/// Schließen (X) startet SaveVault komplett neu (<see cref="App.RestartApp"/>) statt das Fenster
+/// nur zu verstecken oder zu schließen: selbst ein sauber geschlossenes WPF-Fenster hinterlässt
+/// WPFs interne Kompositions-Infrastruktur für den Rest der Prozess-Laufzeit initialisiert und
+/// blockiert dadurch weiterhin auf Advanced-Optimus-Notebooks die automatische GPU-Umschaltung
+/// beim Spielstart (siehe specs/savevault-change-optimus-gpu-block.md) – nur ein echter
+/// Prozess-Neustart setzt das zurück. Programmatisches Schließen (z. B. beim App-weiten Beenden)
+/// bleibt normales <see cref="Window.Close"/>, kein Neustart.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -46,6 +51,10 @@ public partial class MainWindow : Window
     private DateTime? _historyLoadedAction;
     private RevisionRow? _restoreTarget;
     private bool _isOverview = true;
+
+    // Wird in OnClosed gesetzt: ein zum Schließen-Zeitpunkt bereits über Dispatcher.BeginInvoke
+    // eingereihtes Refresh() (aus OnAgentStateChanged) liefe sonst noch auf dem toten Fenster.
+    private bool _closed;
 
     // Inline-Bestätigung des „Als geteilten Stand hochladen"-Knopfs (siehe OnForceUploadClick):
     // nur je EIN Spiel kann gerade die Bestätigung zeigen, daher genügt ein einzelner Timer.
@@ -86,6 +95,11 @@ public partial class MainWindow : Window
 
     private void Refresh()
     {
+        // Ein beim Schließen bereits eingereihter Aufruf (Race mit OnAgentStateChanged) soll auf
+        // dem toten Fenster nichts mehr tun (kein Netz-I/O, keine tote UI aktualisieren).
+        if (_closed)
+            return;
+
         var state = _agent.State;
 
         UpdateConnection(state);
@@ -291,8 +305,8 @@ public partial class MainWindow : Window
         var key = row.Game.Value;
         row.BeginShareProbe();
         var probe = await _agent.TryProbeShareAsync(row.Game);
-        if (_selectedKey != key)
-            return; // Nutzer hat inzwischen ein anderes Spiel gewählt
+        if (_closed || _selectedKey != key)
+            return; // Fenster inzwischen geschlossen, oder Nutzer hat ein anderes Spiel gewählt
         row.ApplyShareProbe(probe);
     }
 
@@ -339,7 +353,7 @@ public partial class MainWindow : Window
             revisions = Array.Empty<Core.Api.RevisionInfo>();
         }
 
-        if (_selectedKey != key)
+        if (_closed || _selectedKey != key)
             return;
 
         var deviceId = _agent.CurrentDeviceId;
@@ -368,8 +382,17 @@ public partial class MainWindow : Window
     private void OnMinimizeClick(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
-    private void OnCloseButtonClick(object sender, RoutedEventArgs e)
-        => Close(); // OnClosing bricht ab und versteckt in den Tray.
+    private async void OnCloseButtonClick(object sender, RoutedEventArgs e)
+    {
+        // Neustart statt nur Schließen (Tims Wunsch): WPFs interne Kompositions-Infrastruktur
+        // bleibt sonst für den Rest der Prozess-Laufzeit bestehen und blockiert weiterhin die
+        // Advanced-Optimus-Umschaltung, obwohl das Dashboard längst zu ist. Siehe App.RestartApp.
+        // Button sofort deaktivieren – RestartApp() stoppt zuerst den Agent (dauert kurz), ein
+        // zweiter Klick währenddessen soll keinen zweiten, parallelen Neustart anstoßen.
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        await ((App)System.Windows.Application.Current).RestartApp();
+    }
 
     // --- Navigation ----------------------------------------------------------------
 
@@ -1194,6 +1217,14 @@ public partial class MainWindow : Window
     // --- Selbst-Update -------------------------------------------------------------
 
     /// <summary>
+    /// Übernimmt ein <b>bereits vorliegendes</b> Prüfergebnis in Banner/Optionen, ohne selbst
+    /// gegen GitHub zu fragen – für <see cref="App"/>, das die eigentliche Prüfung zentral über
+    /// eine eigene, vom Dashboard unabhängige <c>UpdateService</c>-Instanz fährt (Start/täglich)
+    /// und das Ergebnis hier nur noch nachreicht, wenn gerade ein Fenster offen ist.
+    /// </summary>
+    public void ApplyUpdateResult(UpdateCheckResult result) => ApplyUpdateResultToUi(result, userInitiated: false);
+
+    /// <summary>
     /// Prüft gegen GitHub, ob ein neueres Release vorliegt, und spiegelt das Ergebnis in Banner und
     /// Optionen. Wird vom Nutzer („Nach Updates suchen") wie auch selbsttätig (App: Start/täglich)
     /// aufgerufen. Läuft auf dem UI-Thread und wirft nie – jeder Fehler landet als
@@ -1210,7 +1241,7 @@ public partial class MainWindow : Window
         UpdateCheckResult result;
         try
         {
-            result = await _updater.CheckAsync();
+            result = await _updater.CheckAndStampAsync(_configStore);
         }
         catch (Exception ex)
         {
@@ -1219,20 +1250,6 @@ public partial class MainWindow : Window
         finally
         {
             CheckUpdatesButton.IsEnabled = true;
-        }
-
-        // Zeitpunkt einer ERFOLGREICHEN Prüfung merken (dämpft die Startprüfung). Bei einem
-        // Fehlschlag (z. B. Netz beim Boot noch nicht da) NICHT stempeln, sonst würde die
-        // 20-h-Dämpfung die nächste Startprüfung unterdrücken, obwohl nie geprüft wurde.
-        if (result.Status != UpdateCheckStatus.Failed)
-        {
-            try
-            {
-                var config = _configStore.Load();
-                config.LastUpdateCheckUtc = DateTime.UtcNow;
-                _configStore.Save(config);
-            }
-            catch { /* nicht kritisch */ }
         }
 
         ApplyUpdateResultToUi(result, userInitiated);
@@ -1353,11 +1370,18 @@ public partial class MainWindow : Window
     private void Info(string message)
         => System.Windows.MessageBox.Show(this, message, "SaveVault", MessageBoxButton.OK, MessageBoxImage.Information);
 
-    protected override void OnClosing(CancelEventArgs e)
+    protected override void OnClosed(EventArgs e)
     {
-        // Nicht schließen, sondern in den Tray zurückziehen – die App läuft weiter.
-        e.Cancel = true;
-        Hide();
-        base.OnClosing(e);
+        // Fenster wird wirklich geschlossen (siehe Klassenkommentar) – Anbindung an den
+        // Agent-Zustand lösen, sonst würde Refresh() auf einem toten Fenster weiterlaufen.
+        _closed = true;
+        _agent.State.Changed -= OnAgentStateChanged;
+
+        // Ein noch laufender Bestätigungs-Timer (siehe ArmForceUpload) darf dieses Fenster
+        // nicht überleben – sonst feuert DisarmForceUpload später auf tote Zeilen-Referenzen.
+        _forceUploadArmTimer?.Stop();
+        _forceUploadArmTimer = null;
+
+        base.OnClosed(e);
     }
 }

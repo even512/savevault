@@ -124,6 +124,38 @@ public sealed class UpdateService
         }
     }
 
+    /// <summary>
+    /// Wie <see cref="CheckAsync"/>, merkt sich aber zusätzlich den Zeitpunkt einer
+    /// <b>erfolgreichen</b> Prüfung in der Config (dämpft die Startprüfung, siehe
+    /// <c>App.DelayThenStartupCheckAsync</c>) – bei einem Fehlschlag (z. B. Netz beim Boot noch
+    /// nicht da) NICHT stempeln, sonst würde die 20-h-Dämpfung die nächste Startprüfung
+    /// unterdrücken, obwohl nie geprüft wurde. Eine Stelle für diese Logik, damit der App-weite
+    /// Hintergrund-Takt und ein manuell im Dashboard angestoßener Check nie auseinanderlaufen.
+    /// </summary>
+    public async Task<UpdateCheckResult> CheckAndStampAsync(ClientConfigStore configStore, CancellationToken ct = default)
+    {
+        // Bewusst OHNE ConfigureAwait(false): das Load()/Save() unten muss auf demselben
+        // (UI-/Dispatcher-)Thread laufen wie MainWindows eigenes, synchrones Speichern der
+        // Einstellungen (OnSaveClick) – sonst könnten beide config.json gleichzeitig von
+        // verschiedenen Threads lesen/schreiben und sich gegenseitig überschreiben. Beide Aufrufer
+        // (App.RunAutoUpdateCheckAsync, MainWindow.CheckForUpdatesAsync) laufen bereits auf dem
+        // UI-Thread, ohne die Kette vorher mit ConfigureAwait(false) zu unterbrechen.
+        var result = await CheckAsync(ct);
+
+        if (result.Status != UpdateCheckStatus.Failed)
+        {
+            try
+            {
+                var config = configStore.Load();
+                config.LastUpdateCheckUtc = DateTime.UtcNow;
+                configStore.Save(config);
+            }
+            catch { /* nicht kritisch */ }
+        }
+
+        return result;
+    }
+
     /// <summary>Sucht in den Release-Assets die self-contained-Client-ZIP (<c>SaveVault-Client-…win-x64.zip</c>).</summary>
     private static string? FindClientAssetUrl(JsonElement root)
     {
