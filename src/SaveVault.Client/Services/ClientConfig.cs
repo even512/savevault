@@ -35,10 +35,12 @@ public sealed class ClientConfig
     public int HeartbeatIntervalSeconds { get; set; } = 15;
 
     /// <summary>
-    /// Ob die einmalige Migration auf geräte-eigene Buckets bereits gelaufen ist. Fehlt das Feld
-    /// in einer alten <c>config.json</c>, wird es als <c>false</c> gelesen – die Migration läuft
-    /// dann beim nächsten Start einmalig (verwirft den lokalen Basis-Stand, sodass jedes Spiel als
-    /// Revision 1 in den privaten Bucket neu eingesät wird) und setzt das Flag auf <c>true</c>.
+    /// Ob die einmalige Migration auf geräte-eigene Buckets bereits gelaufen ist. Eines von
+    /// zwei Anzeichen für eine abgeschlossene Migration (neben der persistenten Marker-Datei
+    /// <see cref="AppPaths.PerDeviceBucketsMigrationMarker"/>); zusammen verhindern beide,
+    /// dass eine verlorene <c>config.json</c> den destruktiven Reset erneut auslöst
+    /// (Regression, CHECKPOINT.md 2026-09-24). Fehlt das Feld in einer alten
+    /// <c>config.json</c>, wird es als <c>false</c> gelesen.
     /// </summary>
     public bool PerDeviceBucketsMigrated { get; set; }
 

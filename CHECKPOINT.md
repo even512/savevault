@@ -1,5 +1,32 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-24)
 
+**Migrations-Bug gefixt: verlorene `config.json` löst `ResetAllState()` nicht mehr erneut aus
+(Client 1.8.10).** Das in der Optimus-Session als „offen" zurückgestellte Thema: die einmalige
+Migration auf geräte-eigene Buckets war am Config-Flag `PerDeviceBucketsMigrated` gehängt —
+fehlte die `config.json`, feuerte der destruktive Reset beim nächsten Start erneut (Diagnose-
+Vorfall: 54 falsche Konflikte).
+- **Fix:** Die Migration läuft jetzt nur, wenn **keinerlei** Anzeichen einer abgeschlossenen
+  Migration vorliegen — weder die neue persistente Marker-Datei
+  (`%AppData%\SaveVault\per-device-buckets-migrated`, bewusst außerhalb des State-Verzeichnisses
+  und unabhängig von `config.json`) noch das Legacy-Config-Flag. `ClientAgent.StartAsync`
+  sichert die Marker-Datei bei jedem Start (no-op, falls vorhanden): bereits migrierte Geräte
+  (Flag aus alter Version) werden ohne Reset „adoptiert" — danach überlebt die Migrations-
+  Aufzeichnung auch den Verlust der `config.json`. Bewusst NICHT Marker-allein als Guard: das
+  hätte genau die Bestandsgeräte beim Upgrade auf diese Version fälschlich re-migriert.
+- **Dateien:** `ClientAgent.cs` (Guard), `SyncStateStore.cs`
+  (`HasPerDeviceBucketsMigrationMarker`/`EnsurePerDeviceBucketsMigrationMarker`), `AppPaths.cs`
+  (Marker-Pfad), `ClientConfig.cs` (Doku des Flags).
+- **Tests:** neuer `ClientAgentMigrationTests` mit 4 Regressionstests: (1) verlorene Config nach
+  abgeschlossener Migration → kein Reset; (2) echter Erstlauf mit Alt-States → Migration läuft +
+  Marker; (3) Neustart danach → idempotent; (4) Legacy-Flag ohne Marker → kein Reset + Adoption.
+- **Gates grün:** Build 0/0, `dotnet test` 212/212. `CHANGELOG.md` nachgezogen (v1.8.10).
+- **Bekannt akzeptierte Kante:** Gerät, auf dem `config.json` UND Marker beide weg sind
+  (vollständiges Löschen des SaveVault-Datenverzeichnisses) wird beim nächsten Start erneut
+  migriert — das ist von einem echten Erstlauf nicht unterscheidbar und entspricht der
+  ursprünglichen Migrations-Semantik („beim ersten Lauf der neuen Version").
+
+---
+
 **SaveVault blockierte die automatische Advanced-Optimus-Umschaltung — behoben, bestätigt,
 Client 1.8.9.** Delta-Spec `specs/savevault-change-optimus-gpu-block.md`, Weg über
 `/projekt-edit`. Tims Meldung: startet er auf dem Notebook ein Spiel, versucht Advanced Optimus

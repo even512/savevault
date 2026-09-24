@@ -135,13 +135,19 @@ public sealed class ClientAgent : IAsyncDisposable
         // Einmalige Migration auf geräte-eigene Buckets (siehe specs/savevault-change-per-device-sync.md):
         // den lokalen Basis-Stand einmalig verwerfen, damit jedes Spiel als Revision 1 in den privaten
         // Bucket neu eingesät wird (Per-Gerät-Backup), statt gegen den alten globalen Verlauf zu laufen.
-        // Nur einmal – danach persistiert das Flag in der Config.
-        if (!config.PerDeviceBucketsMigrated)
+        // Nur wenn keine Anzeichen einer abgeschlossenen Migration vorliegen — weder die persistente
+        // Marker-Datei (unabhängig von config.json) noch das Legacy-Config-Flag —, damit eine verlorene
+        // config.json den destruktiven Reset nicht erneut auslöst (Regression, CHECKPOINT.md 2026-09-24).
+        if (!_stateStore.HasPerDeviceBucketsMigrationMarker() && !config.PerDeviceBucketsMigrated)
         {
             _stateStore.ResetAllState();
-            config.PerDeviceBucketsMigrated = true;
+            config.PerDeviceBucketsMigrated = true; // Config-Flag synchron halten (informierend).
             _configStore.Save(config);
         }
+        // Marker-Datei immer sicherstellen (no-op, falls vorhanden): „adoptiert" Geräte, die die
+        // Migration über das Legacy-Config-Flag abgehakt haben, auf die persistente Aufzeichnung,
+        // damit ein späterer config.json-Verlust den Reset nicht erneut auslösen kann.
+        _stateStore.EnsurePerDeviceBucketsMigrationMarker();
 
         if (!config.IsConfigured)
             return; // „nicht eingerichtet" – auf Pairing warten.

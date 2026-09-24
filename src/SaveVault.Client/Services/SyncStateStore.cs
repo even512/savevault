@@ -88,8 +88,49 @@ public sealed class SyncStateStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
-            // Nicht kritisch – die Migration wird beim nächsten Start erneut versucht, solange das
-            // Flag in der Config nicht gesetzt werden konnte.
+            // Nicht kritisch — solange die Marker-Datei (siehe
+            // EnsurePerDeviceBucketsMigrationMarker) nicht steht, wird die Migration beim
+            // nächsten Start erneut versucht; ein erneuter Reset ist dabei harmlos.
+        }
+    }
+
+    /// <summary>
+    /// Ob die persistente Marker-Datei der einmaligen Migration auf geräte-eigene Buckets
+    /// (<see cref="AppPaths.PerDeviceBucketsMigrationMarker"/>) bereits existiert.
+    /// </summary>
+    public bool HasPerDeviceBucketsMigrationMarker()
+        => File.Exists(_paths.PerDeviceBucketsMigrationMarker);
+
+    /// <summary>
+    /// Stellt sicher, dass die persistente Marker-Datei der einmaligen Migration auf
+    /// geräte-eigene Buckets (<c>specs/savevault-change-per-device-sync.md</c>) existiert —
+    /// <b>no-op, falls sie schon da ist</b>.
+    /// Die Marker-Datei liegt bewusst unabhängig von <c>config.json</c>: Sie ist das
+    /// dauerhafte Zeichen, dass die Migration bereits abgehakt ist, und überlebt damit den
+    /// Verlust einer <c>config.json</c> — genau das hat früher den destruktiven
+    /// <see cref="ResetAllState"/> fälschlich erneut auslösen lassen (Regression,
+    /// CHECKPOINT.md 2026-09-24). Für Geräte, die die Migration noch über das Legacy-
+    /// Config-Flag abgehakt haben, „adoptiert" dieser Aufruf sie auf die persistente
+    /// Marker-Datei, ohne irgendetwas zu löschen.
+    /// </summary>
+    public void EnsurePerDeviceBucketsMigrationMarker()
+    {
+        var marker = _paths.PerDeviceBucketsMigrationMarker;
+        if (File.Exists(marker))
+            return;
+
+        try
+        {
+            var dir = Path.GetDirectoryName(marker);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+            File.WriteAllText(marker, "per-device-buckets: migrated\n");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nicht kritisch: Beim nächsten Start wird das Setzen der Marker-Datei erneut
+            // versucht. Solange sie fehlt, greift zusätzlich das Legacy-Config-Flag als
+            // Sicherheitsnetz (siehe ClientAgent.StartAsync).
         }
     }
 

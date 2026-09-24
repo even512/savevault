@@ -3,6 +3,22 @@
 Alle nennenswerten Änderungen am Windows-Client. Versionen entsprechen den
 `v*.*.*`-Tags, die den Client-Release bauen.
 
+## v1.8.10 — 2026-09-24
+
+- **Fix: Eine verlorene `config.json` löst die einmalige Per-Device-Buckets-Migration nicht
+  mehr erneut aus.** Der Migrations-Guard hing bisher allein am Config-Flag
+  `PerDeviceBucketsMigrated` — fehlte die `config.json` (z. B. weil sie bei einem
+  Diagnose-Testbau beiseitegelegt wurde), lief beim nächsten Start der destruktive
+  `ResetAllState()` erneut und löschte den lokalen Sync-Fortschritt aller Spiele; in einem
+  realen Vorfall (2026-09-24) entstanden daraus 54 falsche „Konflikt“-Meldungen. Die Migration
+  läuft jetzt nur, wenn **keinerlei** Anzeichen einer abgeschlossenen Migration vorliegen:
+  weder die neue persistente Marker-Datei (`%AppData%\SaveVault\per-device-buckets-migrated`,
+  unabhängig von `config.json`) noch das Legacy-Config-Flag. Bereits migrierte Geräte (Flag aus
+  der alten Version) bekommen beim ersten Start der neuen Version die Marker-Datei gesetzt,
+  **ohne** Reset — und danach kann auch ein späterer `config.json`-Verlust den Reset nicht mehr
+  auslösen. Vier Regressionstests decken die Fälle ab (verlorene Config, echter Erstlauf,
+  Neustart, Legacy-Flag ohne Marker).
+
 ## v1.8.9 — 2026-09-24
 
 - **SaveVault blockierte auf Advanced-Optimus-Notebooks (Hardware-MUX) die automatische

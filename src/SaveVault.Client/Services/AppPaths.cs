@@ -39,4 +39,14 @@ public sealed class AppPaths
 
     /// <summary>Dauerhaftes, rollierendes Diagnose-Log der Sync-Entscheidungen (siehe <see cref="SyncDiagnosticsLog"/>).</summary>
     public string SyncLogFile => Path.Combine(Root, "sync.log");
+
+    /// <summary>
+    /// Marker-Datei der einmaligen Migration auf geräte-eigene Buckets (siehe
+    /// <see cref="SyncStateStore.MigrateToPerDeviceBucketsIfNeeded"/>). Bewusst
+    /// <b>unabhängig</b> von <see cref="ConfigFile"/> und außerhalb des State-Verzeichnisses:
+    /// Die Migrations-Entscheidung muss den Verlust einer <c>config.json</c> überleben —
+    /// das Config-Flag allein hat früher den destruktiven Reset fälschlich erneut
+    /// ausgelöst (Regression, CHECKPOINT.md 2026-09-24).
+    /// </summary>
+    public string PerDeviceBucketsMigrationMarker => Path.Combine(Root, "per-device-buckets-migrated");
 }
