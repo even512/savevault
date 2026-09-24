@@ -1,10 +1,10 @@
 # SaveVault — Fortschritt (fortgeschrieben 2026-09-24)
 
-**SaveVault blockiert die automatische Advanced-Optimus-Umschaltung — Ursache gefunden,
-End-zu-Ende-Handtest mit Tims echtem Setup offen, kein Release.** Delta-Spec
-`specs/savevault-change-optimus-gpu-block.md`, Weg über `/projekt-edit`. Tims Meldung: startet
-er auf dem Notebook ein Spiel, versucht Advanced Optimus automatisch auf „nur NVIDIA-GPU"
-umzuschalten — Windows nennt SaveVault dabei namentlich als blockierenden Prozess.
+**SaveVault blockierte die automatische Advanced-Optimus-Umschaltung — behoben, bestätigt,
+Client 1.8.9.** Delta-Spec `specs/savevault-change-optimus-gpu-block.md`, Weg über
+`/projekt-edit`. Tims Meldung: startet er auf dem Notebook ein Spiel, versucht Advanced Optimus
+automatisch auf „nur NVIDIA-GPU" umzuschalten — Windows nannte SaveVault dabei namentlich als
+blockierenden Prozess.
 - **Zwei plausible, recherche-gestützte Theorien nacheinander durch echte Handtests widerlegt:**
   (1) Software-Rendering erzwingen (WPFs Hardwarepipeline halte ein GPU-Gerät offen) — keine
   Wirkung. (2) `MainWindow` schließt jetzt wirklich statt nur zu verstecken (`Hide()`) — Tims
@@ -52,10 +52,14 @@ umzuschalten — Windows nennt SaveVault dabei namentlich als blockierenden Proz
   gleichzeitig, falls die neue startet bevor die alte ihren Agent stoppt) — behoben, Agent stoppt
   zuerst. Dabei auch Software-Rendering (Runde 1) entfernt: jetzt erwiesen wirkungslos gegen die
   Blockade, hatte aber echten Preis (CPU-Last u. a. beim Wasserzeichen-Toast während des Zockens).
-- **Kein Versions-Bump/Release, solange der finale Handtest offen ist.**
+- **End-zu-Ende-Handtest auf dem finalen Stand: BESTÄTIGT.** Normal starten → Spiel starten →
+  Umschaltung klappt. Dashboard geöffnet, mit X geschlossen (Neustart) → nochmal Spiel gestartet
+  → Umschaltung klappt weiterhin. Tims Worte: „funktioniert jetzt exakt so wie es soll".
+- **Release: Client 1.8.8 → 1.8.9**, `CHANGELOG.md` nachgezogen.
 - **Rollout:** kein Server-Code betroffen, reine Client-Änderung.
-- **Offen:** End-zu-Ende-Handtest mit dem Neustart-per-X-Fix auf Tims echtem Setup. Danach
-  Versions-Bump + CHANGELOG-Eintrag, und optional der zurückgestellte Migrations-Bug.
+- **Offen:** der in der Diagnose gefundene, zurückgestellte Migrations-Bug (`ResetAllState()`
+  feuert bei jeder fehlenden `config.json`, nicht nur beim echten Erstlauf) — eigenständiger,
+  unabhängiger Fix für eine spätere Sitzung.
 
 ---
 

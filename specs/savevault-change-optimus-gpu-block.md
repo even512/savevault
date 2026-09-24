@@ -104,13 +104,12 @@ passiert.
   mit/ohne Autostart-Registry-Eintrag, mit/ohne Software-Rendering, mit/ohne Update-Check —
   **immer** blockiert, **außer** ohne `MainWindow`-Konstruktion).
 - **Runde 4 real reproduziert:** Tim öffnete das Dashboard (Konflikte lösen), schloss es sauber
-  mit X — Blockade war wieder da (siehe Ursache oben, `MediaContextNotificationWindow`). Mit dem
-  Neustart-per-X-Fix noch nicht erneut end-zu-Ende auf der Hardware bestätigt.
-- **Noch offen: End-zu-Ende-Handtest mit Tims echtem Setup auf dem finalen Code-Stand**
-  (Neustart-per-X, kein Software-Rendering mehr) — insbesondere: normal starten (Dashboard nicht
-  anfassen) → Spiel starten → Umschaltung sollte klappen; danach Dashboard öffnen, mit X
-  schließen (löst Neustart aus) → nochmal Spiel starten → sollte weiterhin klappen.
-- Kein Versions-Bump/Release vor diesem letzten Handtest.
+  mit X — Blockade war wieder da (siehe Ursache oben, `MediaContextNotificationWindow`).
+- **End-zu-Ende-Handtest auf dem finalen Code-Stand: BESTÄTIGT.** Tim: normal starten (Dashboard
+  nicht angefasst) → Spiel starten → Umschaltung klappt. Danach Dashboard geöffnet, mit X
+  geschlossen (löst Neustart aus) → nochmal Spiel gestartet → Umschaltung klappt weiterhin.
+  Tims Worte: „funktioniert jetzt exakt so wie es soll".
+- Versions-Bump auf **v1.8.9** + CHANGELOG-Eintrag.
 
 ## Risiken / Rückwärtskompatibilität
 - **Bewusst nicht weiter verfolgt (mehrere Eskalationsschwellen längst überschritten,
