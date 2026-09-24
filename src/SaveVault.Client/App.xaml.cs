@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Threading;
 using System.Windows;
 using SaveVault.Client.Services;
@@ -43,12 +44,6 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // Software-Rendering erzwingen, ganz am Anfang (vor jedem Fenster/base.OnStartup). Ursprünglich
-        // als Advanced-Optimus-Fix gedacht – Handtest hat das widerlegt (der eigentliche Blocker war
-        // MainWindow, siehe unten). Als Zusatzschutz für die Zeit, in der das Dashboard offen ist,
-        // trotzdem belassen: kostet bei dieser kleinen, selten sichtbaren Oberfläche nichts.
-        System.Windows.Media.RenderOptions.ProcessRenderMode =
-            System.Windows.Interop.RenderMode.SoftwareOnly;
 
         // Applier-Modus: Wird diese exe von der gestagten Kopie mit --apply-update gestartet, tauscht
         // sie nur die Installation aus (kopiert Staging → Installationsordner, startet die neue exe)
@@ -291,6 +286,52 @@ public partial class App : Application
     private void ShutdownApp()
     {
         Shutdown();
+    }
+
+    /// <summary>
+    /// Beendet SaveVault komplett und startet sofort eine frische Instanz — auf Tims Wunsch der
+    /// pragmatische Ausweg für <see cref="MainWindow"/>s Advanced-Optimus-Einschränkung: WPFs
+    /// interne Kompositions-Infrastruktur (<c>MediaContextNotificationWindow</c>) bleibt, einmal
+    /// angelegt, für den Rest der Prozess-Laufzeit bestehen, auch nachdem das Dashboard wieder
+    /// geschlossen ist — nur ein echter Prozess-Neustart setzt sie zurück.
+    ///
+    /// Stoppt zuerst den eigenen <see cref="ClientAgent"/> (Watcher/Netz-Schleifen), BEVOR die
+    /// neue Instanz startet – sonst liefen kurzzeitig zwei Agents gegen dieselben lokalen
+    /// Zustands-Dateien/denselben Server (Doppel-Uploads, Schreibkonflikte). Schlägt der Start
+    /// der neuen Instanz fehl (z. B. exe verschoben), schließt sich wenigstens das Fenster ganz
+    /// normal, statt SaveVault ohne jede Rückmeldung stehenzulassen.
+    /// </summary>
+    public async Task RestartApp()
+    {
+        if (_agent is not null)
+        {
+            try { await _agent.StopAsync(); }
+            catch { /* best effort – Neustart soll daran nicht scheitern */ }
+        }
+
+        Process? started = null;
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(exePath))
+                started = Process.Start(new ProcessStartInfo { FileName = exePath, UseShellExecute = false });
+        }
+        catch { /* unten behandelt */ }
+
+        if (started is not null)
+        {
+            Shutdown();
+            return;
+        }
+
+        // Neustart nicht möglich: den eigenen Agent wieder hochfahren (wurde oben gestoppt) und
+        // das Fenster wenigstens normal schließen, statt SaveVault ohne Rückmeldung offen zu lassen.
+        if (_agent is not null)
+        {
+            try { await _agent.StartAsync(); }
+            catch { /* best effort */ }
+        }
+        _window?.Close();
     }
 
     // --- Toast-Ausgabe -------------------------------------------------------------

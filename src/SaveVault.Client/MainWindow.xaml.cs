@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -22,11 +21,13 @@ namespace SaveVault.Client;
 /// die verschmolzenen Einstellungen. Liest ausschließlich die beobachtbare <see cref="AgentState"/>
 /// und ruft Aktionen des <see cref="ClientAgent"/> auf; Zustandsänderungen aus Hintergrund-Threads
 /// werden über den <see cref="System.Windows.Threading.Dispatcher"/> in den UI-Thread gebracht.
-/// Schließen (X) beendet dieses Fenster wirklich (die App läuft im Tray weiter) – bewusst kein
-/// Hide()-in-den-Tray mehr: ein nur verstecktes WPF-Fenster hält sein Composition-Handle am
-/// Leben und blockiert dadurch auf Advanced-Optimus-Notebooks die automatische GPU-Umschaltung
-/// beim Spielstart (siehe specs/savevault-change-optimus-gpu-block.md). <see cref="App"/> baut
-/// beim nächsten Öffnen über den Tray eine frische Instanz.
+/// Schließen (X) startet SaveVault komplett neu (<see cref="App.RestartApp"/>) statt das Fenster
+/// nur zu verstecken oder zu schließen: selbst ein sauber geschlossenes WPF-Fenster hinterlässt
+/// WPFs interne Kompositions-Infrastruktur für den Rest der Prozess-Laufzeit initialisiert und
+/// blockiert dadurch weiterhin auf Advanced-Optimus-Notebooks die automatische GPU-Umschaltung
+/// beim Spielstart (siehe specs/savevault-change-optimus-gpu-block.md) – nur ein echter
+/// Prozess-Neustart setzt das zurück. Programmatisches Schließen (z. B. beim App-weiten Beenden)
+/// bleibt normales <see cref="Window.Close"/>, kein Neustart.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -304,8 +305,8 @@ public partial class MainWindow : Window
         var key = row.Game.Value;
         row.BeginShareProbe();
         var probe = await _agent.TryProbeShareAsync(row.Game);
-        if (_selectedKey != key)
-            return; // Nutzer hat inzwischen ein anderes Spiel gewählt
+        if (_closed || _selectedKey != key)
+            return; // Fenster inzwischen geschlossen, oder Nutzer hat ein anderes Spiel gewählt
         row.ApplyShareProbe(probe);
     }
 
@@ -352,7 +353,7 @@ public partial class MainWindow : Window
             revisions = Array.Empty<Core.Api.RevisionInfo>();
         }
 
-        if (_selectedKey != key)
+        if (_closed || _selectedKey != key)
             return;
 
         var deviceId = _agent.CurrentDeviceId;
@@ -381,8 +382,17 @@ public partial class MainWindow : Window
     private void OnMinimizeClick(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
-    private void OnCloseButtonClick(object sender, RoutedEventArgs e)
-        => Close(); // Beendet dieses Fenster wirklich, siehe Klassenkommentar/OnClosed.
+    private async void OnCloseButtonClick(object sender, RoutedEventArgs e)
+    {
+        // Neustart statt nur Schließen (Tims Wunsch): WPFs interne Kompositions-Infrastruktur
+        // bleibt sonst für den Rest der Prozess-Laufzeit bestehen und blockiert weiterhin die
+        // Advanced-Optimus-Umschaltung, obwohl das Dashboard längst zu ist. Siehe App.RestartApp.
+        // Button sofort deaktivieren – RestartApp() stoppt zuerst den Agent (dauert kurz), ein
+        // zweiter Klick währenddessen soll keinen zweiten, parallelen Neustart anstoßen.
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        await ((App)System.Windows.Application.Current).RestartApp();
+    }
 
     // --- Navigation ----------------------------------------------------------------
 

@@ -84,7 +84,7 @@
                         <Rectangle Width="11" Height="1.4" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                     </Button>
                     <Button x:Name="CloseButton" Style="{StaticResource CloseCaptionButton}"
-                            Click="OnCloseButtonClick" ToolTip="In den Infobereich schließen">
+                            Click="OnCloseButtonClick" ToolTip="Schließen (startet SaveVault neu)">
                         <Path Width="11" Height="11" Stretch="Uniform"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                               StrokeThickness="1.4" Data="M0,0 L11,11 M11,0 L0,11" />

@@ -35,11 +35,24 @@ löst das nicht aus; ein reich gestaltetes wie SaveVaults Dashboard schon. Der F
 (Software-Rendering) griff hier nie, weil die Effekt-Vorbereitung unabhängig vom Render-Modus
 passiert.
 
+4. **Runde 4 — auch das reichte noch nicht ganz:** Tim öffnete das Dashboard (um durch den
+   Konflikt-Vorfall unten verursachte Konflikte zu lösen), schloss es danach sauber mit X — und
+   die Blockade war wieder da. Grund: WPFs interne Kompositions-Infrastruktur
+   (`MediaContextNotificationWindow`, sichtbar per `EnumWindows` auf den laufenden Prozess) wird
+   beim allerersten gezeigten Fenster einmalig angelegt und bleibt danach **für den Rest der
+   Prozess-Laufzeit** bestehen — auch nach dessen sauberem Schließen. Es gibt keine öffentliche
+   Möglichkeit, das innerhalb eines laufenden Prozesses zurückzusetzen; nur ein echter
+   Prozess-Neustart hilft.
+
 ## Der Fix
-`App.xaml.cs::OnStartup` baut `MainWindow` **nicht mehr eager**. Die Instanz entsteht erst beim
-ersten echten Öffnen über den Tray (`ShowMainWindow` → `CreateWindow`, aus Runde 2 bereits
-vorhanden). Solange niemand das Dashboard öffnet, existiert überhaupt kein `MainWindow`-Objekt —
-SaveVault rührt dann nichts an, was die Umschaltung blockieren könnte.
+- `App.xaml.cs::OnStartup` baut `MainWindow` **nicht mehr eager**. Die Instanz entsteht erst beim
+  ersten echten Öffnen über den Tray (`ShowMainWindow` → `CreateWindow`). Solange niemand das
+  Dashboard öffnet, existiert überhaupt kein `MainWindow`-Objekt.
+- **Runde 4, Tims pragmatischer Vorschlag:** Der X-Knopf im Dashboard schließt das Fenster nicht
+  mehr nur, sondern startet SaveVault **komplett neu** (`App.RestartApp`) — neue Instanz starten,
+  alte sauber beenden. Das setzt die WPF-Kompositions-Altlast zuverlässig zurück, statt Tim einen
+  manuellen Tray-Neustart aufzuerlegen. Normales Beenden über den Tray bleibt unverändert (kein
+  Neustart-Loop).
 
 ## Umfang
 - **Der eigentliche Fix:** `_window = CreateWindow();` aus `OnStartup` entfernt.
@@ -49,9 +62,14 @@ SaveVault rührt dann nichts an, was die Umschaltung blockieren könnte.
   unabhängige `UpdateService`-Instanz; die Prüf-und-Stempel-Logik lebt jetzt zentral in
   `UpdateService.CheckAndStampAsync` (von `App` und `MainWindow` gemeinsam genutzt, keine
   Doppelung mehr).
-- **Runde 1/2 bleiben als Fixes erhalten** (Software-Rendering, echtes Schließen des Fensters,
-  fester statt endlos pulsierender Glow) — sie lösen nicht die Advanced-Optimus-Blockade, sind
-  aber selbst gerechtfertigte, unabhängige Verbesserungen (siehe deren eigene Historie unten).
+- **Runde 2 bleibt als Fix erhalten** (echtes Schließen des Fensters statt `Hide()`) — löst nicht
+  die Advanced-Optimus-Blockade allein, ist aber selbst eine gerechtfertigte Verbesserung
+  (verhindert ein separates Ressourcen-Leck).
+- **Runde 1 (Software-Rendering) zurückgenommen:** jetzt erwiesenermaßen wirkungslos gegen die
+  Blockade, dafür mit echtem Preis (unnötige CPU-Last, u. a. beim Wasserzeichen-Toast während des
+  Zockens). `RenderOptions.ProcessRenderMode = SoftwareOnly` aus `OnStartup` entfernt. Der
+  Runde-1-Fix „fester statt pulsierender Glow" bleibt trotzdem bestehen (harmlose Vereinfachung,
+  kein Grund für Rückbau).
 
 ## Nicht-Umfang
 - Keine Änderung an Sync-/Agent-Logik, Tray-Icon, Autostart.
@@ -65,15 +83,17 @@ SaveVault rührt dann nichts an, was die Umschaltung blockieren könnte.
   gemeinsam injizierten.
 
 ## Betroffene Dateien
-- `src/SaveVault.Client/App.xaml.cs` (kein eager `MainWindow`-Aufbau mehr; Update-Prüfung
-  entkoppelt und zentralisiert)
+- `src/SaveVault.Client/App.xaml.cs` (kein eager `MainWindow`-Aufbau mehr; kein erzwungenes
+  Software-Rendering mehr; `RestartApp()` für den Neustart-per-X; Update-Prüfung entkoppelt und
+  zentralisiert)
 - `src/SaveVault.Client/Services/UpdateService.cs` (`CheckAndStampAsync`, threadsicher ohne
   `ConfigureAwait(false)`)
 - `src/SaveVault.Client/MainWindow.xaml.cs` (`ApplyUpdateResult`, `CheckForUpdatesAsync` nutzt
-  den zentralen Helfer; `OnClosing`/`OnClosed`, `_closed`-Flag, `_forceUploadArmTimer`-Aufräumen
-  aus Runde 2)
+  den zentralen Helfer; `OnClosing`/`OnClosed`, `_closed`-Flag samt Nutzung in
+  `LoadHistoryAsync`/`ProbeShareStatusAsync`, `_forceUploadArmTimer`-Aufräumen aus Runde 2;
+  `OnCloseButtonClick` ruft jetzt `App.RestartApp()`)
 - `src/SaveVault.Client/MainWindow.xaml`, `src/SaveVault.Client/Ui/Theme.xaml` (fester statt
-  endlos pulsierender Glow, aus Runde 1)
+  endlos pulsierender Glow, aus Runde 1; X-Button-Tooltip nachgezogen)
 
 ## Akzeptanz & Verifikation
 - Build 0 Fehler, `dotnet test` 208/208 grün (unverändert — reines Lebenszyklus-/Timing-Verhalten,
@@ -83,10 +103,13 @@ SaveVault rührt dann nichts an, was die Umschaltung blockieren könnte.
   Hardware mehrfach reproduziert (Diagnose-Testbauten mit/ohne Watcher, mit/ohne Netzwerk,
   mit/ohne Autostart-Registry-Eintrag, mit/ohne Software-Rendering, mit/ohne Update-Check —
   **immer** blockiert, **außer** ohne `MainWindow`-Konstruktion).
-- **Noch offen: End-zu-Ende-Handtest mit Tims echtem, wiederhergestelltem Setup** (69 Spiele,
-  echter Server, Autostart an) auf dem finalen Code-Stand (inkl. Update-Checker-Rework) — die
-  bisherigen Bestätigungen liefen auf gezielt reduzierten Diagnose-Bauten, nicht auf dem
-  tatsächlichen Endstand.
+- **Runde 4 real reproduziert:** Tim öffnete das Dashboard (Konflikte lösen), schloss es sauber
+  mit X — Blockade war wieder da (siehe Ursache oben, `MediaContextNotificationWindow`). Mit dem
+  Neustart-per-X-Fix noch nicht erneut end-zu-Ende auf der Hardware bestätigt.
+- **Noch offen: End-zu-Ende-Handtest mit Tims echtem Setup auf dem finalen Code-Stand**
+  (Neustart-per-X, kein Software-Rendering mehr) — insbesondere: normal starten (Dashboard nicht
+  anfassen) → Spiel starten → Umschaltung sollte klappen; danach Dashboard öffnen, mit X
+  schließen (löst Neustart aus) → nochmal Spiel starten → sollte weiterhin klappen.
 - Kein Versions-Bump/Release vor diesem letzten Handtest.
 
 ## Risiken / Rückwärtskompatibilität
@@ -108,9 +131,31 @@ SaveVault rührt dann nichts an, was die Umschaltung blockieren könnte.
   (`OnSaveClick`) um dieselbe Datei race können (verlorene Schreibvorgänge). Behoben durch
   Entfernen von `ConfigureAwait(false)`: läuft jetzt zuverlässig auf demselben UI-Thread wie
   jedes andere Config-Speichern.
-- Aus Runde 1/2 weiterhin bestehende, bereits akzeptierte Punkte: Software-Rendering bleibt
-  bestehen, obwohl jetzt erwiesen ist, dass es die Optimus-Blockade nie gelöst hat (kostenlos,
-  da UI dank festem statt pulsierendem Glow ohnehin kaum noch Render-Last hat); UI-Zwischenzustand
-  (ausgewähltes Spiel, Tab, offene Optionen ohne Speichern) geht über ein Fenster-Schließen
-  hinweg verloren — akzeptiertes, normales „Formular ohne Speichern geschlossen"-Verhalten.
+- Aus Runde 1/2 weiterhin bestehend, bereits akzeptiert: UI-Zwischenzustand (ausgewähltes Spiel,
+  Tab, offene Optionen ohne Speichern) geht über ein Fenster-Schließen hinweg verloren —
+  akzeptiertes, normales „Formular ohne Speichern geschlossen"-Verhalten.
+- **`/code-review high` auf Runde 4 (Neustart-per-X), Funde behoben:** (1) `RestartApp()` hätte
+  kurzzeitig **zwei Instanzen gleichzeitig** laufen lassen können (neue Instanz startet, bevor die
+  alte ihren Agent stoppt) — behoben, indem `_agent.StopAsync()` zuerst abgewartet wird. (2) Schlug
+  der Neustart fehl (z. B. exe verschoben), blieb das Fenster ohne jede Rückmeldung einfach offen
+  — behoben mit Rückfall auf normales `Close()` plus Neustart des eigenen Agents. (3) Der
+  X-Button-Tooltip sagte noch „In den Infobereich schließen" — korrigiert. (4)
+  `LoadHistoryAsync`/`ProbeShareStatusAsync` prüften das `_closed`-Flag aus Runde 2 nicht — jetzt
+  nachgezogen.
+- **Bewusst nicht behoben:** Ein Neustart-per-X (oder das normale Beenden über den Tray) kann eine
+  gerade laufende Wiederherstellung/einen Upload abbrechen, statt sie abzuwarten — das war schon
+  beim bisherigen „Beenden" so (derselbe Abbruch-Mechanismus), keine neue Fehlerklasse durch diese
+  Runde. Ordentliches Abwarten laufender Operationen wäre ein eigenständiges, größeres Feature.
 - Kein Versions-Bump vor bestätigtem End-zu-Ende-Handtest.
+
+## Unabhängiger Vorfall während der Diagnose (nicht Teil dieses Fixes, siehe CHECKPOINT.md)
+Beim probeweisen Beiseitelegen von `config.json` für einen Diagnose-Testbau hat eine einmalige
+Migrationslogik (`ClientAgent.StartAsync`, `PerDeviceBucketsMigrated`-Guard) fälschlich gefeuert
+und Tims lokale Sync-Status-Dateien für alle privaten Buckets gelöscht (`ResetAllState()`) — das
+hat **keine** echten Spielstand-Dateien betroffen (bestätigt im Code: löscht nur die
+Fortschritts-Buchführung), aber 54 falsche „Konflikt"-Meldungen erzeugt. Über die reale Server-API
+(gleicher Weg wie der Dashboard-Dialog: `ResolveConflictAsync` mit `KeepDevice`, nur automatisiert
+für alle Konflikte mit genau einem Teilnehmer = diesem Gerät) aufgelöst, mit Tims Freigabe nach
+einem Dry-Run. Der zugrunde liegende Bug (Migrationslogik feuert bei jeder fehlenden `config.json`,
+nicht nur beim echten Erstlauf) ist noch **nicht** gefixt — auf Tims Wunsch zurückgestellt, bis
+der Optimus-Fix steht.

@@ -30,14 +30,32 @@ umzuschalten — Windows nennt SaveVault dabei namentlich als blockierenden Proz
   war längst überschritten, keine weiteren Runden mehr gedreht.
 - **Gates grün:** Delta-Gate (Spec laufend nachgezogen), Build 0/0, `dotnet test` 208/208
   unverändert grün. Kein `/security-review` (kein Auth/Pfad/Netz/Registry-Neuland).
-- **Laufzeit-Verifikation:** Root Cause mehrfach auf Tims echter Hardware bestätigt (verschiedene
-  Diagnose-Testbauten, ausschließlich der Verzicht auf `MainWindow`-Konstruktion macht den
-  Unterschied) — **aber noch nicht auf dem finalen Code-Stand mit Tims echtem, konfiguriertem
-  Setup** (69 Spiele, echter Server, Autostart an). Offener End-zu-Ende-Handtest.
-- **Kein Versions-Bump/Release, solange dieser letzte Handtest offen ist.**
+- **Laufzeit-Verifikation, Runde 1:** Root Cause mehrfach auf Tims echter Hardware bestätigt
+  (verschiedene Diagnose-Testbauten, ausschließlich der Verzicht auf `MainWindow`-Konstruktion
+  macht den Unterschied).
+- **Unabhängiger Vorfall während der Diagnose:** Ein Diagnose-Testbau (config.json testweise
+  beiseite gelegt) hat eine einmalige Migrationslogik fälschlich erneut ausgelöst
+  (`ClientAgent.StartAsync`, `PerDeviceBucketsMigrated`-Guard) und Tims lokale Sync-Status für
+  alle privaten Buckets gelöscht — **keine echten Spielstand-Dateien betroffen** (nur die
+  Fortschritts-Buchführung), aber 54 falsche „Konflikt"-Meldungen erzeugt. Über die reale
+  Server-API automatisiert aufgelöst (Dry-Run zuerst, dann mit Tims Freigabe angewendet — alle
+  54 hatten genau einen Teilnehmer = dieses Gerät, sicher). Der zugrunde liegende Bug ist noch
+  **nicht** gefixt, auf Tims Wunsch zurückgestellt.
+- **Laufzeit-Verifikation, Runde 2 — Handtest auf echtem Setup deckte einen weiteren Fall auf:**
+  Tim öffnete das Dashboard (um die Konflikte oben zu lösen), schloss es sauber mit X — Blockade
+  war wieder da. Ursache: WPFs interne Kompositions-Infrastruktur
+  (`MediaContextNotificationWindow`) wird beim ersten gezeigten Fenster einmalig angelegt und
+  bleibt für den Rest der Prozess-Laufzeit bestehen, auch nach sauberem Schließen — nur ein
+  echter Prozess-Neustart setzt sie zurück. **Tims pragmatischer Vorschlag, umgesetzt:** der
+  X-Button im Dashboard startet SaveVault jetzt komplett neu (`App.RestartApp`) statt das Fenster
+  nur zu schließen. `/code-review high` fand dabei ein echtes Risiko (kurzzeitig zwei Instanzen
+  gleichzeitig, falls die neue startet bevor die alte ihren Agent stoppt) — behoben, Agent stoppt
+  zuerst. Dabei auch Software-Rendering (Runde 1) entfernt: jetzt erwiesen wirkungslos gegen die
+  Blockade, hatte aber echten Preis (CPU-Last u. a. beim Wasserzeichen-Toast während des Zockens).
+- **Kein Versions-Bump/Release, solange der finale Handtest offen ist.**
 - **Rollout:** kein Server-Code betroffen, reine Client-Änderung.
-- **Offen:** End-zu-Ende-Handtest mit Tims echtem Setup auf dem finalen Stand. Danach
-  Versions-Bump + CHANGELOG-Eintrag.
+- **Offen:** End-zu-Ende-Handtest mit dem Neustart-per-X-Fix auf Tims echtem Setup. Danach
+  Versions-Bump + CHANGELOG-Eintrag, und optional der zurückgestellte Migrations-Bug.
 
 ---
 
