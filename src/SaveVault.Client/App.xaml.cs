@@ -35,16 +35,18 @@ public partial class App : Application
     private WatermarkWindow? _watermark;
 
     // Selbst-Update: 24-h-Prüftakt und die zuletzt per Tray gemeldete Version (kein Doppel-Hinweis).
+    // Eigene UpdateService-Instanz statt über MainWindow: die Prüfung muss unabhängig vom
+    // Dashboard laufen, das jetzt oft nie konstruiert wird (siehe OnStartup).
+    private readonly UpdateService _updater = new();
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
     private Version? _announcedUpdate;
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // Software-Rendering erzwingen, ganz am Anfang (vor jedem Fenster/base.OnStartup): SaveVault
-        // läuft dauerhaft im Tray, WPF würde sonst per Hardwarepipeline ein GPU-Gerät offen halten –
-        // genau das blockiert auf Advanced-Optimus-Notebooks den automatischen MUX-Wechsel beim
-        // Spielstart (Windows nennt SaveVault dann als blockierenden Prozess). Bei dieser kleinen,
-        // selten sichtbaren Oberfläche (Dashboard, Wasserzeichen-Toast) ist das nicht wahrnehmbar.
+        // Software-Rendering erzwingen, ganz am Anfang (vor jedem Fenster/base.OnStartup). Ursprünglich
+        // als Advanced-Optimus-Fix gedacht – Handtest hat das widerlegt (der eigentliche Blocker war
+        // MainWindow, siehe unten). Als Zusatzschutz für die Zeit, in der das Dashboard offen ist,
+        // trotzdem belassen: kostet bei dieser kleinen, selten sichtbaren Oberfläche nichts.
         System.Windows.Media.RenderOptions.ProcessRenderMode =
             System.Windows.Interop.RenderMode.SoftwareOnly;
 
@@ -83,7 +85,13 @@ public partial class App : Application
         };
 
         _agent = new ClientAgent();
-        _window = CreateWindow();
+        // KEIN eager _window = CreateWindow() mehr hier: MainWindow enthält Effekte
+        // (DropShadowEffect, hochwertige Bild-Skalierung) und einen großen Steuerelement-Baum –
+        // WPF bereitet das schon beim bloßen Konstruieren (InitializeComponent) vor, ganz ohne
+        // Show(). Genau das hält auf Advanced-Optimus-Notebooks den automatischen MUX-Wechsel
+        // beim Spielstart auf (siehe specs/savevault-change-optimus-gpu-block.md – Tims Handtest
+        // Runde 3 belegt: kein je konstruiertes MainWindow ⇒ kein Blockieren mehr). Die Instanz
+        // entsteht jetzt erst beim ersten echten Öffnen (<see cref="ShowMainWindow"/>).
 
         CreateTray();
 
@@ -143,26 +151,29 @@ public partial class App : Application
 
     /// <summary>
     /// Führt eine selbsttätige Prüfung aus und meldet einen Fund einmalig per Tray-Hinweis.
-    /// Bewusst KEIN eigenes <see cref="MainWindow"/> mehr aufbauen, nur um an
-    /// <see cref="MainWindow.CheckForUpdatesAsync"/> zu kommen (das hätte permanent am
-    /// Agent-Zustand hängende, nie geschlossene Geister-Fenster erzeugt) – solange das
-    /// Dashboard geschlossen ist, setzt die Prüfung einfach aus; sie holt sie beim nächsten
-    /// Öffnen automatisch nach (siehe Spec-Risiken, bewusst akzeptierter Trade-off).
+    /// Läuft bewusst über die eigene <see cref="_updater"/>-Instanz statt über
+    /// <see cref="MainWindow.CheckForUpdatesAsync"/>: <see cref="_window"/> ist jetzt oft dauerhaft
+    /// <c>null</c> (kein eager Aufbau mehr, siehe OnStartup) – die Prüfung darf davon nicht
+    /// abhängen, sonst liefe sie nie, solange das Dashboard nie geöffnet wird.
     /// </summary>
     private async Task RunAutoUpdateCheckAsync()
     {
-        if (_window is null)
-            return;
+        var configStore = new ClientConfigStore(new AppPaths());
         try
         {
-            if (!new ClientConfigStore(new AppPaths()).Load().AutoUpdateCheckEnabled)
+            if (!configStore.Load().AutoUpdateCheckEnabled)
                 return;
         }
         catch { /* im Zweifel prüfen */ }
 
         UpdateCheckResult result;
-        try { result = await _window.CheckForUpdatesAsync(userInitiated: false); }
+        try { result = await _updater.CheckAndStampAsync(configStore); }
         catch { return; }
+
+        // Ein gerade offenes Fenster lernt vom Ergebnis sofort, statt erst beim nächsten Öffnen.
+        // Kein Zugriff auf ein frisch/neu geöffnetes Fenster nötig – das prüft beim Öffnen selbst
+        // manuell über „Nach Updates suchen", falls es diesen Takt verpasst hat.
+        _window?.ApplyUpdateResult(result);
 
         if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Available is not null
             && !result.Available.Equals(_announcedUpdate))

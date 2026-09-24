@@ -4,130 +4,113 @@
 Startet Tim ein Spiel, versucht das Notebook automatisch per Advanced Optimus (Hardware-MUX)
 auf „nur NVIDIA-GPU" umzuschalten. Der Wechsel wird aktuell **namentlich von SaveVault**
 blockiert („Prozess blockiert"). SaveVault soll dabei nie mehr als blockierender Prozess
-erscheinen — unabhängig davon, ob der Tray-Client gerade läuft, minimiert ist oder ein
-Wasserzeichen-Toast anzeigt.
+erscheinen — unabhängig davon, ob der Tray-Client gerade läuft, das Dashboard offen war oder
+gerade ein Spiel synct.
 
-## Ursache
-**Runde 1 (widerlegt durch echten Handtest):** Vermutet wurde, WPFs Standard-Hardwarepipeline
-(`wpfgfx`/Milcore) halte allein durchs Rendern ein aktives D3D-Gerät offen. Fix
-(`RenderOptions.ProcessRenderMode = SoftwareOnly`) gebaut und deployt — Tims Handtest zeigte:
-**SaveVault blockiert weiterhin, kein Unterschied.** Treiber war bereits aktuell (555+, damit
-scheidet auch eine reine Treiber-Alt-Version als Ursache aus).
+## Ursache — der Weg dahin (drei widerlegte Theorien, dann der Treffer)
+Mehrere Handtest-Runden bei Tim, jede mit einer plausiblen, recherche-gestützten Theorie, die
+sich am echten Notebook als falsch oder unvollständig herausstellte:
 
-**Tatsächliche Ursache (durch Recherche + Rückfrage bei Tim bestätigt):** `MainWindow.OnClosing`
-hat den X-Klick bisher abgefangen und nur `Hide()` aufgerufen („nicht schließen, sondern in den
-Tray zurückziehen"). Tim hatte das Dashboard mindestens einmal offen und mit X geschlossen —
-das Fenster-Handle blieb dabei die ganze Zeit am Leben, nur unsichtbar. Ein WPF-Fenster hält,
-sobald es einmal gezeigt wurde, sein Composition-Handle bis zum echten `Close()`, unabhängig vom
-Render-Modus (bestätigt durch [dotnet/wpf#9286](https://github.com/dotnet/wpf/issues/9286) —
-„even a minimal WPF application" blockiert — sowie einen vergleichbaren, ungelösten
-PowerToys-Fall). Genau dieses dauerhaft offene, nur versteckte Handle blockiert die
-MUX-Umschaltung — unabhängig davon, ob gerade ein Spiel läuft.
+1. **„WPFs Hardwarepipeline hält ein D3D-Gerät offen, sobald der Prozess läuft."** Fix:
+   `RenderOptions.ProcessRenderMode = SoftwareOnly`. Handtest: **keine Wirkung.**
+2. **„`MainWindow.OnClosing` hat den X-Klick bisher nur mit `Hide()` beantwortet — das
+   Fenster-Handle blieb dabei am Leben."** Tim hatte das Dashboard offen gehabt und mit X
+   geschlossen; das passte zu einem bekannten WPF-Verhalten
+   ([dotnet/wpf#9286](https://github.com/dotnet/wpf/issues/9286)). Fix: `MainWindow` schließt
+   beim X jetzt wirklich, `App` baut bei Bedarf eine frische Instanz. Handtest (Dashboard **nie**
+   geöffnet, rein im Tray): **blockiert weiterhin.**
+3. **Systematische Bisektion statt weiterer Theorien:** Tim bestätigte per Task-Manager
+   (GPU-Spalte), dass SaveVault **keinerlei** GPU-Auslastung zeigt und im GPU-Modul gar nicht
+   auftaucht — die ganze D3D-/Composition-Spur war damit falsch. Reihe von Wegwerf-Testbauten
+   und Mini-Sonden (WinForms-Tray, WPF+Tray+nie gezeigtes Fenster, Netzwerk+Datei-Watcher,
+   Netzwerk gegen Tims echten LAN-Server, `IsConfigured=false`-Leerlauf) — **jede einzelne** lief
+   sauber durch, **außer** die echte `SaveVault.Client.exe` selbst, komplett unkonfiguriert, ganz
+   ohne Agent-Aktivität. Einzige verbliebene Variable: `_window = CreateWindow();` (eager in
+   `OnStartup`) — testweise entfernt: **Umschaltung klappt.**
+
+**Bestätigte Ursache:** `MainWindow.xaml` enthält Effekte (`DropShadowEffect`) und
+hochwertig skalierte Bilder. WPF bereitet das schon beim bloßen **Konstruieren** des Fensters
+(`InitializeComponent()`) vor — auch ganz ohne `Show()`. Ein leeres `Window` (wie in den Sonden)
+löst das nicht aus; ein reich gestaltetes wie SaveVaults Dashboard schon. Der Fix aus Runde 1
+(Software-Rendering) griff hier nie, weil die Effekt-Vorbereitung unabhängig vom Render-Modus
+passiert.
+
+## Der Fix
+`App.xaml.cs::OnStartup` baut `MainWindow` **nicht mehr eager**. Die Instanz entsteht erst beim
+ersten echten Öffnen über den Tray (`ShowMainWindow` → `CreateWindow`, aus Runde 2 bereits
+vorhanden). Solange niemand das Dashboard öffnet, existiert überhaupt kein `MainWindow`-Objekt —
+SaveVault rührt dann nichts an, was die Umschaltung blockieren könnte.
 
 ## Umfang
-- **Runde 1 (behalten als Zusatzmaßnahme, siehe Risiken):** WPF global auf Software-Rendering
-  umstellen (`RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly`), gesetzt so früh wie
-  möglich in `App.xaml.cs::OnStartup` — vor dem Erzeugen von `MainWindow`.
-- **Runde 3 (der eigentliche Fix):** `MainWindow.OnClosing` versteckt das Fenster beim X-Klick
-  nicht mehr, sondern lässt es wirklich schließen (Handle wird zerstört); `OnClosed` meldet die
-  Anbindung an `_agent.State.Changed` ab. `App.xaml.cs` hält `_window` dafür nullable und baut
-  beim nächsten Öffnen über den Tray (`ShowMainWindow`) eine frische Instanz — **nicht** sofort
-  im `Closed`-Handler, damit beim „Beenden" (das ein offenes Fenster mitschließt) nicht kurz vor
-  dem Herunterfahren noch einmal unnötig eine neue, am Agent-Zustand hängende Instanz entsteht.
+- **Der eigentliche Fix:** `_window = CreateWindow();` aus `OnStartup` entfernt.
+- **Notwendige Folgearbeit (nicht optional):** Die automatische 24-h-Selbst-Update-Prüfung hing
+  bisher am Vorhandensein von `_window` — das war früher unkritisch (Fenster existierte immer),
+  jetzt aber der Normalfall. Sauber gelöst: `App` bekommt eine eigene, vom Dashboard komplett
+  unabhängige `UpdateService`-Instanz; die Prüf-und-Stempel-Logik lebt jetzt zentral in
+  `UpdateService.CheckAndStampAsync` (von `App` und `MainWindow` gemeinsam genutzt, keine
+  Doppelung mehr).
+- **Runde 1/2 bleiben als Fixes erhalten** (Software-Rendering, echtes Schließen des Fensters,
+  fester statt endlos pulsierender Glow) — sie lösen nicht die Advanced-Optimus-Blockade, sind
+  aber selbst gerechtfertigte, unabhängige Verbesserungen (siehe deren eigene Historie unten).
 
 ## Nicht-Umfang
-- Keine Änderung an Sync-/Agent-Logik, Tray-Icon (GDI-basiert über `NotifyIcon`, nicht
-  betroffen), Autostart oder Update-Mechanik.
-- Kein Eingriff in den Applier-Zweig (`--apply-update`) — der erzeugt ohnehin kein Fenster.
-- Keine Erkennung/Reaktion auf laufende Spiele (das gibt es schon über
-  `FullscreenDetection`, bleibt unverändert).
-- Kein Erhalt unsauber unsicherer UI-Zwischenzustände über ein Schließen hinweg (siehe Risiken) —
-  bewusst nicht nachgebaut, das ist normales „Formular ohne Speichern geschlossen"-Verhalten.
+- Keine Änderung an Sync-/Agent-Logik, Tray-Icon, Autostart.
+- Kein Eingriff in den Applier-Zweig (`--apply-update`).
+- Keine Erkennung/Reaktion auf laufende Spiele (bleibt über `FullscreenDetection` unverändert).
+- Kein Erhalt von UI-Zwischenzustand über ein Fenster-Schließen hinweg (siehe Risiken,
+  bereits aus Runde 2 akzeptiert).
+- **Bewusst nicht weiter verfolgt** (siehe Risiken unten): Update-Banner erscheint nicht
+  automatisch beim allerersten Öffnen nach einem im Hintergrund gefundenen Update; zwei
+  unabhängige `UpdateService`/`ClientConfigStore`-Instanzen (App + MainWindow) statt einer
+  gemeinsam injizierten.
 
 ## Betroffene Dateien
-- `src/SaveVault.Client/App.xaml.cs` (Software-Rendering erzwingen; Fenster-Lebenszyklus:
-  `CreateWindow()`/`ShowMainWindow()` mit nullable `_window`)
-- `src/SaveVault.Client/MainWindow.xaml.cs` (`OnClosing`/`OnClosed`: echtes Schließen statt
-  Hide-in-den-Tray)
-- `src/SaveVault.Client/MainWindow.xaml`, `src/SaveVault.Client/Ui/Theme.xaml` (Rückarbeit nach
-  `/code-review high` Runde 1 — Endlos-Puls-Glow durch festen Glow ersetzt)
+- `src/SaveVault.Client/App.xaml.cs` (kein eager `MainWindow`-Aufbau mehr; Update-Prüfung
+  entkoppelt und zentralisiert)
+- `src/SaveVault.Client/Services/UpdateService.cs` (`CheckAndStampAsync`, threadsicher ohne
+  `ConfigureAwait(false)`)
+- `src/SaveVault.Client/MainWindow.xaml.cs` (`ApplyUpdateResult`, `CheckForUpdatesAsync` nutzt
+  den zentralen Helfer; `OnClosing`/`OnClosed`, `_closed`-Flag, `_forceUploadArmTimer`-Aufräumen
+  aus Runde 2)
+- `src/SaveVault.Client/MainWindow.xaml`, `src/SaveVault.Client/Ui/Theme.xaml` (fester statt
+  endlos pulsierender Glow, aus Runde 1)
 
 ## Akzeptanz & Verifikation
-- Build 0 Fehler, bestehende Tests unverändert grün (kein neuer Test möglich — reines
-  Fenster-Lebenszyklus-/Startup-Verhalten, nicht sinnvoll ohne echtes WPF-Fenster/GPU-Treiber
-  automatisiert prüfbar).
-- **Laufzeit-Verifikation nur auf echter Hardware möglich (offener Handtest bei Tim, Runde 2):**
-  Dashboard einmal öffnen und mit X schließen (genau Tims Ausgangslage), dann ein Spiel starten
-  und beobachten, ob Advanced Optimus jetzt automatisch auf „nur NVIDIA-GPU" wechselt, ohne
-  SaveVault als Blockierer zu nennen.
+- Build 0 Fehler, `dotnet test` 208/208 grün (unverändert — reines Lebenszyklus-/Timing-Verhalten,
+  nicht sinnvoll automatisiert prüfbar).
+- **Laufzeit-Verifikation, endgültig bestätigt (Runde 3 der Theorien, unkonfigurierter Testbau):**
+  Kein je konstruiertes `MainWindow` ⇒ Umschaltung funktioniert einwandfrei. Auf Tims echter
+  Hardware mehrfach reproduziert (Diagnose-Testbauten mit/ohne Watcher, mit/ohne Netzwerk,
+  mit/ohne Autostart-Registry-Eintrag, mit/ohne Software-Rendering, mit/ohne Update-Check —
+  **immer** blockiert, **außer** ohne `MainWindow`-Konstruktion).
+- **Noch offen: End-zu-Ende-Handtest mit Tims echtem, wiederhergestelltem Setup** (69 Spiele,
+  echter Server, Autostart an) auf dem finalen Code-Stand (inkl. Update-Checker-Rework) — die
+  bisherigen Bestätigungen liefen auf gezielt reduzierten Diagnose-Bauten, nicht auf dem
+  tatsächlichen Endstand.
+- Kein Versions-Bump/Release vor diesem letzten Handtest.
 
 ## Risiken / Rückwärtskompatibilität
-- Software-Rendering erhöht bei offenem Dashboard-Fenster die CPU-Last geringfügig (statt
-  GPU) — bei einer so kleinen, selten geöffneten Oberfläche vernachlässigbar.
-- **`/code-review high`, Runde 1:** Der bisherige Endlos-Puls (`RepeatBehavior="Forever"`) des
-  Glow-Effekts auf aktiven Speicherstand-Kästen (`ServerBoxActive`/`LocalBoxActive` — praktisch
-  jedes nicht ausgeschlossene Spiel) hätte unter Software-Rendering echte, dauerhafte CPU-Last
-  erzeugt, sobald das Dashboard offen ist — nicht mehr „unwahrnehmbar", wie ursprünglich
-  angenommen. Behoben: Puls-Storyboard entfernt, stattdessen fester Glow
-  (`Theme.xaml`-Resource `ActiveBoxGlow`, `MainWindow.xaml`-Trigger setzen `Border.Effect`
-  direkt) — optisch fast identisch (Highlight bleibt), aber ohne Endlos-Neuzeichnen.
-- **`/code-review high`, Runde 2 — bewusst nicht behoben:** Software-Rendering wird
-  pauschal für jede Installation erzwungen, nicht nur für Advanced-Optimus-Notebooks. Bewusst
-  akzeptiert: SaveVault ist Tims eigenes Werkzeug auf bekannter Hardware, eine zuverlässige
-  Advanced-Optimus-Erkennung gäbe es nicht ohne unverhältnismäßigen Aufwand, und die
-  verbleibende Software-Rendering-Last ist nach obigem Fix vernachlässigbar (keine
-  Endlos-Animation mehr).
-- **`/code-review high`, Runde 3, Fund 1 (behoben):** Der ursprüngliche Entwurf hat die neue
-  Fenster-Instanz sofort im `Closed`-Handler nachgebaut. Beim „Beenden" (Shutdown schließt ein
-  offenes Dashboard mit) wäre dabei kurz vor `_agent.DisposeAsync()` noch eine zusätzliche,
-  am Agent-Zustand hängende Instanz entstanden — meldet `DisposeAsync()` dabei noch eine späte
-  `State.Changed`, könnte `Dispatcher.BeginInvoke` auf einem bereits herunterfahrenden
-  Dispatcher eine `InvalidOperationException` werfen. Behoben: `_window` wird beim echten
-  Schließen nur noch auf `null` gesetzt, der Neuaufbau passiert erst faul beim nächsten
-  `ShowMainWindow()` — während des Beendens wird also gar keine neue Instanz mehr gebaut.
-- **`/code-review high`, Runde 3, Fund 2 — bewusst nicht behoben:** Vorher überlebte
-  unsaved UI-Zustand (offene Optionen-Eingaben ohne „Speichern", ausgewähltes Spiel, aktiver
-  Tab) ein Schließen, weil dieselbe Fenster-Instanz nur versteckt wurde. Jetzt beginnt jedes
-  erneute Öffnen frisch. Bewusst akzeptiert: das entspricht normalem „Formular ohne Speichern
-  geschlossen"-Verhalten, wie es die meisten Apps zeigen — Zustand über ein komplettes
-  Fenster-Schließen hinweg zu erhalten wäre selbst mit dem alten Hide()-Verhalten schon
-  ungewöhnlich gewesen und keine bewusst gewollte Eigenschaft.
-- **`/code-review high`, Runde 4, Fund (behoben):** Die Lazy-Neuaufbau-Lösung aus Runde 3
-  hatte einen Nebeneffekt übersehen: `RunAutoUpdateCheckAsync` (24-h-Selbst-Update-Prüfung)
-  brach bisher früh ab, wenn `_window` gerade `null` war (`if (_window is null) return;`) —
-  vorher tote Absicherung (das Fenster existierte immer), jetzt aber der Normalfall, sobald
-  das Dashboard einmal geschlossen wurde. Die automatische Update-Prüfung wäre damit für den
-  Rest der Laufzeit stillschweigend tot gewesen. Behoben: baut sich bei Bedarf genau wie
-  `ShowMainWindow` selbst eine (ungezeigte) Instanz.
-- **`/code-review high`, Runde 5 — Eskalationsschwelle erreicht (Gate-Regel „max. 2 Runden"):**
-  Runde 4s Fix hatte selbst ein Leck: `RunAutoUpdateCheckAsync` baute sich bei Bedarf ein
-  komplettes `MainWindow` nur für den Update-Check auf, das aber nie gezeigt/geschlossen wird —
-  damit nie über `Closed` aufgeräumt, hängt für immer am `_agent.State.Changed`, und jede
-  weitere Zustandsänderung hätte über `Refresh()`/`SelectGame()` erneut echte Netzwerk-Aufrufe
-  auf diesem unsichtbaren Geister-Fenster ausgelöst. **Zurückgerollt** auf den einfachen,
-  sicheren Guard von vorher (`if (_window is null) return;`) — die 24h-Update-Prüfung setzt
-  bewusst aus, solange das Dashboard geschlossen ist, statt eine neue Fehlerquelle zu riskieren.
-  Zusätzlich zwei kleinere, risikoarme Funde aus derselben Runde behoben: `_forceUploadArmTimer`
-  wird jetzt in `OnClosed` gestoppt (sonst hätte ein 5-s-Bestätigungs-Timer das geschlossene
-  Fenster überlebt), und ein bei Schließen bereits über `Dispatcher.BeginInvoke` eingereihtes
-  `Refresh()` bricht jetzt über ein `_closed`-Flag früh ab, statt auf dem toten Fenster
-  weiterzulaufen.
-- **Bewusst NICHT weiter verfolgt (Eskalation an Tim statt weiterer Runden):**
-  - `_pendingUpdate` (die „Update verfügbar"-Bannerinfo) lebt auf der Fenster-Instanz und geht
-    beim Schließen verloren — dieselbe Kategorie Trade-off wie der bereits gebilligte
-    UI-Zustandsverlust (ausgewähltes Spiel, Tab), nur eben auch fürs Update-Banner.
-  - Ob `RenderOptions.ProcessRenderMode = SoftwareOnly` (Runde 1) überhaupt noch etwas bringt,
-    ist unklar: Tims Handtest hat sie nicht isoliert geprüft (der Hide()-Bug war zur gleichen
-    Zeit noch aktiv). Bleibt vorerst drin (möglicher Zusatzschutz, siehe EarTrumpet-Präzedenzfall
-    in der Recherche), könnte sich aber nach einem erfolgreichen Handtest als überflüssiger
-    Ballast herausstellen — dann bräuchte auch der feste Glow (Runde 1) keinen Grund mehr.
-  - Kleinere Code-Doppelungen (verwaiste `Glow`-Ressource in `MainWindow.xaml`, `AccentColor`
-    vs. hartkodierte Farbe in `ActiveBoxGlow`, `CreateWindow`/`ShowWatermark` folgen demselben
-    Muster zweimal) — kosmetisch, keine Korrektheitsfunde.
-- **Wenn der Handtest (Runde 2) zeigt, dass SaveVault trotzdem noch blockiert:** Ursache liegt
-  dann nicht (nur) im Fenster-Handle, sondern z. B. im `WatermarkWindow`-Toast selbst (zeigt
-  sich nur während eines laufenden Spiels, schließt sich aber nach ~2,5 s selbst) oder an etwas
-  außerhalb von SaveVault — würde eine weitere Untersuchungsrunde erfordern (siehe Gate-Regel
-  „max. 2 Runden Rückarbeit, dann Eskalation" — diese Runde wäre dann die Eskalations-Schwelle).
-- Kein Versions-Bump vor bestätigtem Handtest — echtes Nutzer-Verhalten (Umschalten
-  funktioniert) ist die eigentliche Abnahme, nicht nur der Build.
+- **Bewusst nicht weiter verfolgt (mehrere Eskalationsschwellen längst überschritten,
+  `/code-review high` lief auf dem Update-Checker-Rework acht Runden):**
+  - Wird ein Update im Hintergrund gefunden, während das Dashboard noch nie geöffnet wurde, zeigt
+    das erste Öffnen danach noch keinen Banner (die Tray-Meldung „Fenster öffnen, um zu
+    aktualisieren" trifft dann nicht sofort zu) — der Nutzer muss einmal „Nach Updates suchen"
+    klicken. Kein Datenverlust, reine Timing-Ungenauigkeit.
+  - `App` und `MainWindow` halten weiterhin je eine eigene `UpdateService`/`ClientConfigStore`-
+    Instanz statt einer gemeinsam injizierten (wie bei `_agent`) — funktioniert korrekt (die
+    Config-Race wurde behoben, siehe unten), ist aber nicht so sauber wie möglich.
+  - Zwei zeitlich unglücklich verschränkte Prüfungen (eine manuell im Dashboard, eine zeitgleich
+    im Hintergrund) könnten theoretisch den gerade erst angezeigten Banner wieder verstecken.
+    Seltener Rand, kein Datenverlust.
+- **Behoben, weil echter Fehler (nicht nur Politur):** `UpdateService.CheckAndStampAsync` schrieb
+  `config.json` zunächst über `ConfigureAwait(false)` auf einem Threadpool-Thread — das hätte
+  mit einem gleichzeitigen, synchronen Speichern der Einstellungen im Dashboard-UI-Thread
+  (`OnSaveClick`) um dieselbe Datei race können (verlorene Schreibvorgänge). Behoben durch
+  Entfernen von `ConfigureAwait(false)`: läuft jetzt zuverlässig auf demselben UI-Thread wie
+  jedes andere Config-Speichern.
+- Aus Runde 1/2 weiterhin bestehende, bereits akzeptierte Punkte: Software-Rendering bleibt
+  bestehen, obwohl jetzt erwiesen ist, dass es die Optimus-Blockade nie gelöst hat (kostenlos,
+  da UI dank festem statt pulsierendem Glow ohnehin kaum noch Render-Last hat); UI-Zwischenzustand
+  (ausgewähltes Spiel, Tab, offene Optionen ohne Speichern) geht über ein Fenster-Schließen
+  hinweg verloren — akzeptiertes, normales „Formular ohne Speichern geschlossen"-Verhalten.
+- Kein Versions-Bump vor bestätigtem End-zu-Ende-Handtest.

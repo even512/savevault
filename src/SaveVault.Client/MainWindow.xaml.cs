@@ -1207,6 +1207,14 @@ public partial class MainWindow : Window
     // --- Selbst-Update -------------------------------------------------------------
 
     /// <summary>
+    /// Übernimmt ein <b>bereits vorliegendes</b> Prüfergebnis in Banner/Optionen, ohne selbst
+    /// gegen GitHub zu fragen – für <see cref="App"/>, das die eigentliche Prüfung zentral über
+    /// eine eigene, vom Dashboard unabhängige <c>UpdateService</c>-Instanz fährt (Start/täglich)
+    /// und das Ergebnis hier nur noch nachreicht, wenn gerade ein Fenster offen ist.
+    /// </summary>
+    public void ApplyUpdateResult(UpdateCheckResult result) => ApplyUpdateResultToUi(result, userInitiated: false);
+
+    /// <summary>
     /// Prüft gegen GitHub, ob ein neueres Release vorliegt, und spiegelt das Ergebnis in Banner und
     /// Optionen. Wird vom Nutzer („Nach Updates suchen") wie auch selbsttätig (App: Start/täglich)
     /// aufgerufen. Läuft auf dem UI-Thread und wirft nie – jeder Fehler landet als
@@ -1223,7 +1231,7 @@ public partial class MainWindow : Window
         UpdateCheckResult result;
         try
         {
-            result = await _updater.CheckAsync();
+            result = await _updater.CheckAndStampAsync(_configStore);
         }
         catch (Exception ex)
         {
@@ -1232,20 +1240,6 @@ public partial class MainWindow : Window
         finally
         {
             CheckUpdatesButton.IsEnabled = true;
-        }
-
-        // Zeitpunkt einer ERFOLGREICHEN Prüfung merken (dämpft die Startprüfung). Bei einem
-        // Fehlschlag (z. B. Netz beim Boot noch nicht da) NICHT stempeln, sonst würde die
-        // 20-h-Dämpfung die nächste Startprüfung unterdrücken, obwohl nie geprüft wurde.
-        if (result.Status != UpdateCheckStatus.Failed)
-        {
-            try
-            {
-                var config = _configStore.Load();
-                config.LastUpdateCheckUtc = DateTime.UtcNow;
-                _configStore.Save(config);
-            }
-            catch { /* nicht kritisch */ }
         }
 
         ApplyUpdateResultToUi(result, userInitiated);
