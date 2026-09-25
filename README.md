@@ -5,8 +5,6 @@ synchronisiert seine Savegames automatisch über den heimischen Server (Docker a
 Unraid), mit sichtbarem Status und ohne Datenverlust — als schlanker Ersatz für
 Resilio Sync, beschränkt auf Savegames.
 
-> **Stand:** In Bau (Projekt-Werkstatt, Phase B). Die verbindliche Spec liegt unter
-> `../.claude/projekt-werkstatt/specs/savevault.md`.
 
 ## Bestandteile
 
